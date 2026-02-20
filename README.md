@@ -1,6 +1,6 @@
 # Windows Tools MCP Server
 
-A Model Context Protocol (MCP) server providing **Windows forensic tool execution with proactive artifact knowledge** for Claude Code and other MCP-compatible AI assistants. Designed for Windows forensic workstations.
+A Model Context Protocol (MCP) server providing **Windows forensic tool execution with proactive artifact knowledge** for any MCP-compatible AI assistant. Designed for Windows forensic workstations.
 
 ## Installation Options
 
@@ -218,7 +218,7 @@ pip install -e ".[fk]"
 python -m wintools_mcp --scan
 ```
 
-**MCP Configuration** (add to `.mcp.json` for Claude Code):
+**MCP Configuration** (add to `.mcp.json`):
 
 ```json
 {
@@ -286,6 +286,29 @@ wintools-mcp/
 # Run with coverage
 .venv\Scripts\pytest tests/ --cov=wintools_mcp --cov-report=term-missing
 ```
+
+## Architecture
+
+```
+MCP Client ──► wintools-mcp ──► Windows Forensic Tools
+                   │            (Zimmerman, Hayabusa,
+                   │             Sysinternals, ...)
+                   ▼
+             forensic-knowledge
+            (artifact enrichment)
+```
+
+## Responsible Use
+
+This tool is designed to assist trained forensic analysts, not replace them. Tool execution results require the same verification as any other forensic tool output.
+
+**Core principles:**
+
+- **Human authority is final.** Every finding and conclusion must be reviewed and approved by a qualified analyst before it becomes part of the case record.
+- **Evidence before claims.** All conclusions must reference actual evidence. Unsupported claims are structurally rejected by the platform.
+- **The analyst owns the work product.** AI assistance does not reduce the analyst's responsibility for accuracy, completeness, or defensibility of conclusions.
+- **AI output requires the same scrutiny as any other tool.** Treat AI-proposed findings the same way you would treat output from any forensic tool: verify, corroborate, and document.
+- **Absence of evidence is not evidence of absence.** The platform guards against premature exclusion and confirmation bias, but the human analyst is the last line of defense.
 
 ## Acknowledgments
 
