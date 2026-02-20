@@ -1,0 +1,34 @@
+category: timeline
+tools:
+  - name: hayabusa
+    binary: hayabusa.exe
+    description: "Sigma-based Windows event log analysis and threat hunting"
+    input_style: flag
+    input_flag: "-d"
+    output_format: json
+    timeout_seconds: 1800
+    fk_tool_name: Hayabusa
+    version_flag: "--version"
+    install_methods:
+      - method: github
+        url: "https://github.com/Yamato-Security/hayabusa/releases"
+        notes: "Auto-downloaded with analyst confirmation on first use"
+    install_paths:
+      - "C:\\Tools\\Hayabusa"
+
+  - name: mactime
+    binary: mactime.pl
+    description: "Generate timeline from bodyfile (TSK mactime format)"
+    input_style: flag
+    input_flag: "-b"
+    output_format: text
+    timeout_seconds: 600
+    fk_tool_name: mactime
+    install_methods:
+      - method: direct
+        url: "https://strawberryperl.com"
+        notes: "Requires Perl runtime"
+    install_paths:
+      - "C:\\Strawberry\\perl\\bin"
+    alternatives:
+      - "log2timeline/plaso (if Perl not available)"

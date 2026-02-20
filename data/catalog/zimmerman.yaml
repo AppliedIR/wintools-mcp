@@ -1,0 +1,228 @@
+category: zimmerman
+tools:
+  - name: AmcacheParser
+    binary: AmcacheParser.exe
+    description: "Parse Amcache.hve for program execution evidence"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: AmcacheParser
+    version_flag: "--version"
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+        notes: "Download from Eric Zimmerman's tools page"
+      - method: dotnet
+        command: "dotnet tool install --global AmcacheParser"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+      - "%USERPROFILE%\\Desktop\\ZimmermanTools"
+
+  - name: AppCompatCacheParser
+    binary: AppCompatCacheParser.exe
+    description: "Parse Application Compatibility Cache (ShimCache) from SYSTEM hive"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: AppCompatCacheParser
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global AppCompatCacheParser"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: EvtxECmd
+    binary: EvtxECmd.exe
+    description: "Parse Windows Event Log (EVTX) files"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 600
+    fk_tool_name: EvtxECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global EvtxECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: JLECmd
+    binary: JLECmd.exe
+    description: "Parse Jump List files for recent file access"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: JLECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global JLECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: LECmd
+    binary: LECmd.exe
+    description: "Parse LNK (shortcut) files"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: LECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global LECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: MFTECmd
+    binary: MFTECmd.exe
+    description: "Parse MFT ($MFT, $J, $SDS, $Boot) files"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 900
+    fk_tool_name: MFTECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global MFTECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: PECmd
+    binary: PECmd.exe
+    description: "Parse Prefetch files for program execution history"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: PECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global PECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: RBCmd
+    binary: RBCmd.exe
+    description: "Parse Recycle Bin ($I) files"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: RBCmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global RBCmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: RECmd
+    binary: RECmd.exe
+    description: "Parse Windows Registry hive files"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 600
+    fk_tool_name: RECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global RECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: SBECmd
+    binary: SBECmd.exe
+    description: "Parse ShellBags for folder access history"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: SBECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global SBECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: SQLECmd
+    binary: SQLECmd.exe
+    description: "Parse SQLite databases (browser history, etc.)"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: SQLECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global SQLECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: SrumECmd
+    binary: SrumECmd.exe
+    description: "Parse SRUM database for resource usage monitoring"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: SrumECmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global SrumECmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: WxTCmd
+    binary: WxTCmd.exe
+    description: "Parse Windows Timeline (ActivitiesCache.db) database"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: WxTCmd
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global WxTCmd"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"
+
+  - name: bstrings
+    binary: bstrings.exe
+    description: "Extract strings with regex pattern matching"
+    input_style: flag
+    input_flag: "-f"
+    output_format: csv
+    timeout_seconds: 600
+    fk_tool_name: bstrings
+    install_methods:
+      - method: direct
+        url: "https://ericzimmerman.github.io/#!index.md"
+      - method: dotnet
+        command: "dotnet tool install --global bstrings"
+    install_paths:
+      - "C:\\Tools\\ZimmermanTools"

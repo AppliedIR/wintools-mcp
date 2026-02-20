@@ -1,0 +1,57 @@
+"""Tests for generic run_command — catalog gating and denylist."""
+
+import pytest
+from unittest.mock import patch, MagicMock
+
+from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
+from wintools_mcp.tools.generic import run_command
+
+
+@pytest.fixture
+def test_catalog(tmp_path, monkeypatch):
+    cat_dir = tmp_path / "catalog"
+    cat_dir.mkdir()
+    yaml_content = """
+category: test
+tools:
+  - name: TestTool
+    binary: testtool.exe
+    description: A test tool
+"""
+    (cat_dir / "test.yaml").write_text(yaml_content)
+    monkeypatch.setenv("WINTOOLS_CATALOG_DIR", str(cat_dir))
+    return cat_dir
+
+
+class TestRunCommand:
+
+    def test_cataloged_tool_executes(self, test_catalog):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "output"
+        mock_result.stderr = ""
+
+        with patch("wintools_mcp.tools.generic.find_binary", return_value=None), \
+             patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+            result = run_command(["testtool.exe", "-f", "input.hve"])
+        assert result["exit_code"] == 0
+
+    def test_denylisted_binary_blocked(self, test_catalog):
+        with pytest.raises(DenylistError):
+            run_command(["cmd.exe", "/c", "dir"])
+
+    def test_powershell_blocked(self, test_catalog):
+        with pytest.raises(DenylistError):
+            run_command(["powershell.exe", "-Command", "Get-Process"])
+
+    def test_unknown_binary_blocked(self, test_catalog):
+        with pytest.raises(ToolNotInCatalogError):
+            run_command(["unknown_tool.exe", "--help"])
+
+    def test_empty_command_raises(self, test_catalog):
+        with pytest.raises(ValueError):
+            run_command([])
+
+    def test_dangerous_args_blocked(self, test_catalog):
+        with pytest.raises(ValueError, match="Blocked"):
+            run_command(["testtool.exe", "-e", "malicious"])
