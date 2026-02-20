@@ -13,7 +13,7 @@ def main():
         "--http", action="store_true", help="Enable REST HTTP server"
     )
     parser.add_argument(
-        "--port", type=int, default=8500, help="HTTP port (default: 8500)"
+        "--port", type=int, default=4624, help="HTTP port (default: 4624)"
     )
     parser.add_argument(
         "--host", default="127.0.0.1", help="HTTP bind address"

@@ -34,7 +34,7 @@ class WintoolsConfig:
 
     # HTTP mode
     http_host: str = "127.0.0.1"
-    http_port: int = 8500
+    http_port: int = 4624
     api_keys: dict = field(default_factory=dict)
 
     # File transfer

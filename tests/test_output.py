@@ -47,8 +47,8 @@ class TestManifest:
         out_dir.mkdir(parents=True)
         (out_dir / "test.csv").write_text("data")
 
-        manifest = build_manifest(out_dir, base_url="http://localhost:8500")
-        assert manifest[0]["download_url"].startswith("http://localhost:8500/api/v1/files/download")
+        manifest = build_manifest(out_dir, base_url="http://localhost:4624")
+        assert manifest[0]["download_url"].startswith("http://localhost:4624/api/v1/files/download")
 
     def test_nonexistent_dir(self, tmp_path):
         manifest = build_manifest(tmp_path / "nonexistent")

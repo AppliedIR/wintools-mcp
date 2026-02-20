@@ -11,7 +11,7 @@ class TestWintoolsConfig:
         cfg = WintoolsConfig()
         assert cfg.default_timeout == 600
         assert cfg.max_output_bytes == 50_000
-        assert cfg.http_port == 8500
+        assert cfg.http_port == 4624
         assert cfg.file_transfer_enabled is True
 
     def test_from_env_examiner_primary(self, monkeypatch):
