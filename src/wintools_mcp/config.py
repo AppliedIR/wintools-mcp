@@ -30,7 +30,6 @@ class WintoolsConfig:
     case_dir: str = ""
     active_case: str = ""          # Maps to case_id in audit entries
     examiner: str = ""             # Primary identity — set once at startup, immutable
-    analyst: str = ""              # Legacy fallback for examiner
 
     # HTTP mode
     http_host: str = "127.0.0.1"
@@ -54,11 +53,10 @@ class WintoolsConfig:
         )
         cfg.case_dir = os.environ.get("AIIR_CASE_DIR", cfg.case_dir)
         cfg.active_case = os.environ.get("AIIR_ACTIVE_CASE", cfg.active_case)
-        cfg.analyst = os.environ.get("AIIR_ANALYST", cfg.analyst)
 
-        # Examiner identity: AIIR_EXAMINER > AIIR_ANALYST > OS username
+        # Examiner identity: AIIR_EXAMINER > AIIR_ANALYST (deprecated) > OS username
         # Set once at startup, immutable for process lifetime.
-        raw = os.environ.get("AIIR_EXAMINER") or cfg.analyst
+        raw = os.environ.get("AIIR_EXAMINER") or os.environ.get("AIIR_ANALYST", "")
         if not raw:
             try:
                 raw = getpass.getuser()

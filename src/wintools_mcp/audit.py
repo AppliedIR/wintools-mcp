@@ -38,9 +38,7 @@ class AuditWriter:
         case_dir = os.environ.get("AIIR_CASE_DIR")
         if not case_dir:
             return None
-        # Windows-local audit: .audit/ (local convention)
-        # If AIIR_CASE_DIR is an SMB mount of SIFT, write to .local/audit/
-        audit_dir = Path(case_dir) / ".audit"
+        audit_dir = Path(case_dir) / "examiners" / self.examiner / "audit"
         audit_dir.mkdir(parents=True, exist_ok=True)
         return audit_dir
 
