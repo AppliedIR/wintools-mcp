@@ -48,9 +48,12 @@ class WintoolsConfig:
             cfg._load_yaml(config_file)
 
         # Env vars override YAML
-        cfg.default_timeout = int(
-            os.environ.get("WINTOOLS_TIMEOUT", str(cfg.default_timeout))
-        )
+        try:
+            cfg.default_timeout = int(
+                os.environ.get("WINTOOLS_TIMEOUT", str(cfg.default_timeout))
+            )
+        except ValueError:
+            pass  # Keep YAML or default value
         cfg.case_dir = os.environ.get("AIIR_CASE_DIR", cfg.case_dir)
         cfg.active_case = os.environ.get("AIIR_ACTIVE_CASE", cfg.active_case)
 
@@ -72,7 +75,10 @@ class WintoolsConfig:
 
         # HTTP config
         cfg.http_host = os.environ.get("WINTOOLS_HOST", cfg.http_host)
-        cfg.http_port = int(os.environ.get("WINTOOLS_PORT", str(cfg.http_port)))
+        try:
+            cfg.http_port = int(os.environ.get("WINTOOLS_PORT", str(cfg.http_port)))
+        except ValueError:
+            pass  # Keep YAML or default value
 
         # Tool paths
         extra = os.environ.get("WINTOOLS_TOOL_PATHS", "")

@@ -32,7 +32,7 @@ BLOCKED_BINARIES = frozenset({
 })
 
 PS_SCRIPT_EXCEPTIONS = frozenset({
-    "Get-InjectedThreadEx.ps1",
+    "get-injectedthreadex.ps1",
 })
 
 _PS_BANNED_FLAGS = frozenset({
@@ -211,7 +211,7 @@ def _is_valid_ps_exception(cmd: list[str]) -> bool:
         file_idx = next(i for i, f in enumerate(flags) if f == "-file")
         script_path = cmd[file_idx + 2]  # +2 because flags is offset by 1 from cmd
         # Handle both / and \ separators (cross-platform)
-        script_name = script_path.replace("\\", "/").split("/")[-1]
+        script_name = script_path.replace("\\", "/").split("/")[-1].lower()
         if script_name not in PS_SCRIPT_EXCEPTIONS:
             return False
     except (StopIteration, IndexError):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 from wintools_mcp.audit import resolve_examiner
@@ -24,7 +25,7 @@ DISCIPLINE_REMINDERS = [
     "Consider alternatives — after forming a hypothesis, search for contradicting evidence before corroborating evidence",
 ]
 
-_call_counter = 0
+_call_counter = itertools.count(1)
 
 
 def build_response(
@@ -41,8 +42,7 @@ def build_response(
     fk_tool_name: str | None = None,
     output_files: list[dict] | None = None,
 ) -> dict:
-    global _call_counter
-    _call_counter += 1
+    call_num = next(_call_counter)
 
     response: dict[str, Any] = {
         "success": success,
@@ -72,7 +72,7 @@ def build_response(
         response["field_notes"] = field_notes
 
     response["discipline_reminder"] = DISCIPLINE_REMINDERS[
-        _call_counter % len(DISCIPLINE_REMINDERS)
+        call_num % len(DISCIPLINE_REMINDERS)
     ]
 
     metadata: dict[str, Any] = {}
@@ -133,4 +133,4 @@ def _build_knowledge_context(
 
 def reset_call_counter() -> None:
     global _call_counter
-    _call_counter = 0
+    _call_counter = itertools.count(1)

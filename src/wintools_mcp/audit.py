@@ -46,9 +46,38 @@ class AuditWriter:
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
         if today != self._date_str:
             self._date_str = today
-            self._sequence = 0
+            self._sequence = self._resume_sequence(today)
         self._sequence += 1
         return f"win-{self.examiner}-{today}-{self._sequence:03d}"
+
+    def _resume_sequence(self, date_str: str) -> int:
+        """Scan existing audit JSONL for highest sequence on this date."""
+        audit_dir = self._get_audit_dir()
+        if not audit_dir:
+            return 0
+        log_file = audit_dir / f"{self.mcp_name}.jsonl"
+        if not log_file.exists():
+            return 0
+        pattern = f"win-{self.examiner}-{date_str}-"
+        max_seq = 0
+        try:
+            for line in log_file.read_text().strip().split("\n"):
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    eid = entry.get("evidence_id", "")
+                    if eid.startswith(pattern):
+                        try:
+                            seq = int(eid[len(pattern):])
+                            max_seq = max(max_seq, seq)
+                        except ValueError:
+                            pass
+                except json.JSONDecodeError:
+                    continue
+        except Exception:
+            pass
+        return max_seq
 
     def log(
         self,
