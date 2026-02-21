@@ -107,6 +107,12 @@ def get_tool_help(tool_name: str) -> dict:
             result["caveats"] = tool_info.get("caveats", [])
             result["advisories"] = tool_info.get("advisories", [])
             result["artifacts_parsed"] = tool_info.get("artifacts_parsed", [])
+            if tool_info.get("quick_start"):
+                result["quick_start"] = tool_info["quick_start"]
+            if tool_info.get("investigation_sequence"):
+                result["investigation_sequence"] = tool_info["investigation_sequence"]
+            if tool_info.get("field_meanings"):
+                result["field_meanings"] = tool_info["field_meanings"]
 
     return result
 
