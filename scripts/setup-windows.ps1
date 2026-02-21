@@ -136,7 +136,7 @@ function Read-Prompt {
 function Read-YesNo {
     param([string]$Message, [bool]$Default = $true)
     if ($NonInteractive) { return $Default }
-    $suffix = $(if ($Default) { "[Y/n]" } else { "[y/N]" })
+    if ($Default) { $suffix = "[Y/n]" } else { $suffix = "[y/N]" }
     $answer = Read-Host "$Message $suffix"
     if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
     return $answer.ToLower().StartsWith("y")
@@ -261,13 +261,13 @@ try {
     exit 1
 }
 
-# git (optional — ZIP fallback available)
+# git (optional -- ZIP fallback available)
 $hasGit = $null -ne (Get-Command git -ErrorAction SilentlyContinue)
 if ($hasGit) {
     $gitVer = (git --version) -replace "git version ", ""
     Write-Ok "git $gitVer"
 } else {
-    Write-Info "git not found — will download as ZIP (updates require git)"
+    Write-Info "git not found -- will download as ZIP (updates require git)"
 }
 
 # .NET Runtime (for Zimmerman tools)
@@ -294,7 +294,7 @@ try {
     }
     Write-Ok "Network access to GitHub"
 } catch {
-    Write-Warn "Cannot reach GitHub — installation requires network access"
+    Write-Warn "Cannot reach GitHub -- installation requires network access"
     exit 1
 }
 
@@ -401,7 +401,7 @@ if (Test-Path $fkDir) {
 }
 
 if (-not $fkInstalled) {
-    Write-Warn "forensic-knowledge not available (FK enrichment disabled — wintools-mcp works without it)"
+    Write-Warn "forensic-knowledge not available (FK enrichment disabled -- wintools-mcp works without it)"
 }
 
 # Smoke test
@@ -410,10 +410,10 @@ try {
     if ($result -eq "ok") {
         Write-Ok "wintools-mcp installed and importable"
     } else {
-        Write-Warn "wintools-mcp installed but import failed — check dependencies"
+        Write-Warn "wintools-mcp installed but import failed -- check dependencies"
     }
 } catch {
-    Write-Warn "wintools-mcp installed but import failed — check dependencies"
+    Write-Warn "wintools-mcp installed but import failed -- check dependencies"
 }
 
 # =============================================================================
@@ -533,7 +533,7 @@ if ($overviewContent) {
 # Case Directory Setup (mode-dependent)
 # =============================================================================
 
-# Detect local IP early — needed for gateway config snippets in Phase 5
+# Detect local IP early -- needed for gateway config snippets in Phase 5
 $localIp = $null
 try {
     $localIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike "Loopback*" -and $_.PrefixOrigin -ne "WellKnown" } | Select-Object -First 1).IPAddress
@@ -687,7 +687,7 @@ $startArgs = @("-m", "wintools_mcp", "--http", "--host", $Host, "--port", "$Port
 if ((-not $Standalone) -and (Test-Path $wintoolsConfigPath)) {
     $startArgs += @("--config", $wintoolsConfigPath)
 }
-# Set env var before starting (PS 5.1 compatible — -Environment requires PS 7+)
+# Set env var before starting (PS 5.1 compatible -- -Environment requires PS 7+)
 $env:AIIR_EXAMINER = $Examiner
 $process = Start-Process -FilePath $venvPython -ArgumentList $startArgs -PassThru -WindowStyle Hidden
 
