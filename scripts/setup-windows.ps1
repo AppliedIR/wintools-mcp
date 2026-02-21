@@ -287,15 +287,21 @@ if (-not $hasDotnet) {
     Write-Host "  Or via winget: winget install Microsoft.DotNet.Runtime.8"
 }
 
-# Network
+# Network (test with a public endpoint -- AppliedIR repos may be private)
+$networkOk = $false
 try {
-    if ($hasGit) {
+    $null = Invoke-WebRequest -Uri "https://github.com" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+    $networkOk = $true
+} catch { }
+if (-not $networkOk -and $hasGit) {
+    try {
         git ls-remote https://github.com/AppliedIR/wintools-mcp.git HEAD 2>&1 | Out-Null
-    } else {
-        $null = Invoke-WebRequest -Uri "https://github.com/AppliedIR" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-    }
+        $networkOk = $true
+    } catch { }
+}
+if ($networkOk) {
     Write-Ok "Network access to GitHub"
-} catch {
+} else {
     Write-Warn "Cannot reach GitHub -- installation requires network access"
     exit 1
 }
@@ -326,21 +332,34 @@ Write-Info "Installing to $InstallDir"
 
 $githubOrg = "https://github.com/AppliedIR"
 $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
+$wintoolsConfigPath = Join-Path $wintoolsDir "config.yaml"
 
 # Helper: download a repo as ZIP (no git required)
 function Get-RepoAsZip {
     param([string]$RepoName, [string]$DestDir)
     $zipUrl = "$githubOrg/$RepoName/archive/refs/heads/main.zip"
     $zipPath = Join-Path $InstallDir "$RepoName.zip"
-    Write-Info "Downloading $RepoName..."
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-    Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
     $extractedDir = Join-Path $InstallDir "$RepoName-main"
+    Write-Info "Downloading $RepoName..."
+    try {
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+    } catch {
+        Remove-Item $zipPath -ErrorAction SilentlyContinue
+        throw "Download failed for $RepoName`: $_"
+    }
+    try {
+        Expand-Archive -Path $zipPath -DestinationPath $InstallDir -Force
+    } catch {
+        Remove-Item $zipPath -ErrorAction SilentlyContinue
+        throw "Extract failed for $RepoName`: $_"
+    }
+    Remove-Item $zipPath -ErrorAction SilentlyContinue
     if (Test-Path $extractedDir) {
         if (Test-Path $DestDir) { Remove-Item $DestDir -Recurse -Force }
         Rename-Item $extractedDir $DestDir
+    } else {
+        throw "Expected directory $extractedDir not found after extraction"
     }
-    Remove-Item $zipPath -ErrorAction SilentlyContinue
 }
 
 # Clone or download wintools-mcp
@@ -705,7 +724,11 @@ if ($Standalone) {
     }
 
     # Write wintools-mcp config.yaml with API key if provided
-    $wintoolsConfigPath = Join-Path $wintoolsDir "config.yaml"
+    # Preserve existing config on re-run (delete config.yaml to regenerate)
+    if (Test-Path $wintoolsConfigPath) {
+        Write-Info "Existing config found -- preserving: $wintoolsConfigPath"
+        Write-Host "  Delete $wintoolsConfigPath and re-run to regenerate"
+    } else {
     try {
     if ($wintoolsApiKey) {
         @"
@@ -738,6 +761,7 @@ http_port: $Port
     } catch {
         Write-Warn "Could not write config.yaml"
     }
+    } # end config preservation else
 }
 
 # =============================================================================
@@ -746,11 +770,27 @@ http_port: $Port
 
 Write-Header "Phase 6: Starting wintools-mcp"
 
+# Check if port is already in use
+try {
+    $existing = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+    if ($existing) {
+        $existingPid = ($existing | Select-Object -First 1).OwningProcess
+        $existingName = (Get-Process -Id $existingPid -ErrorAction SilentlyContinue).ProcessName
+        Write-Warn "Port $Port is already in use (PID $existingPid, $existingName)"
+        Write-Host "  If this is a previous wintools-mcp instance, stop it first:"
+        Write-Host "  Stop-Process -Id $existingPid"
+        Write-Host ""
+        if (-not (Read-YesNo "Continue anyway?" $false)) {
+            Write-Info "Skipping server start. Fix the port conflict and re-run."
+        }
+    }
+} catch { }
+
 Write-Info "Starting wintools-mcp on port $Port..."
 
 # Start in background to validate it works
 $startArgs = @("-m", "wintools_mcp", "--http", "--host", $BindAddress, "--port", "$Port")
-if ((-not $Standalone) -and (Test-Path $wintoolsConfigPath)) {
+if (Test-Path $wintoolsConfigPath) {
     $startArgs += @("--config", $wintoolsConfigPath)
 }
 # Set env var before starting (PS 5.1 compatible -- -Environment requires PS 7+)
@@ -792,11 +832,15 @@ $startChoice = Read-Prompt "Choose" "1"
 
 # Always generate the startup script (useful either way)
 $startupPath = Join-Path $InstallDir "start-wintools.ps1"
+$scriptArgs = "--http --host $BindAddress --port $Port"
+if (Test-Path $wintoolsConfigPath) {
+    $scriptArgs += " --config `"$wintoolsConfigPath`""
+}
 try {
     @"
 # Start wintools-mcp in HTTP mode
 `$env:AIIR_EXAMINER = "$Examiner"
-& "$venvPython" -m wintools_mcp --http --host $BindAddress --port $Port
+& "$venvPython" -m wintools_mcp $scriptArgs
 "@ | Set-Content -Path $startupPath -Encoding UTF8
 } catch {
     Write-Warn "Could not write startup script"
@@ -814,9 +858,10 @@ if ($startChoice -eq "1") {
             Write-Info "Removed existing scheduled task"
         }
 
+        # Run the startup script (which sets AIIR_EXAMINER and passes --config)
         $action = New-ScheduledTaskAction `
-            -Execute $venvPython `
-            -Argument "-m wintools_mcp --http --host $BindAddress --port $Port"
+            -Execute "powershell.exe" `
+            -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startupPath`""
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $settings = New-ScheduledTaskSettingsSet `
             -AllowStartIfOnBatteries `
@@ -839,7 +884,7 @@ if ($startChoice -eq "1") {
     } catch {
         Write-Warn "Could not register scheduled task (run as Administrator)"
         Write-Host "  To register manually (as Administrator):"
-        Write-Host "  schtasks /create /tn `"$taskName`" /tr `"$venvPython -m wintools_mcp --http --host $BindAddress --port $Port`" /sc onstart /ru SYSTEM"
+        Write-Host "  schtasks /create /tn `"$taskName`" /tr `"powershell.exe -ExecutionPolicy Bypass -File \`"$startupPath\`"`" /sc onstart /ru SYSTEM"
         Write-Host ""
         Write-Host "  Or use the startup script: $startupPath"
     }
