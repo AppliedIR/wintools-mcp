@@ -20,8 +20,10 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "mcp>=1.0",
+    "mcp>=1.26",
     "pyyaml>=6.0",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]

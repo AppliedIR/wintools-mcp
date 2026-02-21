@@ -45,12 +45,11 @@ def main():
     server = create_server(config)
 
     if args.http:
-        # HTTP mode — Phase 2 (Starlette REST API)
-        print(
-            "HTTP mode not yet implemented (Phase 2). Use stdio mode.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        import uvicorn
+        from wintools_mcp.http_server import create_http_app
+
+        app = create_http_app(config)
+        uvicorn.run(app, host=config.http_host, port=config.http_port)
     else:
         server.run()
 
