@@ -29,6 +29,13 @@ BLOCKED_BINARIES = frozenset({
     "bash", "bash.exe",
     "wsl", "wsl.exe",
     "sh", "sh.exe",
+    # LOLBins: code execution proxies (LOLBAS)
+    "msbuild", "msbuild.exe",
+    "installutil", "installutil.exe",
+    "regasm", "regasm.exe",
+    "regsvcs", "regsvcs.exe",
+    "cmstp", "cmstp.exe",
+    "control", "control.exe",
 })
 
 PS_SCRIPT_EXCEPTIONS = frozenset({
