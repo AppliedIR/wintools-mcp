@@ -74,37 +74,21 @@ All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML cat
 On the Windows forensic workstation:
 
 ```powershell
+# Option 1: git clone
 git clone https://github.com/AppliedIR/wintools-mcp.git; cd wintools-mcp
+
+# Option 2: download ZIP (no git required)
+Invoke-WebRequest https://github.com/AppliedIR/wintools-mcp/archive/refs/heads/main.zip -OutFile wintools.zip
+Expand-Archive wintools.zip -DestinationPath .; cd wintools-mcp-main
+```
+
+Then run the installer:
+
+```powershell
 .\scripts\setup-windows.ps1
 ```
 
-Two modes are supported:
-
-**AIIR-integrated (default)** — Case directory accessed via SMB from a SIFT workstation. Audit trail shared across all MCPs.
-
-**Standalone** (`-Standalone`) — Case directory and audit trail stored locally. No SIFT workstation required.
-
-```powershell
-# Standalone mode
-.\scripts\setup-windows.ps1 -Standalone
-
-# Non-interactive (scripted)
-.\scripts\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
-```
-
-Then on the analyst's machine, configure your LLM client:
-
-```bash
-# AIIR mode (SIFT + Windows)
-aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
-
-# Standalone (Windows only)
-aiir setup client --windows=WIN_IP:4624
-```
-
-This writes the appropriate MCP configuration entry for your client (Claude Code, Cursor, Goose, OpenCode, etc.) pointing at the Streamable HTTP endpoint.
-
-See [SETUP.md](SETUP.md) for detailed deployment architectures and SMB configuration.
+See [SETUP.md](SETUP.md) for detailed deployment options and SMB configuration.
 
 ## MCP Tools (23 total)
 
