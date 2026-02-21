@@ -264,6 +264,7 @@ wintools-mcp/
 │   ├── response.py             # FK-enriched response envelope builder
 │   ├── output.py               # Output directory and manifest management
 │   ├── audit.py                # Per-case JSONL audit writer
+│   ├── http_server.py          # Streamable HTTP server (Starlette + auth)
 │   └── tools/                  # Tool-specific wrappers
 │       ├── discovery.py        # scan_tools, list_available_tools, check_tools, suggest_tools
 │       ├── generic.py          # run_command (catalog-gated)
@@ -272,7 +273,7 @@ wintools-mcp/
 ├── data/catalog/               # Tool catalog YAML files
 │   ├── zimmerman.yaml          # 14 Zimmerman tools
 │   └── timeline.yaml           # Hayabusa, mactime
-├── tests/                      # 113 tests
+├── tests/                      # 121 tests
 ├── pyproject.toml
 └── README.md
 ```
@@ -289,13 +290,69 @@ wintools-mcp/
 
 ## Architecture
 
+### Execution Pipeline
+
+Every tool execution flows through the same security and enrichment pipeline.
+
+```mermaid
+graph LR
+    REQ["run_command()<br/>or wrapper tool"] --> DENY{"Denylist<br/>Check"}
+    DENY -->|"blocked binary"| BLOCK[Blocked]
+    DENY -->|"pass"| CAT{"Catalog<br/>Check"}
+    CAT -->|"not found"| REJECT[Rejected]
+    CAT -->|"found"| SANITIZE["Argument<br/>Sanitization"]
+    SANITIZE -->|"dangerous"| REJECT
+    SANITIZE -->|"clean"| EXEC["subprocess.run()<br/>(shell=False)"]
+    EXEC --> PARSE["Output<br/>Processing"]
+    PARSE --> ENRICH["FK Enrichment<br/>(caveats, corroboration,<br/>discipline reminder)"]
+    ENRICH --> RESP["Response<br/>Envelope"]
 ```
-MCP Client ──► wintools-mcp ──► Windows Forensic Tools
-                   │            (Zimmerman, Hayabusa,
-                   │             Sysinternals, ...)
-                   ▼
-             forensic-knowledge
-            (artifact enrichment)
+
+### Connection Modes
+
+wintools-mcp supports both stdio (local) and HTTP (remote) modes. Use HTTP mode when the LLM client runs on a different machine.
+
+```mermaid
+graph LR
+    subgraph direct ["Direct (stdio — local only)"]
+        C1["LLM Client<br/>(on Windows)"] -->|stdio| WT1[wintools-mcp]
+    end
+
+    subgraph remote ["HTTP Mode (remote access)"]
+        C2["LLM Client<br/>(any machine)"] -->|"streamable-http<br/>:4624/mcp"| WT2[wintools-mcp]
+    end
+
+    WT1 --> TOOLS["Windows Forensic Tools<br/>(Zimmerman, Hayabusa, ...)"]
+    WT2 --> TOOLS
+    WT1 --> FK[forensic-knowledge]
+    WT2 --> FK
+```
+
+### HTTP Mode
+
+Start wintools-mcp as an HTTP server for remote access:
+
+```bash
+python -m wintools_mcp --http --host 0.0.0.0 --port 4624
+```
+
+The HTTP server exposes:
+- `/mcp` — MCP Streamable HTTP endpoint (for LLM clients)
+- `/health` — Health check
+
+Configure your LLM client: `aiir setup client --windows=WIN_IP:4624`
+
+### Security Model
+
+```mermaid
+graph TB
+    INPUT["User Request"] --> D{"Hardcoded<br/>Denylist"}
+    D -->|"cmd, powershell,<br/>wscript, etc."| BLOCKED["❌ Blocked"]
+    D -->|"pass"| A{"YAML Catalog<br/>Allowlist"}
+    A -->|"unknown binary"| REJECTED["❌ Rejected"]
+    A -->|"cataloged"| S{"Argument<br/>Sanitization"}
+    S -->|"shell metachar,<br/>dangerous flags"| REJECTED
+    S -->|"clean"| E["✓ Execute<br/>(shell=False)"]
 ```
 
 ## Responsible Use
