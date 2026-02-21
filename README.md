@@ -74,17 +74,7 @@ All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML cat
 On the Windows forensic workstation:
 
 ```powershell
-# Option 1: git clone
 git clone https://github.com/AppliedIR/wintools-mcp.git; cd wintools-mcp
-
-# Option 2: download ZIP (no git required)
-Invoke-WebRequest https://github.com/AppliedIR/wintools-mcp/archive/refs/heads/main.zip -OutFile wintools.zip
-Expand-Archive wintools.zip -DestinationPath .; cd wintools-mcp-main
-```
-
-Then run the installer:
-
-```powershell
 .\scripts\setup-windows.ps1
 ```
 
