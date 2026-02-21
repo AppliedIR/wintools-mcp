@@ -230,7 +230,7 @@ Write-Header "Phase 1: Prerequisites"
 $pythonCmd = $null
 foreach ($cmd in @("python", "python3", "py -3")) {
     try {
-        $ver = & ($cmd.Split(" ")[0]) @($cmd.Split(" ") | Select-Object -Skip 1) -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+        $ver = & ($cmd.Split(" ")[0]) @($cmd.Split(" ") | Select-Object -Skip 1) -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
         if ($ver) {
             $parts = $ver.Split(".")
             $major = [int]$parts[0]
@@ -253,7 +253,7 @@ if (-not $pythonCmd) {
 
 # pip
 try {
-    & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m pip --version 2>$null | Out-Null
+    & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m pip --version 2>&1 | Out-Null
     Write-Ok "pip available"
 } catch {
     Write-Err "pip not found"
@@ -264,7 +264,7 @@ try {
 # git (optional -- ZIP fallback available)
 $hasGit = $null -ne (Get-Command git -ErrorAction SilentlyContinue)
 if ($hasGit) {
-    $gitVer = (git --version) -replace "git version ", ""
+    try { $gitVer = (git --version 2>&1) -replace "git version ", "" } catch { $gitVer = "unknown" }
     Write-Ok "git $gitVer"
 } else {
     Write-Info "git not found -- will download as ZIP (updates require git)"
@@ -272,13 +272,15 @@ if ($hasGit) {
 
 # .NET Runtime (for Zimmerman tools)
 $hasDotnet = $false
-if (Get-Command dotnet -ErrorAction SilentlyContinue) {
-    $dotnetVer = (dotnet --version 2>$null)
-    if ($dotnetVer) {
-        Write-Ok ".NET $dotnetVer"
-        $hasDotnet = $true
+try {
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+        $dotnetVer = (dotnet --version 2>&1)
+        if ($LASTEXITCODE -eq 0 -and $dotnetVer) {
+            Write-Ok ".NET $dotnetVer"
+            $hasDotnet = $true
+        }
     }
-}
+} catch { }
 if (-not $hasDotnet) {
     Write-Warn ".NET Runtime not found (needed for Zimmerman tools)"
     Write-Host "  Install from: https://dotnet.microsoft.com/download"
@@ -288,7 +290,7 @@ if (-not $hasDotnet) {
 # Network
 try {
     if ($hasGit) {
-        git ls-remote https://github.com/AppliedIR/wintools-mcp.git HEAD 2>$null | Out-Null
+        git ls-remote https://github.com/AppliedIR/wintools-mcp.git HEAD 2>&1 | Out-Null
     } else {
         $null = Invoke-WebRequest -Uri "https://github.com/AppliedIR" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
     }
@@ -313,7 +315,12 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
 }
 
 if (-not (Test-Path $InstallDir)) {
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    try {
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    } catch {
+        Write-Err "Cannot create directory: $InstallDir"
+        exit 1
+    }
 }
 Write-Info "Installing to $InstallDir"
 
@@ -337,21 +344,34 @@ function Get-RepoAsZip {
 }
 
 # Clone or download wintools-mcp
+$cloneOk = $false
 if ($hasGit) {
-    if (Test-Path $wintoolsDir) {
-        Write-Info "Directory exists, pulling latest..."
-        Push-Location $wintoolsDir
-        try { git pull --quiet 2>$null } catch { Write-Warn "Could not update (network issue?)" }
-        Pop-Location
-    } else {
-        git clone --quiet "$githubOrg/wintools-mcp.git" $wintoolsDir
+    try {
+        if (Test-Path $wintoolsDir) {
+            Write-Info "Directory exists, pulling latest..."
+            Push-Location $wintoolsDir
+            try { git pull --quiet 2>&1 | Out-Null } catch { Write-Warn "Could not update (network issue?)" }
+            Pop-Location
+            $cloneOk = $true
+        } else {
+            git clone --quiet "$githubOrg/wintools-mcp.git" $wintoolsDir 2>&1 | Out-Null
+            $cloneOk = $true
+        }
+    } catch {
+        Write-Warn "git clone failed, falling back to ZIP download"
     }
-} else {
-    if (Test-Path $wintoolsDir) {
-        Write-Info "Directory exists, re-downloading..."
+}
+if (-not $cloneOk) {
+    try {
+        if (Test-Path $wintoolsDir) {
+            Write-Info "Directory exists, re-downloading..."
+        }
+        Get-RepoAsZip "wintools-mcp" $wintoolsDir
+        Write-Ok "wintools-mcp downloaded"
+    } catch {
+        Write-Err "Failed to download wintools-mcp"
+        exit 1
     }
-    Get-RepoAsZip "wintools-mcp" $wintoolsDir
-    Write-Ok "wintools-mcp downloaded"
 }
 
 # Create venv and install
@@ -359,28 +379,41 @@ $venvDir = Join-Path $wintoolsDir ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 
 if (-not (Test-Path $venvDir)) {
-    & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m venv $venvDir
+    try {
+        & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m venv $venvDir
+    } catch {
+        Write-Err "Failed to create Python virtual environment"
+        exit 1
+    }
+}
+if (-not (Test-Path $venvPython)) {
+    Write-Err "Virtual environment created but python.exe not found at: $venvPython"
+    exit 1
 }
 
-& $venvPython -m pip install --progress-bar off --upgrade pip 2>$null
+try { & $venvPython -m pip install --progress-bar off --upgrade pip 2>&1 | Out-Null } catch { }
 
 # Install wintools-mcp without FK first (always works)
-& $venvPython -m pip install --progress-bar off -e "$wintoolsDir"
+try { & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1 | Out-Null } catch {
+    Write-Err "Failed to install wintools-mcp"
+    exit 1
+}
 
 # Try to install forensic-knowledge (best-effort)
 $fkDir = Join-Path $InstallDir "forensic-knowledge"
 $fkInstalled = $false
 
-if ($hasGit) {
-    if (-not (Test-Path $fkDir)) {
+if (-not (Test-Path $fkDir)) {
+    $fkCloneOk = $false
+    if ($hasGit) {
         try {
-            git clone --quiet "$githubOrg/forensic-knowledge.git" $fkDir
+            git clone --quiet "$githubOrg/forensic-knowledge.git" $fkDir 2>&1 | Out-Null
+            $fkCloneOk = $true
         } catch {
-            Write-Warn "Could not clone forensic-knowledge (FK enrichment will be unavailable)"
+            Write-Warn "git clone failed for forensic-knowledge, trying ZIP download"
         }
     }
-} else {
-    if (-not (Test-Path $fkDir)) {
+    if (-not $fkCloneOk) {
         try {
             Get-RepoAsZip "forensic-knowledge" $fkDir
         } catch {
@@ -391,8 +424,8 @@ if ($hasGit) {
 
 if (Test-Path $fkDir) {
     try {
-        & $venvPython -m pip install --progress-bar off -e $fkDir 2>$null
-        $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>$null
+        & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1 | Out-Null
+        $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
         if ($fkTest -eq "ok") {
             $fkInstalled = $true
             Write-Ok "forensic-knowledge installed (FK enrichment enabled)"
@@ -406,7 +439,7 @@ if (-not $fkInstalled) {
 
 # Smoke test
 try {
-    $result = & $venvPython -c "import wintools_mcp; print('ok')" 2>$null
+    $result = & $venvPython -c "import wintools_mcp; print('ok')" 2>&1
     if ($result -eq "ok") {
         Write-Ok "wintools-mcp installed and importable"
     } else {
@@ -436,17 +469,26 @@ if ([string]::IsNullOrWhiteSpace($Examiner)) {
 }
 
 # Save config
-$aiirConfigDir = Join-Path $env:USERPROFILE ".aiir"
-if (-not (Test-Path $aiirConfigDir)) {
-    New-Item -ItemType Directory -Path $aiirConfigDir -Force | Out-Null
+try {
+    $aiirConfigDir = Join-Path $env:USERPROFILE ".aiir"
+    if (-not (Test-Path $aiirConfigDir)) {
+        New-Item -ItemType Directory -Path $aiirConfigDir -Force | Out-Null
+    }
+    "examiner: $Examiner" | Set-Content -Path (Join-Path $aiirConfigDir "config.yaml") -Encoding UTF8
+    Write-Ok "Saved examiner identity: $Examiner"
+} catch {
+    Write-Warn "Could not save examiner config to ~/.aiir/config.yaml"
 }
-"examiner: $Examiner" | Set-Content -Path (Join-Path $aiirConfigDir "config.yaml") -Encoding UTF8
-Write-Ok "Saved examiner identity: $Examiner"
 
 # Set env var persistently
-[Environment]::SetEnvironmentVariable("AIIR_EXAMINER", $Examiner, "User")
-$env:AIIR_EXAMINER = $Examiner
-Write-Ok "Set AIIR_EXAMINER=$Examiner"
+try {
+    [Environment]::SetEnvironmentVariable("AIIR_EXAMINER", $Examiner, "User")
+    $env:AIIR_EXAMINER = $Examiner
+    Write-Ok "Set AIIR_EXAMINER=$Examiner"
+} catch {
+    Write-Warn "Could not set AIIR_EXAMINER environment variable"
+    $env:AIIR_EXAMINER = $Examiner
+}
 
 # =============================================================================
 # Tool Inventory
@@ -455,7 +497,7 @@ Write-Ok "Set AIIR_EXAMINER=$Examiner"
 Write-Header "Phase 4: Scanning for Forensic Tools"
 
 # Run scan and capture output
-$scanOutput = & $venvPython -m wintools_mcp --scan 2>$null
+try { $scanOutput = & $venvPython -m wintools_mcp --scan 2>&1 } catch { $scanOutput = $null }
 
 if ($scanOutput) {
     Write-Host $($scanOutput -join "`n")
@@ -468,6 +510,7 @@ Write-Host ""
 Write-Info "Generating tool inventory report..."
 
 $overviewPath = Join-Path $InstallDir "TOOLS_OVERVIEW.md"
+try {
 $overviewContent = & $venvPython -c @"
 import json
 from datetime import datetime
@@ -520,11 +563,16 @@ lines.append('  - Hayabusa: https://github.com/Yamato-Security/hayabusa/releases
 lines.append('  - Sysinternals: winget install Microsoft.Sysinternals')
 lines.append('')
 print('\n'.join(lines))
-"@ 2>$null
+"@ 2>&1
+} catch { $overviewContent = $null }
 
 if ($overviewContent) {
-    $overviewContent -join "`n" | Set-Content -Path $overviewPath -Encoding UTF8
-    Write-Ok "Generated: $overviewPath"
+    try {
+        $overviewContent -join "`n" | Set-Content -Path $overviewPath -Encoding UTF8
+        Write-Ok "Generated: $overviewPath"
+    } catch {
+        Write-Warn "Could not write TOOLS_OVERVIEW.md"
+    }
 } else {
     Write-Warn "Could not generate TOOLS_OVERVIEW.md"
 }
@@ -548,7 +596,12 @@ if ($Standalone) {
     $caseDir = Read-Prompt "Local case directory" $defaultCaseDir
 
     if (-not (Test-Path $caseDir)) {
-        New-Item -ItemType Directory -Path $caseDir -Force | Out-Null
+        try {
+            New-Item -ItemType Directory -Path $caseDir -Force | Out-Null
+        } catch {
+            Write-Err "Cannot create case directory: $caseDir"
+            exit 1
+        }
     }
     Write-Ok "Case directory: $caseDir"
 
@@ -567,9 +620,14 @@ if ($Standalone) {
     Write-Host ""
 
     # Save standalone config
-    [Environment]::SetEnvironmentVariable("WINTOOLS_CASE_ROOT", $caseDir, "User")
-    $env:WINTOOLS_CASE_ROOT = $caseDir
-    Write-Ok "Set WINTOOLS_CASE_ROOT=$caseDir"
+    try {
+        [Environment]::SetEnvironmentVariable("WINTOOLS_CASE_ROOT", $caseDir, "User")
+        $env:WINTOOLS_CASE_ROOT = $caseDir
+        Write-Ok "Set WINTOOLS_CASE_ROOT=$caseDir"
+    } catch {
+        Write-Warn "Could not set WINTOOLS_CASE_ROOT environment variable"
+        $env:WINTOOLS_CASE_ROOT = $caseDir
+    }
 } else {
     # --- AIIR mode: SMB to SIFT ---
     Write-Host "  In AIIR mode, the case directory lives on the SIFT" -ForegroundColor White
@@ -630,13 +688,17 @@ if ($Standalone) {
         }
 
         if (Read-YesNo "Generate an API key for gateway authentication?" $true) {
-            # Generate a random key: aiir_wt_ + 24 hex chars
-            $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
-            $bytes = New-Object byte[] 12
-            $rng.GetBytes($bytes)
-            $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
-            $rng.Dispose()
-            Write-Ok "Generated API key: $wintoolsApiKey"
+            try {
+                # Generate a random key: aiir_wt_ + 24 hex chars
+                $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+                $bytes = New-Object byte[] 12
+                $rng.GetBytes($bytes)
+                $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+                $rng.Dispose()
+                Write-Ok "Generated API key: $wintoolsApiKey"
+            } catch {
+                Write-Warn "Could not generate API key"
+            }
         } else {
             $wintoolsApiKey = Read-Prompt "Existing API key (blank for no auth)" ""
         }
@@ -644,6 +706,7 @@ if ($Standalone) {
 
     # Write wintools-mcp config.yaml with API key if provided
     $wintoolsConfigPath = Join-Path $wintoolsDir "config.yaml"
+    try {
     if ($wintoolsApiKey) {
         @"
 # wintools-mcp configuration (generated by setup-windows.ps1)
@@ -672,6 +735,9 @@ http_port: $Port
 "@ | Set-Content -Path $wintoolsConfigPath -Encoding UTF8
         Write-Ok "Wrote config (no API key): $wintoolsConfigPath"
     }
+    } catch {
+        Write-Warn "Could not write config.yaml"
+    }
 }
 
 # =============================================================================
@@ -689,20 +755,25 @@ if ((-not $Standalone) -and (Test-Path $wintoolsConfigPath)) {
 }
 # Set env var before starting (PS 5.1 compatible -- -Environment requires PS 7+)
 $env:AIIR_EXAMINER = $Examiner
-$process = Start-Process -FilePath $venvPython -ArgumentList $startArgs -PassThru -WindowStyle Hidden
 
-Start-Sleep -Seconds 3
+try {
+    $process = Start-Process -FilePath $venvPython -ArgumentList $startArgs -PassThru -WindowStyle Hidden
 
-# Check if it's running
-if (-not $process.HasExited) {
-    try {
-        $response = Invoke-WebRequest -Uri "http://localhost:$Port/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-        Write-Ok "wintools-mcp running on port $Port"
-    } catch {
-        Write-Warn "wintools-mcp started but health check failed"
+    Start-Sleep -Seconds 3
+
+    # Check if it's running
+    if (-not $process.HasExited) {
+        try {
+            $response = Invoke-WebRequest -Uri "http://localhost:$Port/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+            Write-Ok "wintools-mcp running on port $Port"
+        } catch {
+            Write-Warn "wintools-mcp started but health check failed"
+        }
+    } else {
+        Write-Warn "wintools-mcp exited immediately - check configuration"
     }
-} else {
-    Write-Warn "wintools-mcp exited immediately - check configuration"
+} catch {
+    Write-Warn "Could not start wintools-mcp"
 }
 
 # =============================================================================
@@ -721,11 +792,15 @@ $startChoice = Read-Prompt "Choose" "1"
 
 # Always generate the startup script (useful either way)
 $startupPath = Join-Path $InstallDir "start-wintools.ps1"
-@"
+try {
+    @"
 # Start wintools-mcp in HTTP mode
 `$env:AIIR_EXAMINER = "$Examiner"
 & "$venvPython" -m wintools_mcp --http --host $BindAddress --port $Port
 "@ | Set-Content -Path $startupPath -Encoding UTF8
+} catch {
+    Write-Warn "Could not write startup script"
+}
 
 if ($startChoice -eq "1") {
     # Register scheduled task for auto-start
