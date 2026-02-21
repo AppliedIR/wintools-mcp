@@ -50,6 +50,8 @@ graph LR
 
 ### Security Model
 
+The security model for this implementation assumes that the Windows system on which this MCP is installed is not exposed to interaction from any untrusted system. It is designed to be used on a secure forensic network. The additional controls in place are not intended to be preventative. They are a defense-in-depth approach to mitigate some of the more obvious attack vectors. The MCP is not hardened and should never be deployed facing the Internet or other untrusted systems.
+
 ```mermaid
 graph TB
     INPUT["Tool Execution Request"] --> D{"Hardcoded Denylist<br/>14 binaries + .exe variants"}
@@ -233,6 +235,10 @@ All AIIR components are assumed to run on a private forensic network, protected 
 Any data loaded into the system or its component VMs, computers, or instances runs the risk of being exposed to the underlying AI. Only place data on these systems that you are willing to send to your AI provider.
 
 While outgoing connections to the Internet are used for some optional components (OpenCTI, MS Learn MCP, Zeltser IR Writing MCP), no incoming connections from external systems should be allowed.
+
+## Evidence Handling
+
+Never place original evidence on any AIIR system. Only use working copies for which verified originals or backups exist. AIIR workstations process evidence through AI-connected tools, and any data loaded into these systems may be transmitted to the configured AI provider. Treat all AIIR systems as analysis environments, not evidence storage.
 
 ## Responsible Use
 

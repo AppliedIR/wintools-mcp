@@ -4,10 +4,12 @@ import argparse
 import sys
 
 from wintools_mcp.config import WintoolsConfig
+from wintools_mcp.oplog import setup_logging
 from wintools_mcp.server import create_server
 
 
 def main():
+    setup_logging("wintools-mcp")
     parser = argparse.ArgumentParser(description="Windows Forensic MCP Server")
     parser.add_argument(
         "--http", action="store_true", help="Enable REST HTTP server"
