@@ -9,19 +9,24 @@ wintools-mcp runs independently on a Windows forensic workstation, exposing a St
 ```mermaid
 graph LR
     subgraph sift ["SIFT Workstation"]
-        C["LLM Client + aiir CLI"]
+        CC["LLM Client<br/>(human interface)"]
+        CLI["aiir CLI<br/>(human interface)"]
+        CASE["Case Directory"]
+
+        CLI --> CASE
     end
 
     subgraph winbox ["Windows Forensic Workstation"]
-        WT["wintools-mcp<br/>:4624"]
-        TOOLS["Forensic Tools<br/>Zimmerman suite<br/>Hayabusa<br/>mactime"]
-        FK["forensic-knowledge<br/>(pip package)"]
+        WAPI["wintools-mcp API<br/>:4624"]
+        WM["wintools-mcp<br/>Windows tool execution"]
+        FK["forensic-knowledge"]
 
-        WT --> TOOLS
-        WT -.->|"optional"| FK
+        WAPI --> WM
+        WM --> FK
     end
 
-    C -->|"Streamable HTTP<br/>:4624/mcp"| WT
+    CC -->|"streamable-http"| WAPI
+    WM -->|"SMB"| CASE
 ```
 
 ### Execution Pipeline
@@ -221,9 +226,17 @@ Pass via `--config path/to/config.yaml`. Environment variables override YAML val
 
 When `AIIR_CASE_DIR` is set, every tool execution is logged to `examiners/{examiner}/audit/wintools-mcp.jsonl`. Evidence IDs follow the format `win-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
 
+## Security Considerations
+
+All AIIR components are assumed to run on a private forensic network, protected by firewalls, and not exposed to incoming connections from the Internet or potentially hostile systems. The design assumes dedicated, isolated systems are used throughout.
+
+Any data loaded into the system or its component VMs, computers, or instances runs the risk of being exposed to the underlying AI. Only place data on these systems that you are willing to send to your AI provider.
+
+While outgoing connections to the Internet are used for some optional components (OpenCTI, MS Learn MCP, Zeltser IR Writing MCP), no incoming connections from external systems should be allowed.
+
 ## Responsible Use
 
-This project is intended for authorized incident response, forensic analysis, and educational purposes. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies. Do not use these tools against systems or data you are not authorized to access.
+This project demonstrates the capabilities of AI-assisted incident response. While steps have been taken to enforce human-in-the-loop controls, it is ultimately the responsibility of each examiner to ensure that their findings are accurate and complete. Ultimate responsibility rests with the human. The AI, like a hex editor, is a tool to be used by properly trained incident response professionals. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies.
 
 ## Acknowledgments
 
