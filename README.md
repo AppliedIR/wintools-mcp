@@ -310,22 +310,13 @@ graph LR
 
 ### Connection Modes
 
-wintools-mcp supports both stdio (local) and HTTP (remote) modes. Use HTTP mode when the LLM client runs on a different machine.
+LLM clients connect to wintools-mcp via Streamable HTTP. The server runs on the Windows forensic workstation and listens on port 4624.
 
 ```mermaid
 graph LR
-    subgraph direct ["Direct (stdio — local only)"]
-        C1["LLM Client<br/>(on Windows)"] -->|stdio| WT1[wintools-mcp]
-    end
-
-    subgraph remote ["HTTP Mode (remote access)"]
-        C2["LLM Client<br/>(any machine)"] -->|"streamable-http<br/>:4624/mcp"| WT2[wintools-mcp]
-    end
-
-    WT1 --> TOOLS["Windows Forensic Tools<br/>(Zimmerman, Hayabusa, ...)"]
-    WT2 --> TOOLS
-    WT1 --> FK[forensic-knowledge]
-    WT2 --> FK
+    C["LLM Client<br/>(any machine)"] -->|"streamable-http<br/>:4624/mcp"| WT[wintools-mcp]
+    WT --> TOOLS["Windows Forensic Tools<br/>(Zimmerman, Hayabusa, ...)"]
+    WT --> FK[forensic-knowledge]
 ```
 
 ### HTTP Mode
