@@ -4,13 +4,24 @@ Catalog-gated Windows forensic tool execution with knowledge-enriched response e
 
 ## Architecture
 
-wintools-mcp runs independently on a Windows forensic workstation, exposing a Streamable HTTP endpoint on port 4624. LLM clients connect directly -- no gateway involved.
+wintools-mcp runs independently on a Windows forensic workstation, exposing a Streamable HTTP endpoint on port 4624. The LLM client and aiir CLI run on the SIFT workstation and connect to wintools-mcp over the network.
 
 ```mermaid
 graph LR
-    C["LLM Client<br/>(analyst's machine)"] -->|"Streamable HTTP<br/>:4624/mcp"| WT["wintools-mcp<br/>(Windows workstation)"]
-    WT --> TOOLS["Forensic Tools<br/>Zimmerman suite<br/>Hayabusa<br/>mactime"]
-    WT -.->|"optional"| FK["forensic-knowledge<br/>(pip package)"]
+    subgraph sift ["SIFT Workstation"]
+        C["LLM Client + aiir CLI"]
+    end
+
+    subgraph winbox ["Windows Forensic Workstation"]
+        WT["wintools-mcp<br/>:4624"]
+        TOOLS["Forensic Tools<br/>Zimmerman suite<br/>Hayabusa<br/>mactime"]
+        FK["forensic-knowledge<br/>(pip package)"]
+
+        WT --> TOOLS
+        WT -.->|"optional"| FK
+    end
+
+    C -->|"Streamable HTTP<br/>:4624/mcp"| WT
 ```
 
 ### Execution Pipeline
