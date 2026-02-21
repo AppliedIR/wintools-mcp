@@ -1,7 +1,10 @@
 """JSON/JSONL output parser."""
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def parse_json(text: str, *, max_entries: int = 1000) -> dict[str, Any]:
@@ -11,7 +14,11 @@ def parse_json(text: str, *, max_entries: int = 1000) -> dict[str, Any]:
     """
     if not text.strip():
         return {"data": None, "total_entries": 0, "truncated": False}
-    parsed = json.loads(text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.warning("JSON parse error: %s", e)
+        return {"data": {"_raw": text[:2000]}, "total_entries": 1, "truncated": False, "parse_error": str(e)}
     if isinstance(parsed, list):
         total = len(parsed)
         return {

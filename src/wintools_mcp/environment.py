@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import shutil
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TOOL_PATHS = [
     Path(os.environ.get("ProgramFiles", "C:\\Program Files")),
@@ -75,11 +78,17 @@ def get_windows_version() -> dict:
                 winreg.HKEY_LOCAL_MACHINE,
                 r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
             )
-            info["edition"] = winreg.QueryValueEx(key, "EditionID")[0]
-            info["build"] = winreg.QueryValueEx(key, "CurrentBuildNumber")[0]
-            winreg.CloseKey(key)
-        except Exception:
-            pass
+            try:
+                info["edition"] = winreg.QueryValueEx(key, "EditionID")[0]
+                info["build"] = winreg.QueryValueEx(key, "CurrentBuildNumber")[0]
+            finally:
+                winreg.CloseKey(key)
+        except ImportError:
+            logger.warning("winreg module not available on this platform")
+        except PermissionError:
+            logger.warning("Permission denied reading Windows registry version info")
+        except OSError as e:
+            logger.warning("Failed to read Windows registry: %s", e)
     return info
 
 

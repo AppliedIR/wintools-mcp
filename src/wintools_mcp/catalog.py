@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any
 import yaml
 
 from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
+
+logger = logging.getLogger(__name__)
 
 _CATALOG_DIR: Path | None = None
 _catalog_cache: dict[str, Any] = {}
@@ -106,13 +109,30 @@ def load_catalog() -> dict[str, ToolDefinition]:
         return _catalog_cache
 
     catalog_dir = _find_catalog_dir()
-    for yaml_file in sorted(catalog_dir.glob("*.yaml")):
-        with open(yaml_file, "r", encoding="utf-8") as f:
-            doc = yaml.safe_load(f)
-        if not doc:
+    try:
+        yaml_files = sorted(catalog_dir.glob("*.yaml"))
+    except PermissionError as e:
+        logger.warning("Permission denied reading catalog directory %s: %s", catalog_dir, e)
+        return _catalog_cache
+
+    for yaml_file in yaml_files:
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                doc = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            logger.warning("Failed to parse YAML catalog file %s: %s", yaml_file.name, e)
+            continue
+        except OSError as e:
+            logger.warning("Failed to read catalog file %s: %s", yaml_file.name, e)
+            continue
+        if not doc or not isinstance(doc, dict):
+            logger.warning("Empty or invalid catalog file %s, skipping", yaml_file.name)
             continue
         category = doc.get("category", yaml_file.stem)
         for tool_entry in doc.get("tools", []):
+            if not isinstance(tool_entry, dict) or "name" not in tool_entry:
+                logger.warning("Invalid tool entry in %s, skipping", yaml_file.name)
+                continue
             name = tool_entry["name"]
             install_methods = []
             for im in tool_entry.get("install_methods", []):

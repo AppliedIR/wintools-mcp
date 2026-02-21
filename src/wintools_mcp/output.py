@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def get_output_dir(working_dir: str, evidence_id: str) -> Path:
     """Get the per-evidence-ID output directory, creating it if needed."""
     out_dir = Path(working_dir) / "output" / evidence_id
-    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning("Failed to create output directory %s: %s", out_dir, e)
     return out_dir
 
 
@@ -26,11 +32,20 @@ def build_manifest(output_dir: Path, base_url: str = "") -> list[dict[str, Any]]
     for f in sorted(output_dir.rglob("*")):
         if not f.is_file():
             continue
+        try:
+            file_bytes = f.read_bytes()
+            file_size = f.stat().st_size
+        except FileNotFoundError:
+            logger.warning("File disappeared during manifest build: %s", f)
+            continue
+        except OSError as e:
+            logger.warning("Failed to read file %s for manifest: %s", f, e)
+            continue
         rel_path = f.relative_to(output_dir.parent.parent)  # relative to working_dir
-        sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
+        sha256 = hashlib.sha256(file_bytes).hexdigest()
         entry: dict[str, Any] = {
             "path": str(rel_path).replace("\\", "/"),
-            "size_bytes": f.stat().st_size,
+            "size_bytes": file_size,
             "sha256": sha256,
             "description": f.stem.replace("_", " "),
         }

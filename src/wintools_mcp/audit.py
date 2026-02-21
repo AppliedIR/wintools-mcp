@@ -56,7 +56,11 @@ class AuditWriter:
             logger.warning("AIIR_CASE_DIR=%s is not a directory, skipping audit", case_dir)
             return None
         audit_dir = path / "examiners" / self.examiner / "audit"
-        audit_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            audit_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.warning("Failed to create audit directory %s: %s", audit_dir, e)
+            return None
         return audit_dir
 
     def _next_evidence_id(self) -> str:
@@ -87,22 +91,24 @@ class AuditWriter:
         pattern = f"{prefix}-{self.examiner}-{date_str}-"
         max_seq = 0
         try:
-            for line in log_file.read_text().strip().split("\n"):
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                    eid = entry.get("evidence_id", "")
-                    if eid.startswith(pattern):
-                        try:
-                            seq = int(eid[len(pattern):])
-                            max_seq = max(max_seq, seq)
-                        except ValueError:
-                            pass
-                except json.JSONDecodeError:
-                    continue
-        except Exception:
-            pass
+            text = log_file.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning("Failed to read audit log for sequence resume %s: %s", log_file, e)
+            return 0
+        for line in text.strip().split("\n"):
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                eid = entry.get("evidence_id", "")
+                if eid.startswith(pattern):
+                    try:
+                        seq = int(eid[len(pattern):])
+                        max_seq = max(max_seq, seq)
+                    except ValueError:
+                        pass
+            except json.JSONDecodeError:
+                continue
         return max_seq
 
     def log(
@@ -153,7 +159,10 @@ class AuditWriter:
                 f.flush()
                 os.fsync(f.fileno())
         except OSError as e:
-            logger.warning("Failed to write audit entry: %s", e)
+            logger.warning(
+                "Failed to write audit entry for %s/%s (evidence_id=%s): %s",
+                self.mcp_name, entry.get("tool"), entry.get("evidence_id"), e,
+            )
 
     def get_entries(
         self, since: str | None = None, case_id: str | None = None

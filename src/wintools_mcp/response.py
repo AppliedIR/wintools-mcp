@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import itertools
+import logging
 from typing import Any
 
 from wintools_mcp.audit import resolve_examiner
+
+logger = logging.getLogger(__name__)
 
 try:
     from forensic_knowledge import loader as fk_loader
@@ -61,7 +64,11 @@ def build_response(
 
     # FK enrichment
     fk_name = fk_tool_name or tool_name
-    corroboration, caveats, advisories, field_notes, field_meanings, cross_mcp_checks = _build_knowledge_context(fk_name)
+    try:
+        corroboration, caveats, advisories, field_notes, field_meanings, cross_mcp_checks = _build_knowledge_context(fk_name)
+    except Exception as e:
+        logger.warning("FK enrichment failed for %s: %s", fk_name, e)
+        corroboration, caveats, advisories, field_notes, field_meanings, cross_mcp_checks = {}, [], [], {}, {}, []
     if caveats:
         response["caveats"] = caveats
     if advisories:
@@ -85,9 +92,15 @@ def build_response(
     if exit_code is not None:
         metadata["exit_code"] = exit_code
         if fk_loader:
-            tool_info = fk_loader.get_tool(fk_name)
-            if tool_info and exit_code in (tool_info.get("exit_code_hints") or {}):
-                metadata["exit_code_meaning"] = tool_info["exit_code_hints"][exit_code]
+            try:
+                tool_info = fk_loader.get_tool(fk_name)
+                if tool_info:
+                    hints = tool_info.get("exit_code_hints") or {}
+                    meaning = hints.get(exit_code)
+                    if meaning:
+                        metadata["exit_code_meaning"] = meaning
+            except Exception as e:
+                logger.warning("FK exit_code_hints lookup failed for %s: %s", fk_name, e)
     if command:
         metadata["command"] = command
     if metadata:
@@ -103,37 +116,39 @@ def _build_knowledge_context(
         return {}, [], [], {}, {}, []
 
     tool_info = fk_loader.get_tool(tool_name)
-    if not tool_info:
+    if not tool_info or not isinstance(tool_info, dict):
         return {}, [], [], {}, {}, []
 
-    caveats = list(tool_info.get("caveats", []))
-    advisories = list(tool_info.get("advisories", []))
+    caveats = list(tool_info.get("caveats") or [])
+    advisories = list(tool_info.get("advisories") or [])
     corroboration: dict[str, list[str]] = {}
     field_notes: dict[str, str] = {}
-    field_meanings: dict[str, str] = dict(tool_info.get("field_meanings", {}))
+    field_meanings: dict[str, str] = dict(tool_info.get("field_meanings") or {})
     cross_mcp: list[dict] = []
 
-    for artifact_name in tool_info.get("artifacts_parsed", []):
+    for artifact_name in tool_info.get("artifacts_parsed") or []:
         artifact = fk_loader.get_artifact(artifact_name)
-        if not artifact:
+        if not artifact or not isinstance(artifact, dict):
             continue
-        for item in artifact.get("does_not_prove", []):
+        for item in artifact.get("does_not_prove") or []:
             advisory = f"This artifact does NOT prove: {item}"
             if advisory not in advisories:
                 advisories.append(advisory)
-        for key, val in artifact.get("corroborate_with", {}).items():
+        for key, val in (artifact.get("corroborate_with") or {}).items():
             if key not in corroboration:
                 corroboration[key] = []
             for ref in val:
                 if ref not in corroboration[key]:
                     corroboration[key].append(ref)
-        for ts in artifact.get("timestamps", []):
-            field_notes[ts["field"]] = ts["meaning"]
-        for m in artifact.get("common_misinterpretations", []):
-            advisory = f"{m['claim']} → {m['correction']}"
-            if advisory not in advisories:
-                advisories.append(advisory)
-        for check in artifact.get("cross_mcp_checks", []):
+        for ts in artifact.get("timestamps") or []:
+            if isinstance(ts, dict) and "field" in ts and "meaning" in ts:
+                field_notes[ts["field"]] = ts["meaning"]
+        for m in artifact.get("common_misinterpretations") or []:
+            if isinstance(m, dict) and "claim" in m and "correction" in m:
+                advisory = f"{m['claim']} → {m['correction']}"
+                if advisory not in advisories:
+                    advisories.append(advisory)
+        for check in artifact.get("cross_mcp_checks") or []:
             if check not in cross_mcp:
                 cross_mcp.append(check)
 

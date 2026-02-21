@@ -1,12 +1,15 @@
 """Generic run_command: catalog-gated execution of any approved tool."""
 
+import logging
 from pathlib import Path
 
-from wintools_mcp.catalog import validate_command, get_tool_def
+from wintools_mcp.catalog import validate_command
 from wintools_mcp.environment import find_binary
-from wintools_mcp.executor import execute
 from wintools_mcp.exceptions import ToolNotInCatalogError, DenylistError
+from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args
+
+logger = logging.getLogger(__name__)
 
 
 def run_command(
@@ -34,6 +37,12 @@ def run_command(
     resolved = find_binary(binary_name)
     if resolved:
         command = [resolved] + command[1:]
+    else:
+        logger.warning(
+            "Binary '%s' is in the catalog but not found by find_binary. "
+            "Proceeding with unresolved name; subprocess may still locate it.",
+            binary_name,
+        )
 
     # Sanitize extra args
     sanitize_extra_args(command[1:], tool_name=binary_name)

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import itertools
+import logging
 from typing import Any
 
 from wintools_mcp.catalog import load_catalog, get_tool_def
 from wintools_mcp.environment import find_binary
 from wintools_mcp.inventory import scan_tools, get_install_guidance
+
+logger = logging.getLogger(__name__)
 
 try:
     from forensic_knowledge import loader as fk_loader
@@ -124,17 +127,20 @@ def get_tool_help(tool_name: str) -> dict:
 
     # FK enrichment
     if fk_loader:
-        tool_info = fk_loader.get_tool(td.knowledge_name)
-        if tool_info:
-            result["caveats"] = tool_info.get("caveats", [])
-            result["advisories"] = tool_info.get("advisories", [])
-            result["artifacts_parsed"] = tool_info.get("artifacts_parsed", [])
-            if tool_info.get("quick_start"):
-                result["quick_start"] = tool_info["quick_start"]
-            if tool_info.get("investigation_sequence"):
-                result["investigation_sequence"] = tool_info["investigation_sequence"]
-            if tool_info.get("field_meanings"):
-                result["field_meanings"] = tool_info["field_meanings"]
+        try:
+            tool_info = fk_loader.get_tool(td.knowledge_name)
+            if tool_info and isinstance(tool_info, dict):
+                result["caveats"] = tool_info.get("caveats") or []
+                result["advisories"] = tool_info.get("advisories") or []
+                result["artifacts_parsed"] = tool_info.get("artifacts_parsed") or []
+                if tool_info.get("quick_start"):
+                    result["quick_start"] = tool_info["quick_start"]
+                if tool_info.get("investigation_sequence"):
+                    result["investigation_sequence"] = tool_info["investigation_sequence"]
+                if tool_info.get("field_meanings"):
+                    result["field_meanings"] = tool_info["field_meanings"]
+        except Exception as e:
+            logger.warning("FK enrichment failed for %s: %s", td.knowledge_name, e)
 
     return result
 
@@ -148,6 +154,9 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
     if not fk_loader:
         return {"suggestions": [], "error": "forensic-knowledge not available"}
 
+    if not artifact_type or not isinstance(artifact_type, str):
+        return {"suggestions": [], "error": "artifact_type must be a non-empty string"}
+
     # Resolve aliases
     artifact_names = ARTIFACT_ALIASES.get(artifact_type.lower(), [artifact_type])
 
@@ -158,11 +167,15 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
     catalog = load_catalog()
 
     for art_name in artifact_names:
-        artifact = fk_loader.get_artifact(art_name)
-        if not artifact:
+        try:
+            artifact = fk_loader.get_artifact(art_name)
+        except Exception as e:
+            logger.warning("FK get_artifact(%s) failed: %s", art_name, e)
+            continue
+        if not artifact or not isinstance(artifact, dict):
             continue
 
-        for tool_name in artifact.get("related_tools", []):
+        for tool_name in artifact.get("related_tools") or []:
             # Avoid duplicates across aliases
             if any(s.get("tool") == tool_name for s in suggestions):
                 continue
@@ -188,13 +201,13 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
             suggestions.append(entry)
 
         # Advisories from does_not_prove
-        for item in artifact.get("does_not_prove", []):
+        for item in artifact.get("does_not_prove") or []:
             advisory = f"This artifact does NOT prove: {item}"
             if advisory not in all_advisories:
                 all_advisories.append(advisory)
 
         # Corroboration map
-        for key, val in artifact.get("corroborate_with", {}).items():
+        for key, val in (artifact.get("corroborate_with") or {}).items():
             if key not in all_corroboration:
                 all_corroboration[key] = []
             for ref in val:
@@ -202,15 +215,20 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
                     all_corroboration[key].append(ref)
 
         # Cross-MCP checks
-        for check in artifact.get("cross_mcp_checks", []):
+        for check in artifact.get("cross_mcp_checks") or []:
             if check not in all_cross_mcp:
                 all_cross_mcp.append(check)
 
     if not suggestions:
+        try:
+            available = [a["name"] for a in fk_loader.list_artifacts()]
+        except Exception as e:
+            logger.warning("FK list_artifacts() failed: %s", e)
+            available = []
         return {
             "suggestions": [],
             "info": f"No tools found for artifact type '{artifact_type}'",
-            "available_artifacts": [a["name"] for a in fk_loader.list_artifacts()],
+            "available_artifacts": available,
         }
 
     call_num = next(_suggest_counter)

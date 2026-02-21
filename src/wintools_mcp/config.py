@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import getpass
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 _EXAMINER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9\-]{0,19}$")
@@ -70,15 +73,24 @@ class WintoolsConfig:
         # Validate examiner slug
         if not _EXAMINER_PATTERN.match(cfg.examiner):
             # Sanitize: keep only valid chars, truncate
+            original = cfg.examiner
             sanitized = re.sub(r"[^a-z0-9\-]", "", cfg.examiner)[:20]
             cfg.examiner = sanitized or "unknown"
+            logger.warning(
+                "Examiner identity sanitized from %r to %r",
+                original, cfg.examiner,
+            )
 
         # HTTP config
         cfg.http_host = os.environ.get("WINTOOLS_HOST", cfg.http_host)
         try:
-            cfg.http_port = int(os.environ.get("WINTOOLS_PORT", str(cfg.http_port)))
+            port = int(os.environ.get("WINTOOLS_PORT", str(cfg.http_port)))
+            if 1 <= port <= 65535:
+                cfg.http_port = port
+            else:
+                logger.warning("WINTOOLS_PORT=%d out of range (1-65535), using default %d", port, cfg.http_port)
         except ValueError:
-            pass  # Keep YAML or default value
+            logger.warning("Invalid WINTOOLS_PORT value, using default %d", cfg.http_port)
 
         # Tool paths
         extra = os.environ.get("WINTOOLS_TOOL_PATHS", "")
@@ -92,14 +104,26 @@ class WintoolsConfig:
         p = Path(path)
         if not p.is_file():
             return
-        with open(p, "r", encoding="utf-8") as f:
-            doc = yaml.safe_load(f)
-        if not doc:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                doc = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            logger.warning("Failed to parse config file %s: %s", path, e)
+            return
+        except OSError as e:
+            logger.warning("Failed to read config file %s: %s", path, e)
+            return
+        if not doc or not isinstance(doc, dict):
+            logger.warning("Empty or invalid config file %s, skipping", path)
             return
         self.default_timeout = doc.get("default_timeout", self.default_timeout)
         self.max_output_bytes = doc.get("max_output_bytes", self.max_output_bytes)
         self.http_host = doc.get("http_host", self.http_host)
-        self.http_port = doc.get("http_port", self.http_port)
+        port = doc.get("http_port", self.http_port)
+        if isinstance(port, int) and 1 <= port <= 65535:
+            self.http_port = port
+        elif port != self.http_port:
+            logger.warning("Invalid port %r in config, using default %d", port, self.http_port)
         self.file_transfer_enabled = doc.get("file_transfer_enabled", self.file_transfer_enabled)
         self.working_dir = doc.get("working_dir", self.working_dir)
         self.max_upload_bytes = doc.get("max_upload_bytes", self.max_upload_bytes)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import logging
 import tempfile
 import time
 from pathlib import Path
@@ -18,6 +20,8 @@ from wintools_mcp.output import get_output_dir, build_manifest
 from wintools_mcp.parsers.csv_parser import parse_csv_file
 from wintools_mcp.response import build_response
 from wintools_mcp.security import sanitize_extra_args
+
+logger = logging.getLogger(__name__)
 
 
 def _run_zimmerman_tool(
@@ -75,9 +79,19 @@ def _run_zimmerman_tool(
 
         # Parse all CSV files produced
         parsed_data: dict[str, Any] = {}
-        csv_files = sorted(Path(csv_dir).glob("*.csv"))
+        try:
+            csv_files = sorted(Path(csv_dir).glob("*.csv"))
+        except OSError as e:
+            logger.warning("Failed to list CSV files in %s: %s", csv_dir, e)
+            csv_files = []
         for csv_file in csv_files:
-            parsed_data[csv_file.stem] = parse_csv_file(str(csv_file), max_rows=max_rows)
+            try:
+                parsed_data[csv_file.stem] = parse_csv_file(str(csv_file), max_rows=max_rows)
+            except FileNotFoundError:
+                logger.warning("CSV file disappeared before parsing: %s", csv_file)
+            except (csv.Error, UnicodeDecodeError) as e:
+                logger.warning("Failed to parse CSV file %s: %s", csv_file.name, e)
+                parsed_data[csv_file.stem] = {"error": f"Parse failed: {e}"}
 
         # Build output manifest
         output_files = None

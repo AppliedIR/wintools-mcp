@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from wintools_mcp.parsers.json_parser import parse_json, parse_jsonl
 from wintools_mcp.parsers.text_parser import parse_text
 from wintools_mcp.response import build_response
 from wintools_mcp.security import sanitize_extra_args
+
+logger = logging.getLogger(__name__)
 
 
 def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
@@ -73,13 +76,21 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
 
         # Parse output
         stdout = exec_result.get("stdout", "")
-        if output_file and Path(output_file).exists():
-            with open(output_file, "r", encoding="utf-8") as f:
-                content = f.read()
+        if output_file:
             try:
-                data = parse_jsonl(content)
-            except Exception:
-                data = parse_text(content)
+                with open(output_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                try:
+                    data = parse_jsonl(content)
+                except (ValueError, KeyError) as e:
+                    logger.warning("Failed to parse Hayabusa JSONL output: %s", e)
+                    data = parse_text(content)
+            except FileNotFoundError:
+                logger.warning("Hayabusa output file not found: %s", output_file)
+                data = parse_text(stdout)
+            except OSError as e:
+                logger.warning("Failed to read Hayabusa output file %s: %s", output_file, e)
+                data = parse_text(stdout)
         else:
             data = parse_text(stdout)
 

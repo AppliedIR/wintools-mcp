@@ -123,7 +123,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             )
             return response
 
-        except WintoolsError as e:
+        except (WintoolsError, ValueError) as e:
+            elapsed = time.monotonic() - start
             response = build_response(
                 tool_name="run_command",
                 success=False,
@@ -136,6 +137,25 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 params={"command": command, "purpose": purpose},
                 result_summary={"error": str(e)},
                 evidence_id=evidence_id,
+                elapsed_ms=elapsed * 1000,
+            )
+            return response
+        except Exception as e:
+            elapsed = time.monotonic() - start
+            logger.error("Unexpected error in run_command(%s): %s", command, e, exc_info=True)
+            response = build_response(
+                tool_name="run_command",
+                success=False,
+                data=None,
+                evidence_id=evidence_id,
+                error=f"Unexpected error: {e}",
+            )
+            audit.log(
+                tool="run_command",
+                params={"command": command, "purpose": purpose},
+                result_summary={"error": f"Unexpected: {e}"},
+                evidence_id=evidence_id,
+                elapsed_ms=elapsed * 1000,
             )
             return response
 

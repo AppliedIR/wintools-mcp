@@ -131,13 +131,19 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
 
 def _extract_mcp_route(mcp_starlette_app: Starlette) -> Any:
     """Extract the MCP ASGI endpoint from FastMCP's generated Starlette app."""
-    for route in mcp_starlette_app.routes:
-        path = getattr(route, "path", "")
-        if path == "/mcp":
-            # Route.endpoint or Mount.app
-            if hasattr(route, "app"):
-                return route.app
-            if hasattr(route, "endpoint"):
-                return route.endpoint
+    try:
+        for route in mcp_starlette_app.routes:
+            path = getattr(route, "path", "")
+            if path == "/mcp":
+                # Route.endpoint or Mount.app
+                if hasattr(route, "app"):
+                    logger.info("MCP route extracted via Mount.app")
+                    return route.app
+                if hasattr(route, "endpoint"):
+                    logger.info("MCP route extracted via Route.endpoint")
+                    return route.endpoint
+    except Exception as e:
+        logger.warning("Error extracting MCP route: %s", e)
     # Fallback: return the whole app (works but includes its own routing)
+    logger.info("MCP route extraction: using full app fallback")
     return mcp_starlette_app

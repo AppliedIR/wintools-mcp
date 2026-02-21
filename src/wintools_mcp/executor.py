@@ -109,8 +109,12 @@ def _save_output(
 ) -> None:
     if not save_dir:
         return
-    out_dir = Path(save_dir).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        out_dir = Path(save_dir).resolve()
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning("Failed to create output directory %s: %s", save_dir, e)
+        return
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_cmd = "".join(
@@ -119,15 +123,27 @@ def _save_output(
     prefix = f"{ts}_{safe_cmd}"
 
     if stdout:
-        stdout_path = out_dir / f"{prefix}_stdout.txt"
-        stdout_bytes = stdout.encode("utf-8")
-        stdout_path.write_bytes(stdout_bytes)
-        response["output_file"] = str(stdout_path)
-        response["output_sha256"] = hashlib.sha256(stdout_bytes).hexdigest()
+        try:
+            stdout_path = out_dir / f"{prefix}_stdout.txt"
+            stdout_bytes = stdout.encode("utf-8", errors="replace")
+            with open(stdout_path, "wb") as f:
+                f.write(stdout_bytes)
+                f.flush()
+                os.fsync(f.fileno())
+            response["output_file"] = str(stdout_path)
+            response["output_sha256"] = hashlib.sha256(stdout_bytes).hexdigest()
+        except OSError as e:
+            logger.warning("Failed to save stdout output to %s: %s", out_dir, e)
 
     if stderr:
-        stderr_path = out_dir / f"{prefix}_stderr.txt"
-        stderr_bytes = stderr.encode("utf-8")
-        stderr_path.write_bytes(stderr_bytes)
-        response["stderr_file"] = str(stderr_path)
-        response["stderr_sha256"] = hashlib.sha256(stderr_bytes).hexdigest()
+        try:
+            stderr_path = out_dir / f"{prefix}_stderr.txt"
+            stderr_bytes = stderr.encode("utf-8", errors="replace")
+            with open(stderr_path, "wb") as f:
+                f.write(stderr_bytes)
+                f.flush()
+                os.fsync(f.fileno())
+            response["stderr_file"] = str(stderr_path)
+            response["stderr_sha256"] = hashlib.sha256(stderr_bytes).hexdigest()
+        except OSError as e:
+            logger.warning("Failed to save stderr output to %s: %s", out_dir, e)
