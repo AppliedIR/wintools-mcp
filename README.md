@@ -50,7 +50,11 @@ graph LR
 
 ### Security Model
 
-The security model for this implementation assumes that the Windows system on which this MCP is installed is not exposed to interaction from any untrusted system. It is designed to be used on a secure forensic network. The additional controls in place are not intended to be preventative. They are a defense-in-depth approach to mitigate some of the more obvious attack vectors. The MCP is not hardened and should never be deployed facing the Internet or other untrusted systems.
+**This MCP opens attack vectors where connected LLM clients can execute tools on this system.** It must only be installed on dedicated forensic workstations that are isolated behind firewalls on a trusted network segment. Never install on personal laptops, production systems, or machines containing data outside the scope of the investigation.
+
+The installer requires typing `security_hole` or passing `-AcknowledgeSecurityHole` before proceeding. This is an intentional friction point.
+
+The additional controls in place (catalog allowlists, denylist of dangerous binaries, argument sanitization, `shell=False` execution) are defense-in-depth measures, not preventative controls. The MCP is not hardened and should never be deployed facing the Internet or other untrusted systems.
 
 ```mermaid
 graph TB
@@ -74,15 +78,35 @@ git clone https://github.com/AppliedIR/aiir.git; cd aiir
 .\scripts\setup-windows.ps1
 ```
 
-The installer clones wintools-mcp, installs dependencies, scans for forensic tools, starts the HTTP server on port 4624, and optionally configures auto-start.
+The installer requires a security acknowledgment before proceeding. It runs 7 phases: prerequisites, install, examiner identity, tool scan, case directory, server start, and auto-start.
+
+Two modes are supported:
+
+**AIIR-integrated (default)** — Case directory accessed via SMB from a SIFT workstation. Audit trail shared across all MCPs.
+
+**Standalone** (`-Standalone`) — Case directory and audit trail stored locally. No SIFT workstation required.
+
+```powershell
+# Standalone mode
+.\scripts\setup-windows.ps1 -Standalone
+
+# Non-interactive (scripted)
+.\scripts\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
+```
 
 Then on the analyst's machine, configure your LLM client:
 
 ```bash
+# AIIR mode (SIFT + Windows)
+aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
+
+# Standalone (Windows only)
 aiir setup client --windows=WIN_IP:4624
 ```
 
-This writes the appropriate MCP configuration entry for your client (Claude Code, Cursor, Goose, OpenCode, etc.) pointing at the Windows workstation's Streamable HTTP endpoint.
+This writes the appropriate MCP configuration entry for your client (Claude Code, Cursor, Goose, OpenCode, etc.) pointing at the Streamable HTTP endpoint.
+
+See [SETUP.md](SETUP.md) for detailed deployment architectures and SMB configuration.
 
 ## MCP Tools (23 total)
 

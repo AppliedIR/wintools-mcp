@@ -1,12 +1,76 @@
 # wintools-mcp Setup Guide
 
+## Security Warning
+
+wintools-mcp opens an HTTP endpoint that allows connected LLM clients to execute forensic tools on this system. **This creates attack vectors where malicious actors could run arbitrary code through the MCP interface.**
+
+This system MUST be:
+- A **dedicated forensic workstation**, not a personal laptop or production system
+- **Isolated behind firewalls** on a trusted network segment with no inbound Internet access
+- Free of sensitive data outside the scope of the current investigation
+- A system you are willing to rebuild if compromised
+
+Any data on this system may be transmitted to the configured AI provider. Never place original evidence on this system. Only use working copies.
+
+The installer requires you to type `security_hole` before proceeding, or pass `-AcknowledgeSecurityHole` for scripted installations. This is an intentional friction point to ensure the operator understands the risk.
+
 ## Prerequisites
 
 - **Python 3.10+** — [python.org/downloads](https://www.python.org/downloads/)
 - **Git** — [git-scm.com](https://git-scm.com/)
 - **.NET Runtime** — Required for Zimmerman tools. [dotnet.microsoft.com](https://dotnet.microsoft.com/download)
 
-## Step 1: Install
+## Automated Install
+
+The recommended approach uses the AIIR installer script:
+
+```powershell
+git clone https://github.com/AppliedIR/aiir.git; cd aiir
+.\scripts\setup-windows.ps1
+```
+
+The installer runs 7 phases: prerequisites, install, examiner identity, tool scan, case directory setup, MCP server start, and auto-start configuration.
+
+### Installer Modes
+
+**AIIR-integrated (default)** — Full platform integration with a SIFT workstation. Case directory accessed via SMB share. Audit trail, evidence, and tool output written to the shared case directory.
+
+```powershell
+.\setup-windows.ps1
+```
+
+**Standalone** — Independent operation without a SIFT workstation. Case directory and audit trail stored locally on this machine.
+
+```powershell
+.\setup-windows.ps1 -Standalone
+```
+
+### Installer Switches
+
+| Switch | Description |
+|--------|-------------|
+| `-AcknowledgeSecurityHole` | Bypass the interactive security prompt (required for `-NonInteractive`) |
+| `-Standalone` | Local case directory instead of SMB to SIFT |
+| `-NonInteractive` | No prompts, use defaults for all options |
+| `-InstallDir PATH` | Installation directory (default: `C:\Tools\aiir`) |
+| `-Examiner NAME` | Examiner slug (default: Windows username) |
+| `-Port PORT` | HTTP server port (default: 4624) |
+| `-Host ADDR` | HTTP bind address (default: 0.0.0.0) |
+
+### Scripted Examples
+
+```powershell
+# Non-interactive AIIR install
+.\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
+
+# Non-interactive standalone
+.\setup-windows.ps1 -Standalone -NonInteractive -AcknowledgeSecurityHole
+
+# Custom directory, examiner, and port
+.\setup-windows.ps1 -InstallDir "D:\Forensics\aiir" -Examiner "steve" -Port 8443 -AcknowledgeSecurityHole
+```
+
+## Manual Install
 
 ```powershell
 git clone https://github.com/AppliedIR/wintools-mcp.git
@@ -18,46 +82,196 @@ pip install -e ".[fk,dev]"
 
 The `[fk]` extra installs [forensic-knowledge](https://github.com/AppliedIR/forensic-knowledge) for artifact caveats and corroboration.
 
-## Step 2: Scan for Forensic Tools
+## Deployment Architectures
 
-```powershell
-python -m wintools_mcp --scan
+### Architecture 1: Solo Analyst (Standalone)
+
+One Windows VM with forensic tools, wintools-mcp, and the LLM client all on the same machine.
+
+```
++----------------------------------------------+
+|  Windows Forensic VM                         |
+|                                              |
+|  LLM Client (Claude Code, Cursor, etc.)     |
+|       |                                      |
+|       v                                      |
+|  wintools-mcp :4624                          |
+|       |                                      |
+|  Forensic Tools (Zimmerman, Hayabusa, etc.)  |
+|                                              |
+|  C:\Tools\aiir\cases\INC-2026-0001\          |
++----------------------------------------------+
 ```
 
-This checks common paths for all cataloged tools and reports what's installed vs missing.
-
-### Installing Missing Tools
-
-**Zimmerman Suite** (recommended — all 14 tools):
+Setup:
 ```powershell
-# Via dotnet (individual tools)
-dotnet tool install --global MFTECmd
-dotnet tool install --global EvtxECmd
-dotnet tool install --global PECmd
-# ... or download the full suite:
-# https://ericzimmerman.github.io/#!index.md
+.\setup-windows.ps1 -Standalone
+# Case dir is local. No SMB needed.
+set AIIR_CASE_DIR=C:\Tools\aiir\cases\INC-2026-0001
 ```
 
-**Hayabusa** (Sigma-based EVTX analysis):
-```powershell
-# Download from GitHub releases
-# https://github.com/Yamato-Security/hayabusa/releases
-# Extract to C:\Tools\Hayabusa\
+### Architecture 2: SIFT + Windows (Typical)
+
+SIFT workstation for Linux forensics and case management. Windows VM for Windows-specific tools. LLM client on the SIFT machine (or a separate analyst workstation) connects to both.
+
+```
++---------------------------+      +---------------------------+
+|  SIFT Workstation         |      |  Windows Forensic VM      |
+|                           |      |                           |
+|  LLM Client               |----->|  wintools-mcp :4624      |
+|  aiir CLI                 |      |  Forensic Tools           |
+|  aiir-gateway :4508       |      |       |                   |
+|  forensic-mcp (stdio)     |      |       | SMB               |
+|  sift-mcp (stdio)         |      |       v                   |
+|  forensic-rag-mcp (stdio) |      |  \\SIFT\cases (mapped)   |
+|                           |      +---------------------------+
+|  /cases/INC-2026-0001/    |
++---------------------------+
 ```
 
-The tool scan output includes install commands and download URLs for each missing tool.
+Setup:
+```powershell
+# On SIFT:
+./setup-sift.sh
 
-## Step 3: Configure
+# On Windows:
+.\setup-windows.ps1
 
-### Option A: Stdio Mode (local LLM client on this machine)
+# Map the SIFT share on Windows:
+net use Z: \\192.168.1.10\cases /persistent:yes
 
-Add to your MCP client configuration (`.mcp.json` for Claude Code):
+# Set case dir:
+set AIIR_CASE_DIR=Z:\INC-2026-0001
 
+# Configure LLM client (on SIFT or analyst machine):
+aiir setup client --sift=192.168.1.10:4508 --windows=192.168.1.20:4624
+```
+
+### Architecture 3: Remote Analyst
+
+LLM client and aiir CLI on a separate analyst workstation. SIFT and Windows VMs run headless.
+
+```
++--------------------+      +--------------------+      +--------------------+
+|  Analyst Machine   |      |  SIFT Workstation  |      |  Windows VM        |
+|                    |      |                    |      |                    |
+|  LLM Client       |----->|  gateway :4508     |      |  wintools :4624    |
+|  aiir CLI          |----->|  MCPs (stdio)      |      |  Forensic Tools    |
+|                    |  |   |  /cases/           |<-----|  SMB               |
+|                    |  |   +--------------------+      +--------------------+
+|                    |  |
+|                    |  +-->  wintools :4624 (direct)
++--------------------+
+```
+
+Setup:
+```powershell
+# On SIFT:
+./setup-sift.sh --remote
+
+# On Windows:
+.\setup-windows.ps1
+
+# On analyst machine:
+pip install aiir
+aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
+```
+
+### Architecture 4: Multi-Examiner Team
+
+Multiple examiners, each with their own SIFT + Windows setup. Shared case directory on NFS or SMB. Each examiner's work is scoped to `examiners/{slug}/`.
+
+```
++--------------------+      +--------------------+
+|  Examiner: steve   |      |  Examiner: jane    |
+|  SIFT + Windows    |      |  SIFT + Windows    |
+|  examiners/steve/  |      |  examiners/jane/   |
++--------+-----------+      +--------+-----------+
+         |                           |
+         v                           v
++----------------------------------------------+
+|  Shared Storage (NFS/SMB)                    |
+|  /cases/INC-2026-0001/                       |
+|    examiners/steve/audit/                    |
+|    examiners/steve/findings.jsonl            |
+|    examiners/jane/audit/                     |
+|    examiners/jane/findings.jsonl             |
++----------------------------------------------+
+```
+
+## Case Directory Setup
+
+### AIIR Mode (SMB to SIFT)
+
+The case directory lives on the SIFT workstation and is shared via Samba.
+
+**On SIFT:**
+```bash
+# Create and share the cases directory
+sudo mkdir -p /cases
+sudo chown $USER:forensics /cases
+
+# Option A: Samba (recommended for Windows)
+# Add to /etc/samba/smb.conf:
+#   [cases]
+#       path = /cases
+#       browsable = yes
+#       writable = yes
+#       valid users = @forensics
+sudo systemctl restart smbd
+
+# Option B: net usershare (simpler, single user)
+sudo net usershare add cases /cases
+```
+
+**On Windows:**
+```powershell
+# Map the share (persistent across reboots)
+net use Z: \\SIFT_IP\cases /persistent:yes
+
+# Set the active case
+set AIIR_CASE_DIR=Z:\INC-2026-0001
+```
+
+When `AIIR_CASE_DIR` is set, wintools-mcp writes audit entries to `examiners\{examiner}\audit\wintools-mcp.jsonl` within the case directory. This is the same directory that SIFT MCPs write to, creating a unified audit trail.
+
+### Standalone Mode (Local)
+
+In standalone mode, cases are stored locally:
+
+```powershell
+# Default location (set during install)
+set AIIR_CASE_DIR=C:\Tools\aiir\cases\INC-2026-0001
+
+# Create case structure
+mkdir C:\Tools\aiir\cases\INC-2026-0001
+```
+
+The examiner directory structure is created automatically when wintools-mcp receives its first tool call with `AIIR_CASE_DIR` set.
+
+## Starting the Server
+
+### HTTP Mode (production, serves to remote clients)
+
+```powershell
+python -m wintools_mcp --http --host 0.0.0.0 --port 4624
+```
+
+Health check: `http://localhost:4624/health`
+MCP endpoint: `http://localhost:4624/mcp`
+
+### Stdio Mode (local LLM client on same machine)
+
+```powershell
+python -m wintools_mcp
+```
+
+Add to `.mcp.json`:
 ```json
 {
   "mcpServers": {
     "wintools-mcp": {
-      "command": "C:\\path\\to\\wintools-mcp\\.venv\\Scripts\\python.exe",
+      "command": "C:\\path\\to\\.venv\\Scripts\\python.exe",
       "args": ["-m", "wintools_mcp"],
       "env": {
         "AIIR_EXAMINER": "steve"
@@ -67,51 +281,10 @@ Add to your MCP client configuration (`.mcp.json` for Claude Code):
 }
 ```
 
-### Option B: Remote Mode (serve to SIFT gateway)
-
-For multi-machine setups where the LLM runs on a SIFT workstation and tools run on Windows:
-
-1. Start wintools-mcp in HTTP mode (when available)
-2. Configure the SIFT gateway to connect to this machine
-
-The `aiir-gateway` config entry:
-```yaml
-wintools-mcp:
-  type: http
-  url: "http://windows-workstation:4624/mcp"
-  bearer_token: "${WINTOOLS_TOKEN}"
-  enabled: true
-```
-
-### Connecting to a Case Share
-
-If cases are stored on a shared filesystem (NFS/SMB from SIFT):
+### Scan-Only Mode (check installed tools)
 
 ```powershell
-# Map the share
-net use Z: \\sift-workstation\cases
-
-# Set per-case
-set AIIR_CASE_DIR=Z:\INC-2026-0001
-```
-
-When `AIIR_CASE_DIR` is set, audit entries are written to `examiners\{examiner}\audit\wintools-mcp.jsonl`.
-
-## Step 4: Verify
-
-```powershell
-# Check Python module loads
-python -c "from wintools_mcp.server import create_server; print('wintools-mcp: ready')"
-
-# Scan for tools
 python -m wintools_mcp --scan
-
-# Run a quick test (if MFTECmd is installed)
-python -c "
-from wintools_mcp.catalog import load_catalog
-cat = load_catalog()
-print(f'Catalog: {len(cat)} tools loaded')
-"
 ```
 
 ## Environment Variables
@@ -136,3 +309,6 @@ print(f'Catalog: {len(cat)} tools loaded')
 | `DeniedBinaryError` | Blocked binary (cmd, powershell, etc.) | These are unconditionally blocked for security |
 | Timeout errors | Tool takes too long | Increase `WINTOOLS_TIMEOUT` or per-tool timeout |
 | Missing forensic-knowledge | Installed without `[fk]` extra | Run `pip install -e ".[fk]"` |
+| SMB share not accessible | Firewall or credentials | Check `net use` status; verify SIFT Samba config |
+| Audit entries not recorded | `AIIR_CASE_DIR` not set | Set `AIIR_CASE_DIR` to active case path |
+| Health check fails | Port conflict or bind error | Check if another process uses port 4624 |

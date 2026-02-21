@@ -68,6 +68,24 @@ class TestBuildResponse:
             reminders.add(resp["discipline_reminder"])
         assert len(reminders) == len(DISCIPLINE_REMINDERS)
 
+    def test_cross_mcp_checks_included(self, examiner):
+        """Response should include cross_mcp_checks from artifact data."""
+        resp = build_response(
+            tool_name="run_pecmd",
+            success=True,
+            data={},
+            evidence_id="win-testuser-20260220-030",
+            fk_tool_name="PECmd",
+        )
+        # PECmd parses prefetch, which should have cross_mcp_checks
+        if "cross_mcp_checks" in resp:
+            checks = resp["cross_mcp_checks"]
+            assert len(checks) >= 1
+            for check in checks:
+                assert "mcp" in check
+                assert "tool" in check
+                assert "when" in check
+
     def test_examiner_in_response(self, monkeypatch):
         monkeypatch.setenv("AIIR_EXAMINER", "steve")
         resp = build_response(

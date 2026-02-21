@@ -65,7 +65,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return result
 
     @server.tool()
-    def suggest_tools(artifact_type: str, question: str = "") -> list[dict]:
+    def suggest_tools(artifact_type: str, question: str = "") -> dict:
         """Suggest tools for analyzing a specific artifact type."""
         from wintools_mcp.tools.discovery import suggest_tools as _suggest
         result = _suggest(artifact_type, question)
