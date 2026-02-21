@@ -157,10 +157,12 @@ Each wrapper resolves the binary, builds the command with `--csv` output, execut
 
 ## Tool Catalog
 
-Tools are defined in YAML catalog files under `data/catalog/`. The catalog currently contains **16 tool entries** across 2 files:
+Tools are defined in YAML catalog files under `data/catalog/`. The catalog currently contains **22 tool entries** across 4 files:
 
 - `zimmerman.yaml` -- 14 tools (AmcacheParser, AppCompatCacheParser, EvtxECmd, JLECmd, LECmd, MFTECmd, PECmd, RBCmd, RECmd, SBECmd, SQLECmd, SrumECmd, WxTCmd, bstrings)
 - `timeline.yaml` -- 2 tools (Hayabusa, mactime)
+- `sysinternals.yaml` -- 2 tools (autorunsc, sigcheck)
+- `memory.yaml` -- 4 tools (winpmem, dumpit, moneta, hollows_hunter)
 
 Each entry defines the binary name, input style, output format, timeout, FK knowledge name, install methods, and search paths:
 

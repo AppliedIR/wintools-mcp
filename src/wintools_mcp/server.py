@@ -47,10 +47,10 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return _list()
 
     @server.tool()
-    def check_tools(tool_names: list[str] = []) -> dict:
+    def check_tools(tool_names: list[str] | None = None) -> dict:
         """Check which tools are installed and available."""
         from wintools_mcp.tools.discovery import check_tools as _check
-        return _check(tool_names=tool_names or None)
+        return _check(tool_names=tool_names)
 
     @server.tool()
     def get_tool_help(tool_name: str) -> dict:
