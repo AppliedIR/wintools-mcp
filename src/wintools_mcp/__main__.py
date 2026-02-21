@@ -44,8 +44,6 @@ def main():
     config.http_host = args.host
     config.http_port = args.port
 
-    server = create_server(config)
-
     if args.http:
         import uvicorn
         from wintools_mcp.http_server import create_http_app
@@ -53,6 +51,7 @@ def main():
         app = create_http_app(config)
         uvicorn.run(app, host=config.http_host, port=config.http_port)
     else:
+        server = create_server(config)
         server.run()
 
 
