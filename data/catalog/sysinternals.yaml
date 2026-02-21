@@ -1,0 +1,64 @@
+category: sysinternals
+tools:
+  - name: autorunsc
+    binary: autorunsc.exe
+    description: "List autostart entries (registry, services, scheduled tasks, etc.)"
+    input_style: flag
+    input_flag: "-a"
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: autorunsc
+    common_flags:
+      - flag: "-a *"
+        description: "Scan all autostart categories"
+      - flag: "-c"
+        description: "Output as CSV"
+      - flag: "-h"
+        description: "Show file hashes"
+      - flag: "-s"
+        description: "Verify digital signatures"
+      - flag: "-v"
+        description: "Query VirusTotal"
+      - flag: "-accepteula"
+        description: "Accept EULA (required for first run)"
+    install_methods:
+      - method: direct
+        url: "https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns"
+        notes: "Download from Sysinternals suite"
+      - method: chocolatey
+        command: "choco install sysinternals"
+    install_paths:
+      - "C:\\Tools\\SysinternalsSuite"
+      - "C:\\SysinternalsSuite"
+
+  - name: sigcheck
+    binary: sigcheck.exe
+    description: "Verify digital signatures and check VirusTotal for files"
+    input_style: positional
+    output_format: csv
+    timeout_seconds: 300
+    fk_tool_name: sigcheck
+    common_flags:
+      - flag: "-c"
+        description: "Output as CSV"
+      - flag: "-e"
+        description: "Scan executable images only"
+      - flag: "-s"
+        description: "Recurse subdirectories"
+      - flag: "-u"
+        description: "Show unsigned files only"
+      - flag: "-v"
+        description: "Query VirusTotal"
+      - flag: "-h"
+        description: "Show file hashes"
+      - flag: "-accepteula"
+        description: "Accept EULA (required for first run)"
+    install_methods:
+      - method: direct
+        url: "https://learn.microsoft.com/en-us/sysinternals/downloads/sigcheck"
+        notes: "Download from Sysinternals suite"
+      - method: chocolatey
+        command: "choco install sysinternals"
+    install_paths:
+      - "C:\\Tools\\SysinternalsSuite"
+      - "C:\\SysinternalsSuite"

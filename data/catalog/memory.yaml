@@ -1,0 +1,78 @@
+category: memory
+tools:
+  - name: winpmem
+    binary: winpmem.exe
+    description: "Acquire physical memory dump for analysis"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 600
+    fk_tool_name: winpmem
+    common_flags:
+      - flag: "-o"
+        description: "Output file path"
+    install_methods:
+      - method: github
+        url: "https://github.com/Velocidex/WinPmem/releases"
+        notes: "Download latest release binary"
+    install_paths:
+      - "C:\\Tools\\Memory"
+      - "C:\\Tools"
+
+  - name: dumpit
+    binary: dumpit.exe
+    description: "One-click physical memory acquisition"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 600
+    fk_tool_name: dumpit
+    install_methods:
+      - method: direct
+        url: "https://www.yourdownloadsite.com"
+        notes: "Download from Magnet Forensics (formerly Comae)"
+    install_paths:
+      - "C:\\Tools\\Memory"
+      - "C:\\Tools"
+
+  - name: moneta
+    binary: moneta64.exe
+    description: "Detect malware through virtual memory analysis (injected threads, hollowed processes)"
+    input_style: flag
+    input_flag: "--pid"
+    output_format: text
+    timeout_seconds: 300
+    fk_tool_name: moneta
+    common_flags:
+      - flag: "-a"
+        description: "Scan all processes"
+      - flag: "--option"
+        description: "Filter option (from-base, ioc, etc.)"
+    install_methods:
+      - method: github
+        url: "https://github.com/forrest-orr/moneta/releases"
+        notes: "Download pre-built binary"
+    install_paths:
+      - "C:\\Tools\\Memory"
+      - "C:\\Tools"
+
+  - name: hollows_hunter
+    binary: hollows_hunter.exe
+    description: "Scan running processes for hollowed/injected code using PE-sieve"
+    input_style: flag
+    input_flag: "/pid"
+    output_format: text
+    timeout_seconds: 300
+    fk_tool_name: hollows_hunter
+    common_flags:
+      - flag: "/loop"
+        description: "Continuous scanning mode"
+      - flag: "/dir"
+        description: "Output directory for dumps"
+      - flag: "/json"
+        description: "Output results as JSON"
+    install_methods:
+      - method: github
+        url: "https://github.com/hasherezade/hollows_hunter/releases"
+        notes: "Download pre-built binary"
+    install_paths:
+      - "C:\\Tools\\Memory"
+      - "C:\\Tools"

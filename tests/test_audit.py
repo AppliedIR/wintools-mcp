@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 import pytest
 
 from wintools_mcp.audit import AuditWriter, resolve_examiner
@@ -32,10 +33,10 @@ class TestEvidenceIds:
         monkeypatch.setenv("AIIR_EXAMINER", "jane")
         audit = AuditWriter()
         eid = audit._next_evidence_id()
-        assert eid.startswith("win-jane-")
+        assert eid.startswith("wintools-jane-")
         parts = eid.split("-")
         assert len(parts) == 4
-        assert parts[0] == "win"
+        assert parts[0] == "wintools"
         assert parts[1] == "jane"
         assert len(parts[2]) == 8  # YYYYMMDD
         assert len(parts[3]) == 3  # NNN
@@ -69,7 +70,7 @@ class TestAuditWriting:
             params={"input_file": "Amcache.hve"},
             result_summary={"exit_code": 0},
         )
-        assert eid.startswith("win-testuser-")
+        assert eid.startswith("wintools-testuser-")
 
         log_file = case_dir / "examiners" / "testuser" / "audit" / "wintools-mcp.jsonl"
         assert log_file.exists()
@@ -152,3 +153,25 @@ class TestAuditRetrieval:
         audit = AuditWriter()
         entries = audit.get_entries()
         assert entries == []
+
+
+class TestThreadSafety:
+
+    def test_concurrent_log_calls(self, case_dir, examiner):
+        audit = AuditWriter()
+        ids = []
+        lock = threading.Lock()
+
+        def log_one():
+            eid = audit.log(tool="test", params={}, result_summary={})
+            with lock:
+                ids.append(eid)
+
+        threads = [threading.Thread(target=log_one) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(ids) == 10
+        assert len(set(ids)) == 10  # all unique

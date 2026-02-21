@@ -168,7 +168,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
   "tool": "run_amcacheparser",
   "data": {"Amcache_UnassociatedFileEntries": {"rows": ["..."], "total_rows": 42}},
   "output_format": "parsed_csv",
-  "evidence_id": "win-steve-20260220-001",
+  "evidence_id": "wintools-steve-20260220-001",
   "examiner": "steve",
   "caveats": [
     "Amcache entries indicate installation, not necessarily execution",
@@ -186,7 +186,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 
 | Field | Source | Description |
 |-------|--------|-------------|
-| `evidence_id` | Audit | Unique identifier (`win-{examiner}-{YYYYMMDD}-{NNN}`) |
+| `evidence_id` | Audit | Unique identifier (`wintools-{examiner}-{YYYYMMDD}-{NNN}`) |
 | `caveats` | forensic-knowledge | Artifact-specific limitations and interpretation warnings |
 | `advisories` | forensic-knowledge | Usage guidance and common misinterpretation corrections |
 | `corroboration` | forensic-knowledge | Suggested cross-reference artifacts and tools |
@@ -224,7 +224,7 @@ Pass via `--config path/to/config.yaml`. Environment variables override YAML val
 
 ### Audit Trail
 
-When `AIIR_CASE_DIR` is set, every tool execution is logged to `examiners/{examiner}/audit/wintools-mcp.jsonl`. Evidence IDs follow the format `win-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
+When `AIIR_CASE_DIR` is set, every tool execution is logged to `examiners/{examiner}/audit/wintools-mcp.jsonl`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
 
 ## Security Considerations
 

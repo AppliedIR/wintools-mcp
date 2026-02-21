@@ -1,4 +1,8 @@
-"""Audit trail writer for wintools-mcp. Writes per-MCP JSONL files."""
+"""Audit trail writer for wintools-mcp.
+
+Each MCP writes to its own JSONL file in the case audit directory.
+Canonical implementation — copied (not imported) into each MCP repo.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,7 @@ import getpass
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,40 +30,61 @@ def resolve_examiner() -> str:
 
 
 class AuditWriter:
+    """Writes audit entries to a per-MCP JSONL file.
+
+    Thread-safe: sequence counter protected by lock,
+    file writes wrapped in try/except with fsync for durability.
+    """
+
     def __init__(self, mcp_name: str = "wintools-mcp") -> None:
         self.mcp_name = mcp_name
         self._sequence = 0
         self._date_str = ""
+        self._lock = threading.Lock()
 
     @property
     def examiner(self) -> str:
         return resolve_examiner()
 
     def _get_audit_dir(self) -> Path | None:
+        """Get the audit directory from AIIR_CASE_DIR env var."""
         case_dir = os.environ.get("AIIR_CASE_DIR")
         if not case_dir:
             return None
-        audit_dir = Path(case_dir) / "examiners" / self.examiner / "audit"
+        path = Path(case_dir)
+        if not path.is_dir():
+            logger.warning("AIIR_CASE_DIR=%s is not a directory, skipping audit", case_dir)
+            return None
+        audit_dir = path / "examiners" / self.examiner / "audit"
         audit_dir.mkdir(parents=True, exist_ok=True)
         return audit_dir
 
     def _next_evidence_id(self) -> str:
+        """Generate next evidence ID: {prefix}-{examiner}-{date}-{seq}."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
-        if today != self._date_str:
-            self._date_str = today
-            self._sequence = self._resume_sequence(today)
-        self._sequence += 1
-        return f"win-{self.examiner}-{today}-{self._sequence:03d}"
+        with self._lock:
+            if today != self._date_str:
+                self._date_str = today
+                self._sequence = self._resume_sequence(today)
+            self._sequence += 1
+            seq = self._sequence
+        prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
+        return f"{prefix}-{self.examiner}-{today}-{seq:03d}"
 
     def _resume_sequence(self, date_str: str) -> int:
-        """Scan existing audit JSONL for highest sequence on this date."""
+        """Scan existing audit JSONL for highest sequence on this date.
+
+        Prevents duplicate evidence IDs after server restart.
+        Must be called under self._lock.
+        """
         audit_dir = self._get_audit_dir()
         if not audit_dir:
             return 0
         log_file = audit_dir / f"{self.mcp_name}.jsonl"
         if not log_file.exists():
             return 0
-        pattern = f"win-{self.examiner}-{date_str}-"
+        prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
+        pattern = f"{prefix}-{self.examiner}-{date_str}-"
         max_seq = 0
         try:
             for line in log_file.read_text().strip().split("\n"):
@@ -82,13 +108,14 @@ class AuditWriter:
     def log(
         self,
         tool: str,
-        params: dict,
+        params: dict[str, Any],
         result_summary: Any,
         source: str = "mcp_server",
         evidence_id: str | None = None,
         case_id: str | None = None,
         elapsed_ms: float | None = None,
     ) -> str:
+        """Write an audit entry. Returns the evidence_id."""
         if evidence_id is None:
             evidence_id = self._next_evidence_id()
 
@@ -106,18 +133,27 @@ class AuditWriter:
         if elapsed_ms is not None:
             entry["elapsed_ms"] = round(elapsed_ms, 1)
 
+        self._write_entry(entry)
+        return evidence_id
+
+    def _write_entry(self, entry: dict) -> None:
+        """Write a single audit entry to the JSONL file with fsync."""
         audit_dir = self._get_audit_dir()
-        if audit_dir:
-            log_file = audit_dir / f"{self.mcp_name}.jsonl"
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, default=str) + "\n")
-        else:
+        if not audit_dir:
             logger.debug(
                 "No AIIR_CASE_DIR set, audit entry not written: %s/%s",
                 self.mcp_name,
-                tool,
+                entry.get("tool"),
             )
-        return evidence_id
+            return
+        try:
+            log_file = audit_dir / f"{self.mcp_name}.jsonl"
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, default=str) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except OSError as e:
+            logger.warning("Failed to write audit entry: %s", e)
 
     def get_entries(
         self, since: str | None = None, case_id: str | None = None
@@ -146,8 +182,15 @@ class AuditWriter:
                 entries.append(entry)
         return entries
 
+    def reset_counter(self) -> None:
+        """Reset the evidence ID counter. For testing only."""
+        with self._lock:
+            self._sequence = 0
+            self._date_str = ""
+
 
 def _summarize(result: Any) -> Any:
+    """Truncate large results for audit log."""
     if isinstance(result, dict):
         return result
     if isinstance(result, list):

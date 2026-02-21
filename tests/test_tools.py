@@ -102,7 +102,7 @@ class TestZimmermanTools:
 
         assert result["success"] is True
         assert result["examiner"] == "testuser"
-        assert result["evidence_id"].startswith("win-testuser-")
+        assert result["evidence_id"].startswith("wintools-testuser-")
         assert "Amcache_UnassociatedFileEntries" in result["data"]
 
     def test_tool_not_found_includes_guidance(self, zimmerman_catalog):
@@ -171,4 +171,4 @@ class TestTimelineTools:
             result = tools["run_mactime"]("body.txt")
 
         assert result["success"] is True
-        assert result["evidence_id"].startswith("win-testuser-")
+        assert result["evidence_id"].startswith("wintools-testuser-")

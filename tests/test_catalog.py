@@ -182,3 +182,86 @@ class TestCatalogLoading:
         # After clear, next load should re-read
         catalog = load_catalog()
         assert len(catalog) > 0
+
+
+class TestSysinternalsCatalog:
+    """Tests for sysinternals.yaml catalog entries."""
+
+    @pytest.fixture(autouse=True)
+    def _use_real_catalog(self, monkeypatch):
+        """Use the real catalog directory for these tests."""
+        clear_catalog_cache()
+        monkeypatch.delenv("WINTOOLS_CATALOG_DIR", raising=False)
+        yield
+        clear_catalog_cache()
+
+    def test_sysinternals_catalog_loads(self):
+        catalog = load_catalog()
+        sysinternals = [td for td in catalog.values() if td.category == "sysinternals"]
+        assert len(sysinternals) == 2
+
+    def test_autorunsc_in_catalog(self):
+        td = get_tool_def("autorunsc")
+        assert td is not None
+        assert td.binary == "autorunsc.exe"
+        assert td.fk_tool_name == "autorunsc"
+        assert td.output_format == "csv"
+
+    def test_sigcheck_in_catalog(self):
+        td = get_tool_def("sigcheck")
+        assert td is not None
+        assert td.binary == "sigcheck.exe"
+        assert td.fk_tool_name == "sigcheck"
+
+    def test_autorunsc_allowed(self):
+        result = validate_command(["autorunsc.exe", "-a", "*", "-c", "-accepteula"])
+        assert result is None
+
+    def test_sigcheck_allowed(self):
+        result = validate_command(["sigcheck.exe", "-c", "-e", "C:\\Windows\\System32"])
+        assert result is None
+
+
+class TestMemoryCatalog:
+    """Tests for memory.yaml catalog entries."""
+
+    @pytest.fixture(autouse=True)
+    def _use_real_catalog(self, monkeypatch):
+        """Use the real catalog directory for these tests."""
+        clear_catalog_cache()
+        monkeypatch.delenv("WINTOOLS_CATALOG_DIR", raising=False)
+        yield
+        clear_catalog_cache()
+
+    def test_memory_catalog_loads(self):
+        catalog = load_catalog()
+        memory_tools = [td for td in catalog.values() if td.category == "memory"]
+        assert len(memory_tools) == 4
+
+    def test_winpmem_in_catalog(self):
+        td = get_tool_def("winpmem")
+        assert td is not None
+        assert td.binary == "winpmem.exe"
+        assert td.fk_tool_name == "winpmem"
+
+    def test_moneta_in_catalog(self):
+        td = get_tool_def("moneta")
+        assert td is not None
+        assert td.binary == "moneta64.exe"
+        assert td.input_flag == "--pid"
+
+    def test_hollows_hunter_in_catalog(self):
+        td = get_tool_def("hollows_hunter")
+        assert td is not None
+        assert td.binary == "hollows_hunter.exe"
+        assert td.input_flag == "/pid"
+
+    def test_dumpit_in_catalog(self):
+        td = get_tool_def("dumpit")
+        assert td is not None
+        assert td.binary == "dumpit.exe"
+
+    def test_memory_tools_allowed(self):
+        for binary in ("winpmem.exe", "dumpit.exe", "moneta64.exe", "hollows_hunter.exe"):
+            result = validate_command([binary, "--help"])
+            assert result is None, f"{binary} should be allowed"
