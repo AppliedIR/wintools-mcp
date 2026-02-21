@@ -74,11 +74,16 @@ All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML cat
 On the Windows forensic workstation:
 
 ```powershell
-git clone https://github.com/AppliedIR/aiir.git; cd aiir
+# With git
+git clone https://github.com/AppliedIR/wintools-mcp.git; cd wintools-mcp
 .\scripts\setup-windows.ps1
+
+# Without git
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/AppliedIR/wintools-mcp/main/scripts/setup-windows.ps1" -OutFile setup-windows.ps1
+.\setup-windows.ps1
 ```
 
-The installer requires a security acknowledgment before proceeding. It runs 7 phases: prerequisites, install, examiner identity, tool scan, case directory, server start, and auto-start.
+The installer requires typing `security_hole` (or `-AcknowledgeSecurityHole`) before proceeding. It runs 7 phases: prerequisites, install, examiner identity, tool scan, case directory, server start, and auto-start.
 
 Two modes are supported:
 
