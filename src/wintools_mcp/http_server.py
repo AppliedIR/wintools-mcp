@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# ASGI-level auth wrapper (same pattern as aiir-gateway)
+# ASGI-level auth wrapper (same pattern as sift-gateway)
 # ---------------------------------------------------------------------------
 
 class MCPAuthASGIApp:

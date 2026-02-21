@@ -74,16 +74,9 @@ All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML cat
 On the Windows forensic workstation:
 
 ```powershell
-# With git
 git clone https://github.com/AppliedIR/wintools-mcp.git; cd wintools-mcp
 .\scripts\setup-windows.ps1
-
-# Without git
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/AppliedIR/wintools-mcp/main/scripts/setup-windows.ps1" -OutFile setup-windows.ps1
-.\setup-windows.ps1
 ```
-
-The installer requires typing `security_hole` (or `-AcknowledgeSecurityHole`) before proceeding. It runs 7 phases: prerequisites, install, examiner identity, tool scan, case directory, server start, and auto-start.
 
 Two modes are supported:
 
@@ -277,7 +270,7 @@ Case directories can reside on external or removable media. ext4 is preferred fo
 
 ## Responsible Use
 
-This project demonstrates the capabilities of AI-assisted incident response. While steps have been taken to enforce human-in-the-loop controls, it is ultimately the responsibility of each examiner to ensure that their findings are accurate and complete. Ultimate responsibility rests with the human. The AI, like a hex editor, is a tool to be used by properly trained incident response professionals. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies.
+This project demonstrates the capabilities of Artificial Intelligence Incident Response (AIIR). While steps have been taken to enforce human-in-the-loop controls, it is ultimately the responsibility of each examiner to ensure that their findings are accurate and complete. Ultimate responsibility rests with the human. The AI, like a hex editor, is a tool to be used by properly trained incident response professionals. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies.
 
 ## Acknowledgments
 

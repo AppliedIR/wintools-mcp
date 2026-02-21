@@ -136,7 +136,7 @@ function Read-Prompt {
 function Read-YesNo {
     param([string]$Message, [bool]$Default = $true)
     if ($NonInteractive) { return $Default }
-    $suffix = if ($Default) { "[Y/n]" } else { "[y/N]" }
+    $suffix = $(if ($Default) { "[Y/n]" } else { "[y/N]" })
     $answer = Read-Host "$Message $suffix"
     if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
     return $answer.ToLower().StartsWith("y")
@@ -148,7 +148,7 @@ function Read-YesNo {
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor White
-Write-Host "  AIIR - Applied Incident Response Platform" -ForegroundColor White
+Write-Host "  AIIR - Artificial Intelligence Incident Response" -ForegroundColor White
 Write-Host "  Windows Workstation Installer" -ForegroundColor White
 Write-Host "============================================================" -ForegroundColor White
 Write-Host ""
@@ -288,7 +288,7 @@ if (-not $hasDotnet) {
 # Network
 try {
     if ($hasGit) {
-        git ls-remote https://github.com/AppliedIR/aiir.git HEAD 2>$null | Out-Null
+        git ls-remote https://github.com/AppliedIR/wintools-mcp.git HEAD 2>$null | Out-Null
     } else {
         $null = Invoke-WebRequest -Uri "https://github.com/AppliedIR" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
     }
@@ -365,7 +365,7 @@ if (-not (Test-Path $venvDir)) {
 & $venvPython -m pip install --progress-bar off --upgrade pip 2>$null
 
 # Install wintools-mcp without FK first (always works)
-& $venvPython -m pip install --progress-bar off -e "$wintoolsDir[dev]"
+& $venvPython -m pip install --progress-bar off -e "$wintoolsDir"
 
 # Try to install forensic-knowledge (best-effort)
 $fkDir = Join-Path $InstallDir "forensic-knowledge"

@@ -22,10 +22,10 @@ The installer requires you to type `security_hole` before proceeding, or pass `-
 
 ## Automated Install
 
-The recommended approach uses the AIIR installer script:
+The recommended approach uses the installer script:
 
 ```powershell
-git clone https://github.com/AppliedIR/aiir.git; cd aiir
+git clone https://github.com/AppliedIR/wintools-mcp.git; cd wintools-mcp
 .\scripts\setup-windows.ps1
 ```
 
@@ -80,7 +80,7 @@ python -m venv .venv
 pip install -e ".[fk,dev]"
 ```
 
-The `[fk]` extra installs [forensic-knowledge](https://github.com/AppliedIR/forensic-knowledge) for artifact caveats and corroboration.
+The `[fk]` extra installs [forensic-knowledge](https://github.com/AppliedIR/sift-mcp/tree/main/packages/forensic-knowledge) for artifact caveats and corroboration.
 
 ## Deployment Architectures
 
@@ -120,7 +120,7 @@ SIFT workstation for Linux forensics and case management. Windows VM for Windows
 |                           |      |                           |
 |  LLM Client               |----->|  wintools-mcp :4624      |
 |  aiir CLI                 |      |  Forensic Tools           |
-|  aiir-gateway :4508       |      |       |                   |
+|  sift-gateway :4508       |      |       |                   |
 |  forensic-mcp (stdio)     |      |       | SMB               |
 |  sift-mcp (stdio)         |      |       v                   |
 |  forensic-rag-mcp (stdio) |      |  \\SIFT\cases (mapped)   |
