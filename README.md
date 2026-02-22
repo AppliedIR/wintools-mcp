@@ -149,8 +149,8 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 ```json
 {
   "success": true,
-  "tool": "run_amcacheparser",
-  "data": {"Amcache_UnassociatedFileEntries": {"rows": ["..."], "total_rows": 42}},
+  "tool": "run_command",
+  "data": {"output": {"rows": ["..."], "total_rows": 42}},
   "output_format": "parsed_csv",
   "evidence_id": "wintools-steve-20260220-001",
   "examiner": "steve",
@@ -208,17 +208,51 @@ Pass via `--config path/to/config.yaml`. Environment variables override YAML val
 | `tool_paths` | `[]` | Additional binary search directories |
 | `api_keys` | `{}` | API keys for Bearer token authentication |
 
+### Bearer Token Authentication
+
+All API requests require a valid bearer token. Tokens are generated during installation with the `aiir_wt_` prefix (24 hex characters, 96 bits of entropy). The token is stored in `config.yaml` under `api_keys` and displayed post-install for the examiner to copy to their SIFT gateway configuration.
+
+```yaml
+# config.yaml (on Windows)
+api_keys:
+  aiir_wt_a1b2c3d4e5f6a1b2c3d4e5f6:
+    examiner: "default"
+    role: "examiner"
+```
+
+Every request must include the `Authorization: Bearer <token>` header. Requests without a valid token receive a 401 response. Use `--no-auth` during development only.
+
+### Connecting from the SIFT Gateway
+
+To route tool calls through the SIFT gateway, add a wintools backend entry to `gateway.yaml` on the SIFT workstation:
+
+```yaml
+backends:
+  wintools-mcp:
+    type: http
+    url: "http://WIN_IP:4624/mcp"
+    bearer_token: "aiir_wt_..."
+```
+
+Alternatively, `aiir setup` prompts for the Windows VM address and token during interactive configuration.
+
+LLM clients can also connect directly to wintools-mcp without going through the gateway, using the same bearer token in their MCP client configuration.
+
 ### Audit Trail
 
 Every tool execution is logged to the audit directory. Resolution order: explicit `audit_dir` constructor parameter > `AIIR_AUDIT_DIR` env var > `AIIR_CASE_DIR/audit/`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
 
 ## Security Considerations
 
-All AIIR components are assumed to run on a private forensic network, protected by firewalls, and not exposed to incoming connections from the Internet or potentially hostile systems. The design assumes dedicated, isolated systems are used throughout.
+All AIIR components are assumed to run on an isolated forensic network, protected by firewalls, and not exposed to the Internet or untrusted systems. wintools-mcp accepts incoming connections from the SIFT gateway and LLM clients within this network. These inter-component connections are expected and intentional. The system must never be exposed to networks outside the forensic environment.
 
-Any data loaded into the system or its component VMs, computers, or instances runs the risk of being exposed to the underlying AI. Only place data on these systems that you are willing to send to your AI provider.
+All API requests require a valid bearer token (`aiir_wt_` prefix). Tokens are generated during installation and must be securely transferred to the SIFT gateway configuration or LLM client setup. The `--no-auth` flag is for development only and must not be used in any environment with real evidence.
 
-While outgoing connections to the Internet are used for some optional components (OpenCTI, MS Learn MCP, Zeltser IR Writing MCP), no incoming connections from external systems should be allowed.
+Any data loaded into the system runs the risk of being exposed to the underlying AI. Only place data on these systems that you are willing to send to your AI provider.
+
+wintools-mcp parses forensic artifacts (registry hives, event logs, prefetch files, memory dumps) that may contain hostile content crafted by an attacker. Tools run as subprocesses with `shell=False` and catalog-gated execution to limit attack surface. The hardcoded denylist, catalog allowlist, and argument sanitization are defense-in-depth measures, not preventative controls.
+
+Case directory access via SMB share should use authenticated connections. The share should be restricted to the AIIR components that need access. Read-only access is sufficient for evidence files; write access is needed for extractions and audit entries.
 
 ## Evidence Handling
 
@@ -230,7 +264,7 @@ Case directories can reside on external or removable media. ext4 is preferred fo
 
 ## Responsible Use
 
-This project demonstrates the capabilities of Artificial Intelligence Incident Response (AIIR). While steps have been taken to enforce human-in-the-loop controls, it is ultimately the responsibility of each examiner to ensure that their findings are accurate and complete. Ultimate responsibility rests with the human. The AI, like a hex editor, is a tool to be used by properly trained incident response professionals. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies.
+This project demonstrates the capabilities of AI-assisted incident response. While steps have been taken to enforce human-in-the-loop controls, it is ultimately the responsibility of each examiner to ensure that their findings are accurate and complete. Ultimate responsibility rests with the human. The AI, like a hex editor, is a tool to be used by properly trained incident response professionals. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies.
 
 ## Acknowledgments
 
