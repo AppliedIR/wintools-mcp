@@ -17,6 +17,9 @@ from wintools_mcp.server import create_server
 
 logger = logging.getLogger(__name__)
 
+# Maximum length for bearer tokens (DoS protection)
+_MAX_TOKEN_LENGTH = 1024
+
 
 # ---------------------------------------------------------------------------
 # ASGI-level auth wrapper (same pattern as sift-gateway)
@@ -48,11 +51,21 @@ class MCPAuthASGIApp:
             await resp(scope, receive, send)
             return
 
+        # Length check: reject excessively long tokens before timing-safe comparison
+        if len(token) > _MAX_TOKEN_LENGTH:
+            logger.warning("Rejected oversized bearer token (%d bytes)", len(token))
+            resp = JSONResponse(
+                {"error": "Invalid API key"},
+                status_code=403,
+            )
+            await resp(scope, receive, send)
+            return
+
+        # Timing-safe key lookup: iterate ALL keys to prevent timing leaks
         matched_key = None
         for candidate in self.api_keys:
-            if hmac.compare_digest(token, candidate):
+            if hmac.compare_digest(token, candidate) and matched_key is None:
                 matched_key = candidate
-                break
 
         if matched_key is None:
             resp = JSONResponse({"error": "Invalid API key"}, status_code=403)

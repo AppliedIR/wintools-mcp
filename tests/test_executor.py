@@ -1,8 +1,11 @@
 """Tests for executor module."""
 
+import os
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch, MagicMock
-from wintools_mcp.executor import execute, _truncate
+from wintools_mcp.executor import execute, _truncate, _validate_output_dir, _BLOCKED_OUTPUT_DIRS
 from wintools_mcp.exceptions import ExecutionError, TimeoutError
 
 
@@ -72,3 +75,92 @@ class TestExecutor:
 
         assert "output_file" in result
         assert "output_sha256" in result
+
+    def test_save_output_blocked_dir(self, tmp_path):
+        """S-H4: saving output to a blocked Windows system directory raises ValueError."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "output"
+        mock_result.stderr = ""
+
+        # On Linux, C:\Windows resolves to a POSIX path. Patch Path.resolve
+        # to return a Windows-style path so we can test the blocking logic.
+        fake_resolved = Path(r"C:\Windows\Temp\evil")
+        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result), \
+             patch("wintools_mcp.executor.Path.resolve", return_value=fake_resolved):
+            with pytest.raises(ValueError, match="Output directory blocked"):
+                execute(
+                    ["test"],
+                    save_output=True,
+                    save_dir=r"C:\Windows\Temp\evil",
+                )
+
+    def test_save_output_safe_dir(self, tmp_path):
+        """S-H4: saving to a non-blocked directory succeeds."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "safe output"
+        mock_result.stderr = ""
+
+        save_dir = str(tmp_path / "safe_output")
+        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+            result = execute(["test"], save_output=True, save_dir=save_dir)
+
+        assert "output_file" in result
+
+
+class TestValidateOutputDir:
+    """S-H4: unit tests for _validate_output_dir.
+
+    _validate_output_dir receives an already-resolved Path. On Linux, we pass
+    PurePosixPath-style strings that mimic Windows resolved paths so the
+    case-insensitive string comparison logic is exercised correctly.
+    """
+
+    def _win_path(self, p: str) -> Path:
+        """Create a Path from a Windows-style string without resolving it.
+
+        On Linux, Path(r"C:\\Windows") becomes a valid PosixPath with literal
+        backslashes in the name. The validation function converts to str and
+        replaces forward slashes with os.sep, then lowercases. To test
+        correctly on Linux we pass a Path whose str() matches the blocked
+        prefix pattern after the normalize step.
+        """
+        return Path(p)
+
+    def test_blocked_windows_dir(self):
+        with pytest.raises(ValueError, match="Output directory blocked"):
+            _validate_output_dir(self._win_path(r"C:\Windows\System32"))
+
+    def test_blocked_program_files(self):
+        with pytest.raises(ValueError, match="Output directory blocked"):
+            _validate_output_dir(self._win_path(r"C:\Program Files\MyApp"))
+
+    def test_blocked_program_files_x86(self):
+        with pytest.raises(ValueError, match="Output directory blocked"):
+            _validate_output_dir(self._win_path(r"C:\Program Files (x86)\MyApp"))
+
+    def test_blocked_programdata(self):
+        with pytest.raises(ValueError, match="Output directory blocked"):
+            _validate_output_dir(self._win_path(r"C:\ProgramData\secrets"))
+
+    def test_blocked_exact_match(self):
+        with pytest.raises(ValueError, match="Output directory blocked"):
+            _validate_output_dir(self._win_path(r"C:\Windows"))
+
+    def test_case_insensitive(self):
+        """Windows paths are case-insensitive; c:\\windows should also be blocked."""
+        with pytest.raises(ValueError, match="Output directory blocked"):
+            _validate_output_dir(self._win_path(r"c:\windows\temp"))
+
+    def test_allowed_path(self, tmp_path):
+        """Normal temp paths should pass validation."""
+        _validate_output_dir(tmp_path / "output")
+
+    def test_allowed_c_drive_root(self):
+        """C:\\ itself is allowed — only specific subdirectories are blocked."""
+        _validate_output_dir(self._win_path(r"C:\Cases\output"))
+
+    def test_partial_name_not_blocked(self):
+        """C:\\WindowsUpdate should NOT match C:\\Windows."""
+        _validate_output_dir(self._win_path(r"C:\WindowsUpdate\output"))

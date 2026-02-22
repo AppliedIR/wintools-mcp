@@ -16,6 +16,30 @@ from wintools_mcp.exceptions import ExecutionError, TimeoutError
 
 logger = logging.getLogger(__name__)
 
+# Blocked output directories — Windows system paths that should never be
+# used as save_dir targets.  Comparison is case-insensitive (Windows norm).
+_BLOCKED_OUTPUT_DIRS = (
+    r"C:\Windows",
+    r"C:\Program Files",
+    r"C:\Program Files (x86)",
+    r"C:\ProgramData",
+)
+
+
+def _validate_output_dir(resolved_path: Path) -> None:
+    """Raise ValueError if resolved_path is inside a blocked system directory."""
+    # Normalise: lowercase + canonical backslash separator (Windows convention).
+    # We normalise both forward and backslashes to backslash so the check works
+    # regardless of which platform runs the code or how the path was constructed.
+    norm = str(resolved_path).replace("/", "\\").lower()
+    for blocked in _BLOCKED_OUTPUT_DIRS:
+        blocked_lower = blocked.replace("/", "\\").lower()
+        if norm == blocked_lower or norm.startswith(blocked_lower + "\\"):
+            raise ValueError(
+                f"Output directory blocked: '{resolved_path}' is inside "
+                f"protected system directory '{blocked}'"
+            )
+
 
 def execute(
     cmd_list: list[str],
@@ -111,7 +135,10 @@ def _save_output(
         return
     try:
         out_dir = Path(save_dir).resolve()
+        _validate_output_dir(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
+    except ValueError:
+        raise
     except OSError as e:
         logger.warning("Failed to create output directory %s: %s", save_dir, e)
         return
