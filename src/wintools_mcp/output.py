@@ -10,6 +10,25 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def to_share_relative(absolute_path: str, share_root: str) -> str:
+    """Convert an absolute path to a share-relative path.
+
+    If share_root is set and the path starts with it, strip the prefix.
+    Otherwise return the path as-is (solo mode, no share).
+    Normalizes backslashes to forward slashes.
+    """
+    if not share_root:
+        return absolute_path.replace("\\", "/")
+    # Normalize both paths for comparison
+    norm_path = absolute_path.replace("\\", "/").rstrip("/")
+    norm_root = share_root.replace("\\", "/").rstrip("/")
+    if norm_path.startswith(norm_root + "/"):
+        return norm_path[len(norm_root) + 1:]
+    if norm_path.lower().startswith(norm_root.lower() + "/"):
+        return norm_path[len(norm_root) + 1:]
+    return absolute_path.replace("\\", "/")
+
+
 def get_output_dir(working_dir: str, evidence_id: str) -> Path:
     """Get the per-evidence-ID output directory, creating it if needed."""
     out_dir = Path(working_dir) / "output" / evidence_id

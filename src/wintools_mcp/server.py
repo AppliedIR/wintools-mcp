@@ -23,7 +23,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         config = get_config()
 
     server = FastMCP("wintools-mcp")
-    audit = AuditWriter(mcp_name="wintools-mcp")
+    audit = AuditWriter(mcp_name="wintools-mcp", audit_dir=config.audit_dir or None)
 
     # --- Discovery ---
     @server.tool()
@@ -159,11 +159,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             )
             return response
 
-    # --- Register tool-specific modules ---
-    from wintools_mcp.tools.zimmerman import register_zimmerman_tools
-    from wintools_mcp.tools.timeline import register_timeline_tools
-
-    register_zimmerman_tools(server, audit)
-    register_timeline_tools(server, audit)
+    # Per-tool wrappers removed in FU-3 consolidation.
+    # All tool execution goes through run_command() which validates
+    # against the catalog and sanitizes arguments.
 
     return server

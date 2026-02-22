@@ -44,6 +44,7 @@ def build_response(
     error: str | None = None,
     fk_tool_name: str | None = None,
     output_files: list[dict] | None = None,
+    extractions: list[str] | None = None,
 ) -> dict:
     call_num = next(_call_counter)
 
@@ -61,6 +62,9 @@ def build_response(
 
     if output_files:
         response["output_files"] = output_files
+
+    if extractions:
+        response["extractions"] = extractions
 
     # FK enrichment
     fk_name = fk_tool_name or tool_name

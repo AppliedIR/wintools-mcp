@@ -33,6 +33,8 @@ class WintoolsConfig:
     case_dir: str = ""
     active_case: str = ""          # Maps to case_id in audit entries
     examiner: str = ""             # Primary identity — set once at startup, immutable
+    share_root: str = ""           # SMB mount root (e.g., E:\cases\SRL2\) for share-relative paths
+    audit_dir: str = ""            # Local audit directory (default: AIIR_CASE_DIR/audit/)
 
     # HTTP mode
     http_host: str = "127.0.0.1"
@@ -59,6 +61,8 @@ class WintoolsConfig:
             pass  # Keep YAML or default value
         cfg.case_dir = os.environ.get("AIIR_CASE_DIR", cfg.case_dir)
         cfg.active_case = os.environ.get("AIIR_ACTIVE_CASE", cfg.active_case)
+        cfg.share_root = os.environ.get("AIIR_SHARE_ROOT", cfg.share_root)
+        cfg.audit_dir = os.environ.get("AIIR_AUDIT_DIR", cfg.audit_dir)
 
         # Examiner identity: AIIR_EXAMINER > AIIR_ANALYST (deprecated) > OS username
         # Set once at startup, immutable for process lifetime.
@@ -126,6 +130,8 @@ class WintoolsConfig:
             logger.warning("Invalid port %r in config, using default %d", port, self.http_port)
         self.file_transfer_enabled = doc.get("file_transfer_enabled", self.file_transfer_enabled)
         self.working_dir = doc.get("working_dir", self.working_dir)
+        self.share_root = doc.get("share_root", self.share_root)
+        self.audit_dir = doc.get("audit_dir", self.audit_dir)
         self.max_upload_bytes = doc.get("max_upload_bytes", self.max_upload_bytes)
         hayabusa = doc.get("hayabusa_dir")
         if hayabusa:

@@ -68,27 +68,18 @@ class TestCreateServer:
         tool_names = [t.name for t in server._tool_manager._tools.values()]
         assert "run_command" in tool_names
 
-    def test_server_has_zimmerman_tools(self, test_catalog):
+    def test_no_per_tool_wrappers(self, test_catalog):
+        """Per-tool wrappers removed in FU-3 consolidation."""
         config = WintoolsConfig()
         server = create_server(config)
         tool_names = [t.name for t in server._tool_manager._tools.values()]
-        assert "run_amcacheparser" in tool_names
-
-    def test_server_has_timeline_tools(self, test_catalog):
-        config = WintoolsConfig()
-        server = create_server(config)
-        tool_names = [t.name for t in server._tool_manager._tools.values()]
-        assert "run_hayabusa" in tool_names
-        assert "run_mactime" in tool_names
+        assert "run_amcacheparser" not in tool_names
+        assert "run_hayabusa" not in tool_names
+        assert "run_mactime" not in tool_names
 
     def test_total_tool_count(self, test_catalog):
-        """Phase 1: 7 discovery/generic + 1 zimmerman + 2 timeline = 10 (with test catalog)."""
+        """7 core tools: 6 discovery + 1 generic."""
         config = WintoolsConfig()
         server = create_server(config)
         tool_names = [t.name for t in server._tool_manager._tools.values()]
-        # Discovery: scan_tools, list_available_tools, list_missing_tools,
-        #            check_tools, get_tool_help, suggest_tools
-        # Generic: run_command
-        # Zimmerman: run_amcacheparser (1 in test catalog)
-        # Timeline: run_hayabusa, run_mactime
-        assert len(tool_names) >= 10
+        assert len(tool_names) == 7

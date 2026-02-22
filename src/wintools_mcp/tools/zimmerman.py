@@ -16,7 +16,8 @@ from wintools_mcp.catalog import get_tool_def
 from wintools_mcp.environment import find_binary
 from wintools_mcp.exceptions import ToolNotFoundError
 from wintools_mcp.executor import execute
-from wintools_mcp.output import get_output_dir, build_manifest
+from wintools_mcp.config import get_config
+from wintools_mcp.output import get_output_dir, build_manifest, to_share_relative
 from wintools_mcp.parsers.csv_parser import parse_csv_file
 from wintools_mcp.response import build_response
 from wintools_mcp.security import sanitize_extra_args
@@ -93,10 +94,16 @@ def _run_zimmerman_tool(
                 logger.warning("Failed to parse CSV file %s: %s", csv_file.name, e)
                 parsed_data[csv_file.stem] = {"error": f"Parse failed: {e}"}
 
-        # Build output manifest
+        # Build output manifest + share-relative extraction paths
         output_files = None
+        extraction_paths = None
         if csv_files and working_dir:
             output_files = build_manifest(Path(csv_dir))
+            cfg = get_config()
+            extraction_paths = [
+                to_share_relative(str(f), cfg.share_root)
+                for f in csv_files
+            ]
 
         response = build_response(
             tool_name=f"run_{tool_name.lower()}",
@@ -109,6 +116,7 @@ def _run_zimmerman_tool(
             command=cmd,
             fk_tool_name=td.knowledge_name,
             output_files=output_files,
+            extractions=extraction_paths,
         )
 
         audit.log(

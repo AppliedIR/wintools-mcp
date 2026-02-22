@@ -72,7 +72,7 @@ class TestAuditWriting:
         )
         assert eid.startswith("wintools-testuser-")
 
-        log_file = case_dir / "examiners" / "testuser" / "audit" / "wintools-mcp.jsonl"
+        log_file = case_dir / "audit" / "wintools-mcp.jsonl"
         assert log_file.exists()
         entries = [json.loads(line) for line in log_file.read_text().splitlines()]
         assert len(entries) == 1
@@ -89,7 +89,7 @@ class TestAuditWriting:
         audit = AuditWriter()
         audit.log(tool="test", params={}, result_summary={})
 
-        log_file = case_dir / "examiners" / "testuser" / "audit" / "wintools-mcp.jsonl"
+        log_file = case_dir / "audit" / "wintools-mcp.jsonl"
         entry = json.loads(log_file.read_text().strip())
         assert entry["case_id"] == "INC-2026-001"
 
@@ -101,7 +101,7 @@ class TestAuditWriting:
             result_summary={},
             elapsed_ms=1234.5,
         )
-        log_file = case_dir / "examiners" / "testuser" / "audit" / "wintools-mcp.jsonl"
+        log_file = case_dir / "audit" / "wintools-mcp.jsonl"
         entry = json.loads(log_file.read_text().strip())
         assert entry["elapsed_ms"] == 1234.5
 
@@ -111,7 +111,7 @@ class TestAuditWriting:
         eid = audit.log(tool="test", params={}, result_summary={})
         assert eid  # Still returns an evidence ID
         # No file written
-        audit_dir = tmp_path / "examiners" / "testuser" / "audit"
+        audit_dir = tmp_path / "audit"
         assert not audit_dir.exists()
 
     def test_multiple_entries_append(self, case_dir, examiner):
@@ -120,7 +120,7 @@ class TestAuditWriting:
         audit.log(tool="tool2", params={}, result_summary={})
         audit.log(tool="tool3", params={}, result_summary={})
 
-        log_file = case_dir / "examiners" / "testuser" / "audit" / "wintools-mcp.jsonl"
+        log_file = case_dir / "audit" / "wintools-mcp.jsonl"
         entries = [json.loads(line) for line in log_file.read_text().splitlines()]
         assert len(entries) == 3
         assert [e["tool"] for e in entries] == ["tool1", "tool2", "tool3"]
@@ -153,6 +153,51 @@ class TestAuditRetrieval:
         audit = AuditWriter()
         entries = audit.get_entries()
         assert entries == []
+
+
+class TestAuditDirParameter:
+
+    def test_explicit_audit_dir(self, tmp_path, examiner):
+        audit_dir = tmp_path / "local_audit"
+        audit = AuditWriter(audit_dir=str(audit_dir))
+        audit.log(tool="test", params={}, result_summary={})
+
+        log_file = audit_dir / "wintools-mcp.jsonl"
+        assert log_file.exists()
+        entry = json.loads(log_file.read_text().strip())
+        assert entry["tool"] == "test"
+
+    def test_audit_dir_env_var(self, tmp_path, monkeypatch, examiner):
+        audit_dir = tmp_path / "env_audit"
+        monkeypatch.setenv("AIIR_AUDIT_DIR", str(audit_dir))
+        monkeypatch.delenv("AIIR_CASE_DIR", raising=False)
+        audit = AuditWriter()
+        audit.log(tool="test", params={}, result_summary={})
+
+        log_file = audit_dir / "wintools-mcp.jsonl"
+        assert log_file.exists()
+
+    def test_explicit_overrides_env(self, tmp_path, monkeypatch, examiner):
+        env_dir = tmp_path / "env_audit"
+        explicit_dir = tmp_path / "explicit_audit"
+        monkeypatch.setenv("AIIR_AUDIT_DIR", str(env_dir))
+        audit = AuditWriter(audit_dir=str(explicit_dir))
+        audit.log(tool="test", params={}, result_summary={})
+
+        assert (explicit_dir / "wintools-mcp.jsonl").exists()
+        assert not env_dir.exists()
+
+    def test_env_overrides_case_dir(self, tmp_path, monkeypatch, examiner):
+        case_dir = tmp_path / "case"
+        case_dir.mkdir()
+        monkeypatch.setenv("AIIR_CASE_DIR", str(case_dir))
+        env_audit = tmp_path / "local_audit"
+        monkeypatch.setenv("AIIR_AUDIT_DIR", str(env_audit))
+        audit = AuditWriter()
+        audit.log(tool="test", params={}, result_summary={})
+
+        assert (env_audit / "wintools-mcp.jsonl").exists()
+        assert not (case_dir / "audit").exists()
 
 
 class TestThreadSafety:

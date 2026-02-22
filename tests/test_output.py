@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from wintools_mcp.output import get_output_dir, build_manifest
+from wintools_mcp.output import get_output_dir, build_manifest, to_share_relative
 
 
 class TestOutputDir:
@@ -53,3 +53,48 @@ class TestManifest:
     def test_nonexistent_dir(self, tmp_path):
         manifest = build_manifest(tmp_path / "nonexistent")
         assert manifest == []
+
+
+class TestShareRelative:
+
+    def test_strips_share_root(self):
+        result = to_share_relative(
+            "E:\\cases\\SRL2\\extractions\\output.csv",
+            "E:\\cases\\SRL2",
+        )
+        assert result == "extractions/output.csv"
+
+    def test_strips_share_root_forward_slashes(self):
+        result = to_share_relative(
+            "E:/cases/SRL2/extractions/output.csv",
+            "E:/cases/SRL2",
+        )
+        assert result == "extractions/output.csv"
+
+    def test_no_share_root_returns_normalized(self):
+        result = to_share_relative(
+            "E:\\cases\\SRL2\\extractions\\output.csv",
+            "",
+        )
+        assert result == "E:/cases/SRL2/extractions/output.csv"
+
+    def test_case_insensitive_match(self):
+        result = to_share_relative(
+            "e:\\Cases\\SRL2\\extractions\\output.csv",
+            "E:\\cases\\SRL2",
+        )
+        assert result == "extractions/output.csv"
+
+    def test_no_match_returns_normalized(self):
+        result = to_share_relative(
+            "D:\\other\\path\\file.csv",
+            "E:\\cases\\SRL2",
+        )
+        assert result == "D:/other/path/file.csv"
+
+    def test_trailing_slash_handling(self):
+        result = to_share_relative(
+            "E:\\cases\\SRL2\\extractions\\output.csv",
+            "E:\\cases\\SRL2\\",
+        )
+        assert result == "extractions/output.csv"
