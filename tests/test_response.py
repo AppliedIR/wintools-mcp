@@ -86,6 +86,36 @@ class TestBuildResponse:
                 assert "tool" in check
                 assert "when" in check
 
+    def test_extractions_included(self, examiner):
+        extractions = ["extractions/evtxecmd-Security-003.csv"]
+        resp = build_response(
+            tool_name="run_command",
+            success=True,
+            data={},
+            evidence_id="win-testuser-20260220-001",
+            extractions=extractions,
+        )
+        assert resp["extractions"] == extractions
+
+    def test_extractions_omitted_when_none(self, examiner):
+        resp = build_response(
+            tool_name="run_command",
+            success=True,
+            data={},
+            evidence_id="win-testuser-20260220-001",
+        )
+        assert "extractions" not in resp
+
+    def test_extractions_omitted_when_empty(self, examiner):
+        resp = build_response(
+            tool_name="run_command",
+            success=True,
+            data={},
+            evidence_id="win-testuser-20260220-001",
+            extractions=[],
+        )
+        assert "extractions" not in resp
+
     def test_examiner_in_response(self, monkeypatch):
         monkeypatch.setenv("AIIR_EXAMINER", "steve")
         resp = build_response(

@@ -10,6 +10,7 @@ import getpass
 import json
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,16 +18,36 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_EXAMINER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
+
+
+def _sanitize_slug(raw: str) -> str:
+    """Sanitize a raw string into a valid examiner slug.
+
+    Lowercases, replaces invalid characters with hyphens, strips leading/trailing
+    hyphens, and truncates to 20 characters.
+    """
+    slug = re.sub(r"[^a-z0-9-]", "-", raw.lower()).strip("-")[:20]
+    if not slug:
+        return "unknown"
+    # Ensure starts with alphanumeric
+    slug = slug.lstrip("-")
+    return slug if slug else "unknown"
+
 
 def resolve_examiner() -> str:
-    """Resolve examiner identity: AIIR_EXAMINER > AIIR_ANALYST > OS username."""
+    """Resolve examiner identity: AIIR_EXAMINER > AIIR_ANALYST > OS username.
+
+    The result is validated against the slug pattern ^[a-z0-9][a-z0-9-]{0,19}$.
+    """
     examiner = os.environ.get("AIIR_EXAMINER") or os.environ.get("AIIR_ANALYST")
     if not examiner:
         try:
             examiner = getpass.getuser()
         except Exception:
             examiner = "unknown"
-    return examiner.lower()
+    slug = _sanitize_slug(examiner)
+    return slug
 
 
 class AuditWriter:

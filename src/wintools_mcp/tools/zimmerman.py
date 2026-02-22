@@ -141,7 +141,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_amcacheparser(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Amcache.hve for program execution evidence."""
         return _run_zimmerman_tool(
@@ -151,7 +151,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_appcompatcacheparser(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Application Compatibility Cache (ShimCache) from SYSTEM hive."""
         return _run_zimmerman_tool(
@@ -161,7 +161,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_evtxecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Windows Event Log (EVTX) files."""
         return _run_zimmerman_tool(
@@ -171,7 +171,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_jlecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Jump List files for recent file access."""
         return _run_zimmerman_tool(
@@ -181,7 +181,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_lecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse LNK (shortcut) files."""
         return _run_zimmerman_tool(
@@ -191,7 +191,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_mftecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse MFT ($MFT, $J, $SDS, $Boot) files."""
         return _run_zimmerman_tool(
@@ -201,7 +201,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_pecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Prefetch files for program execution history."""
         return _run_zimmerman_tool(
@@ -211,7 +211,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_rbcmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Recycle Bin ($I) files."""
         return _run_zimmerman_tool(
@@ -221,7 +221,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_recmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Windows Registry hive files."""
         return _run_zimmerman_tool(
@@ -231,7 +231,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_sbecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse ShellBags for folder access history."""
         return _run_zimmerman_tool(
@@ -241,7 +241,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_sqlecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse SQLite databases (browser history, etc.)."""
         return _run_zimmerman_tool(
@@ -251,7 +251,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_srumecmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse SRUM database for resource usage monitoring."""
         return _run_zimmerman_tool(
@@ -261,7 +261,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_wxtcmd(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Parse Windows Timeline (ActivitiesCache.db) database."""
         return _run_zimmerman_tool(
@@ -271,7 +271,7 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
 
     @server.tool()
     def run_bstrings(
-        input_file: str, extra_flags: list[str] = [], max_rows: int = 1000
+        input_file: str, extra_flags: list[str] | None = None, max_rows: int = 1000
     ) -> dict:
         """Extract strings with regex pattern matching."""
         return _run_zimmerman_tool(

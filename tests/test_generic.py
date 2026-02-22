@@ -31,10 +31,16 @@ class TestRunCommand:
         mock_result.stdout = "output"
         mock_result.stderr = ""
 
-        with patch("wintools_mcp.tools.generic.find_binary", return_value=None), \
+        with patch("wintools_mcp.tools.generic.find_binary", return_value="/resolved/testtool.exe"), \
              patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
             result = run_command(["testtool.exe", "-f", "input.hve"])
         assert result["exit_code"] == 0
+
+    def test_unresolved_binary_raises(self, test_catalog):
+        """CRIT-03: When find_binary returns None, ToolNotInCatalogError is raised."""
+        with patch("wintools_mcp.tools.generic.find_binary", return_value=None):
+            with pytest.raises(ToolNotInCatalogError, match="not installed"):
+                run_command(["testtool.exe", "-f", "input.hve"])
 
     def test_denylisted_binary_blocked(self, test_catalog):
         with pytest.raises(DenylistError):
@@ -53,5 +59,6 @@ class TestRunCommand:
             run_command([])
 
     def test_dangerous_args_blocked(self, test_catalog):
-        with pytest.raises(ValueError, match="Blocked"):
-            run_command(["testtool.exe", "-e", "malicious"])
+        with patch("wintools_mcp.tools.generic.find_binary", return_value="/resolved/testtool.exe"):
+            with pytest.raises(ValueError, match="Blocked"):
+                run_command(["testtool.exe", "-e", "malicious"])

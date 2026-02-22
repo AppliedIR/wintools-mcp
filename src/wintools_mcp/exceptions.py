@@ -17,7 +17,7 @@ class ExecutionError(WintoolsError):
     pass
 
 
-class TimeoutError(WintoolsError):
+class ExecutionTimeoutError(WintoolsError):
     pass
 
 

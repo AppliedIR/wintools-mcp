@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 from unittest.mock import patch, MagicMock
-from wintools_mcp.executor import execute, _truncate, _validate_output_dir, _BLOCKED_OUTPUT_DIRS
-from wintools_mcp.exceptions import ExecutionError, TimeoutError
+from wintools_mcp.executor import execute, _truncate, _validate_output_dir, _BLOCKED_OUTPUT_DIRS_WIN, _BLOCKED_OUTPUT_DIRS_POSIX
+from wintools_mcp.exceptions import ExecutionError, ExecutionTimeoutError
 
 
 class TestExecutor:
@@ -107,6 +107,71 @@ class TestExecutor:
             result = execute(["test"], save_output=True, save_dir=save_dir)
 
         assert "output_file" in result
+
+    def test_save_output_returns_extractions(self, tmp_path):
+        """Saved output files should appear in extractions list."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "extraction data"
+        mock_result.stderr = "some warnings"
+
+        save_dir = str(tmp_path / "extractions")
+        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+            result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)
+
+        assert "extractions" in result
+        assert len(result["extractions"]) == 2  # stdout + stderr
+        # Paths should be normalized (forward slashes)
+        for path in result["extractions"]:
+            assert "\\" not in path or "/" in path
+
+    def test_save_output_extractions_share_relative(self, tmp_path, monkeypatch):
+        """When AIIR_SHARE_ROOT is set, extractions use share-relative paths."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "data"
+        mock_result.stderr = ""
+
+        save_dir = str(tmp_path / "extractions")
+        monkeypatch.setenv("AIIR_SHARE_ROOT", str(tmp_path))
+
+        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+            result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)
+
+        assert "extractions" in result
+        assert len(result["extractions"]) == 1
+        # Should be relative to share root (starts with "extractions/")
+        assert result["extractions"][0].startswith("extractions/")
+        assert str(tmp_path) not in result["extractions"][0]
+
+    def test_save_output_extractions_no_share_root(self, tmp_path, monkeypatch):
+        """Without AIIR_SHARE_ROOT, extractions contain full paths."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "data"
+        mock_result.stderr = ""
+
+        save_dir = str(tmp_path / "extractions")
+        monkeypatch.delenv("AIIR_SHARE_ROOT", raising=False)
+
+        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+            result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)
+
+        assert "extractions" in result
+        # Should contain the full path (normalized to forward slashes)
+        assert "extractions" in result["extractions"][0]
+
+    def test_no_extractions_without_save_output(self):
+        """No extractions key when save_output is False."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "output"
+        mock_result.stderr = ""
+
+        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+            result = execute(["test"])
+
+        assert "extractions" not in result
 
 
 class TestValidateOutputDir:

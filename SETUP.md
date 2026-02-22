@@ -179,25 +179,24 @@ aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
 
 ### Architecture 4: Multi-Examiner Team
 
-Multiple examiners, each with their own SIFT + Windows setup. Shared case directory on NFS or SMB. Each examiner's work is scoped to `examiners/{slug}/`.
+Multiple examiners, each with their own SIFT + Windows setup. Each examiner maintains a local case directory. Collaboration uses a merge-based workflow: examiners export contribution bundles and import each other's work.
 
 ```
 +--------------------+      +--------------------+
 |  Examiner: steve   |      |  Examiner: jane    |
 |  SIFT + Windows    |      |  SIFT + Windows    |
-|  examiners/steve/  |      |  examiners/jane/   |
+|  Local case dir    |      |  Local case dir    |
+|  findings.json     |      |  findings.json     |
+|  timeline.json     |      |  timeline.json     |
+|  audit/            |      |  audit/            |
 +--------+-----------+      +--------+-----------+
          |                           |
+         +--- export/import ---------+
+         |   (JSON bundles)          |
          v                           v
-+----------------------------------------------+
-|  Shared Storage (NFS/SMB)                    |
-|  /cases/INC-2026-0001/                       |
-|    examiners/steve/audit/                    |
-|    examiners/steve/findings.jsonl            |
-|    examiners/jane/audit/                     |
-|    examiners/jane/findings.jsonl             |
-+----------------------------------------------+
 ```
+
+Each examiner works independently in their own flat case directory. To share findings, use `aiir sync export` to create a contribution bundle and `aiir sync import` to merge another examiner's contributions. This avoids the complexity of shared filesystems and locking.
 
 ## Case Directory Setup
 

@@ -32,17 +32,15 @@ def run_command(
             raise DenylistError(error)
         raise ToolNotInCatalogError(error)
 
-    # Resolve binary path
+    # Resolve binary path — refuse to proceed if binary is not found
     binary_name = Path(command[0]).name
     resolved = find_binary(binary_name)
-    if resolved:
-        command = [resolved] + command[1:]
-    else:
-        logger.warning(
-            "Binary '%s' is in the catalog but not found by find_binary. "
-            "Proceeding with unresolved name; subprocess may still locate it.",
-            binary_name,
+    if not resolved:
+        raise ToolNotInCatalogError(
+            f"Tool '{binary_name}' is in the catalog but not installed on this system. "
+            f"Use list_missing_tools() for installation guidance."
         )
+    command = [resolved] + command[1:]
 
     # Sanitize extra args
     sanitize_extra_args(command[1:], tool_name=binary_name)

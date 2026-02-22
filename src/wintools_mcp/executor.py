@@ -12,29 +12,41 @@ from pathlib import Path
 from typing import Any
 
 from wintools_mcp.config import get_config
-from wintools_mcp.exceptions import ExecutionError, TimeoutError
+from wintools_mcp.exceptions import ExecutionError, ExecutionTimeoutError
+from wintools_mcp.output import to_share_relative
 
 logger = logging.getLogger(__name__)
 
-# Blocked output directories — Windows system paths that should never be
-# used as save_dir targets.  Comparison is case-insensitive (Windows norm).
-_BLOCKED_OUTPUT_DIRS = (
+# Blocked output directories — system paths that should never be used as
+# save_dir targets.  Windows paths use case-insensitive backslash comparison.
+# Linux paths included for test/dev environments where wintools runs on Linux.
+_BLOCKED_OUTPUT_DIRS_WIN = (
     r"C:\Windows",
     r"C:\Program Files",
     r"C:\Program Files (x86)",
     r"C:\ProgramData",
 )
+_BLOCKED_OUTPUT_DIRS_POSIX = (
+    "/etc", "/usr", "/bin", "/sbin", "/lib", "/boot", "/proc", "/sys", "/dev",
+)
 
 
 def _validate_output_dir(resolved_path: Path) -> None:
     """Raise ValueError if resolved_path is inside a blocked system directory."""
-    # Normalise: lowercase + canonical backslash separator (Windows convention).
-    # We normalise both forward and backslashes to backslash so the check works
-    # regardless of which platform runs the code or how the path was constructed.
-    norm = str(resolved_path).replace("/", "\\").lower()
-    for blocked in _BLOCKED_OUTPUT_DIRS:
+    path_str = str(resolved_path)
+    # Windows check: case-insensitive backslash comparison.
+    norm_win = path_str.replace("/", "\\").lower()
+    for blocked in _BLOCKED_OUTPUT_DIRS_WIN:
         blocked_lower = blocked.replace("/", "\\").lower()
-        if norm == blocked_lower or norm.startswith(blocked_lower + "\\"):
+        if norm_win == blocked_lower or norm_win.startswith(blocked_lower + "\\"):
+            raise ValueError(
+                f"Output directory blocked: '{resolved_path}' is inside "
+                f"protected system directory '{blocked}'"
+            )
+    # POSIX check: for Linux/test environments.
+    norm_posix = path_str
+    for blocked in _BLOCKED_OUTPUT_DIRS_POSIX:
+        if norm_posix == blocked or norm_posix.startswith(blocked + "/"):
             raise ValueError(
                 f"Output directory blocked: '{resolved_path}' is inside "
                 f"protected system directory '{blocked}'"
@@ -109,7 +121,7 @@ def execute(
         return response
 
     except subprocess.TimeoutExpired:
-        raise TimeoutError(
+        raise ExecutionTimeoutError(
             f"Command timed out after {timeout}s: {' '.join(cmd_list)}"
         )
     except FileNotFoundError:
@@ -118,10 +130,10 @@ def execute(
         raise ExecutionError(f"Permission denied: {cmd_list[0]}")
 
 
-def _truncate(text: str, max_bytes: int) -> str:
-    if len(text) <= max_bytes:
+def _truncate(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
         return text
-    return text[:max_bytes] + f"\n... [truncated at {max_bytes} bytes]"
+    return text[:max_chars] + f"\n... [truncated at {max_chars} chars]"
 
 
 def _save_output(
@@ -149,6 +161,8 @@ def _save_output(
     )[:40]
     prefix = f"{ts}_{safe_cmd}"
 
+    saved_paths: list[str] = []
+
     if stdout:
         try:
             stdout_path = out_dir / f"{prefix}_stdout.txt"
@@ -157,8 +171,9 @@ def _save_output(
                 f.write(stdout_bytes)
                 f.flush()
                 os.fsync(f.fileno())
-            response["output_file"] = str(stdout_path)
+            response["output_file"] = str(stdout_path).replace("\\", "/")
             response["output_sha256"] = hashlib.sha256(stdout_bytes).hexdigest()
+            saved_paths.append(str(stdout_path))
         except OSError as e:
             logger.warning("Failed to save stdout output to %s: %s", out_dir, e)
 
@@ -170,7 +185,15 @@ def _save_output(
                 f.write(stderr_bytes)
                 f.flush()
                 os.fsync(f.fileno())
-            response["stderr_file"] = str(stderr_path)
+            response["stderr_file"] = str(stderr_path).replace("\\", "/")
             response["stderr_sha256"] = hashlib.sha256(stderr_bytes).hexdigest()
+            saved_paths.append(str(stderr_path))
         except OSError as e:
             logger.warning("Failed to save stderr output to %s: %s", out_dir, e)
+
+    # Build share-relative extraction paths for cross-MCP consumption
+    if saved_paths:
+        config = get_config()
+        response["extractions"] = [
+            to_share_relative(p, config.share_root) for p in saved_paths
+        ]

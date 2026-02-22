@@ -113,6 +113,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 exit_code=exec_result["exit_code"],
                 command=command,
                 fk_tool_name=fk_name,
+                extractions=exec_result.get("extractions"),
             )
             audit.log(
                 tool="run_command",

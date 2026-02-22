@@ -265,3 +265,67 @@ class TestMemoryCatalog:
         for binary in ("winpmem.exe", "dumpit.exe", "moneta64.exe", "hollows_hunter.exe"):
             result = validate_command([binary, "--help"])
             assert result is None, f"{binary} should be allowed"
+
+
+class TestMalformedCatalogYAML:
+    """TEST-06: Malformed catalog YAML files must fail closed."""
+
+    def _make_catalog(self, tmp_path, monkeypatch, yaml_content):
+        """Create a catalog directory with a single YAML file."""
+        clear_catalog_cache()
+        cat_dir = tmp_path / "catalog"
+        cat_dir.mkdir()
+        (cat_dir / "test.yaml").write_text(yaml_content)
+        monkeypatch.setenv("WINTOOLS_CATALOG_DIR", str(cat_dir))
+        return cat_dir
+
+    def test_yaml_syntax_error(self, tmp_path, monkeypatch):
+        """Truncated/malformed YAML must not allow any binaries."""
+        self._make_catalog(tmp_path, monkeypatch, "tools:\n  - name: Foo\n    binary: foo.exe\n  invalid: [")
+        catalog = load_catalog()
+        # Malformed YAML should be skipped; catalog should be empty
+        assert len(catalog) == 0
+        assert not is_in_catalog("foo.exe")
+
+    def test_empty_yaml_file(self, tmp_path, monkeypatch):
+        """Empty YAML file must not allow any binaries."""
+        self._make_catalog(tmp_path, monkeypatch, "")
+        catalog = load_catalog()
+        assert len(catalog) == 0
+
+    def test_wrong_type_for_tools_key(self, tmp_path, monkeypatch):
+        """When tools key is a string instead of a list, no tools should load."""
+        self._make_catalog(tmp_path, monkeypatch, "category: test\ntools: not_a_list\n")
+        catalog = load_catalog()
+        assert len(catalog) == 0
+
+    def test_missing_binary_field(self, tmp_path, monkeypatch):
+        """Tool entry without a name field should be skipped."""
+        yaml_content = """
+category: test
+tools:
+  - binary: orphan.exe
+    description: Missing name field
+"""
+        self._make_catalog(tmp_path, monkeypatch, yaml_content)
+        catalog = load_catalog()
+        # Entry without 'name' should be skipped
+        assert len(catalog) == 0
+        assert not is_in_catalog("orphan.exe")
+
+    def test_valid_entry_still_loads_alongside_invalid(self, tmp_path, monkeypatch):
+        """Valid entries should load even when invalid entries are present."""
+        yaml_content = """
+category: test
+tools:
+  - binary: no_name.exe
+    description: Missing name field
+  - name: GoodTool
+    binary: goodtool.exe
+    description: Has all required fields
+"""
+        self._make_catalog(tmp_path, monkeypatch, yaml_content)
+        catalog = load_catalog()
+        assert len(catalog) == 1
+        assert is_in_catalog("goodtool.exe")
+        assert not is_in_catalog("no_name.exe")
