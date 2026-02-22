@@ -90,7 +90,7 @@ Then run the installer:
 
 See [SETUP.md](SETUP.md) for detailed deployment options and SMB configuration.
 
-## MCP Tools (23 total)
+## MCP Tools (7 total)
 
 ### Discovery (6 tools)
 
@@ -109,33 +109,7 @@ See [SETUP.md](SETUP.md) for detailed deployment options and SMB configuration.
 |------|-------------|
 | `run_command` | Execute any cataloged tool with arguments (catalog-gated) |
 
-### Zimmerman Suite Wrappers (14 tools)
-
-Each wrapper resolves the binary, builds the command with `--csv` output, executes via the security pipeline, parses resulting CSV files, and returns an FK-enriched response envelope.
-
-| Tool | Description |
-|------|-------------|
-| `run_amcacheparser` | Parse Amcache.hve for program execution evidence |
-| `run_appcompatcacheparser` | Parse Application Compatibility Cache (ShimCache) |
-| `run_evtxecmd` | Parse Windows Event Log (EVTX) files |
-| `run_jlecmd` | Parse Jump List files for recent file access |
-| `run_lecmd` | Parse LNK (shortcut) files |
-| `run_mftecmd` | Parse MFT ($MFT, $J, $SDS, $Boot) files |
-| `run_pecmd` | Parse Prefetch files for program execution history |
-| `run_rbcmd` | Parse Recycle Bin ($I) files |
-| `run_recmd` | Parse Windows Registry hive files |
-| `run_sbecmd` | Parse ShellBags for folder access history |
-| `run_sqlecmd` | Parse SQLite databases (browser history, etc.) |
-| `run_srumecmd` | Parse SRUM database for resource usage monitoring |
-| `run_wxtcmd` | Parse Windows Timeline (ActivitiesCache.db) |
-| `run_bstrings` | Extract strings with regex pattern matching |
-
-### Timeline Wrappers (2 tools)
-
-| Tool | Description |
-|------|-------------|
-| `run_hayabusa` | Sigma-based Windows event log analysis |
-| `run_mactime` | Generate timeline from bodyfile (TSK mactime format) |
+All per-tool wrappers (Zimmerman suite, Hayabusa, mactime) are consolidated into `run_command`. The tool catalog still defines each binary's input flags, output format, and FK knowledge mapping.
 
 ## Tool Catalog
 
@@ -215,6 +189,8 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 | `WINTOOLS_TOOL_PATHS` | (none) | Additional binary search directories (path-separated) |
 | `WINTOOLS_CATALOG_DIR` | (auto) | Override path to catalog YAML directory |
 | `AIIR_CASE_DIR` | (none) | Active case directory; enables per-case audit trail |
+| `AIIR_AUDIT_DIR` | (none) | Local audit directory (overrides AIIR_CASE_DIR/audit/) |
+| `AIIR_SHARE_ROOT` | (none) | SMB mount root for evidence reads and extraction writes (e.g., `E:\cases\SRL2\`) |
 | `AIIR_ACTIVE_CASE` | (none) | Case identifier recorded in audit entries |
 | `AIIR_EXAMINER` | OS user | Examiner identity (lowercase slug) |
 
@@ -234,7 +210,7 @@ Pass via `--config path/to/config.yaml`. Environment variables override YAML val
 
 ### Audit Trail
 
-When `AIIR_CASE_DIR` is set, every tool execution is logged to `examiners/{examiner}/audit/wintools-mcp.jsonl`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
+Every tool execution is logged to the audit directory. Resolution order: explicit `audit_dir` constructor parameter > `AIIR_AUDIT_DIR` env var > `AIIR_CASE_DIR/audit/`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
 
 ## Security Considerations
 
