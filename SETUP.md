@@ -16,7 +16,7 @@ The installer requires you to type `security_hole` before proceeding, or pass `-
 
 ## Prerequisites
 
-- **Python 3.10+** — [python.org/downloads](https://www.python.org/downloads/)
+- **Python 3.11+** — [python.org/downloads](https://www.python.org/downloads/)
 - **Git** — [git-scm.com](https://git-scm.com/)
 - **.NET Runtime** — Required for Zimmerman tools. [dotnet.microsoft.com](https://dotnet.microsoft.com/download)
 
@@ -56,6 +56,7 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 | `-Examiner NAME` | Examiner slug (default: Windows username) |
 | `-Port PORT` | HTTP server port (default: 4624) |
 | `-Host ADDR` | HTTP bind address (default: 0.0.0.0) |
+| `-NoAuth` | Skip API key generation (development only) |
 
 ### Scripted Examples
 
@@ -132,7 +133,7 @@ SIFT workstation for Linux forensics and case management. Windows VM for Windows
 Setup:
 ```powershell
 # On SIFT:
-./setup-sift.sh
+./sift-install.sh
 
 # On Windows:
 .\setup-windows.ps1
@@ -167,7 +168,7 @@ LLM client and aiir CLI on a separate analyst workstation. SIFT and Windows VMs 
 Setup:
 ```powershell
 # On SIFT:
-./setup-sift.sh --remote
+./sift-install.sh --remote
 
 # On Windows:
 .\setup-windows.ps1
