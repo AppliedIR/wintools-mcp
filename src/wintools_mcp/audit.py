@@ -161,7 +161,8 @@ class AuditWriter:
         audit_dir = self._get_audit_dir()
         if not audit_dir:
             logger.debug(
-                "No AIIR_CASE_DIR set, audit entry not written: %s/%s",
+                "No audit directory configured (audit_dir / AIIR_AUDIT_DIR / AIIR_CASE_DIR), "
+                "audit entry not written: %s/%s",
                 self.mcp_name,
                 entry.get("tool"),
             )
