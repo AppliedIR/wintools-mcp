@@ -474,14 +474,7 @@ try { & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1 | O
 $fkDir = Join-Path $InstallDir "forensic-knowledge"
 $fkInstalled = $false
 
-# Try pip install first (works if published to PyPI or private index)
-try {
-    & $venvPython -m pip install --progress-bar off forensic-knowledge 2>&1 | Out-Null
-    $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
-    if ($fkTest -eq "ok") { $fkInstalled = $true }
-} catch { }
-
-# If pip didn't work, try git clone / ZIP (existing logic)
+# Try git clone / ZIP (existing logic)
 if (-not $fkInstalled -and -not (Test-Path $fkDir)) {
     $fkCloneOk = $false
     if ($hasGit) {
@@ -1138,9 +1131,10 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
                 New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress $siftIp | Out-Null
                 Write-Ok "Firewall rule added for TCP port $Port (restricted to $siftIp)"
             } else {
-                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow | Out-Null
-                Write-Ok "Firewall rule added for TCP port $Port"
-                Write-Warn "Consider restricting: Set-NetFirewallRule -DisplayName `"$ruleName`" -RemoteAddress SIFT_IP"
+                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress 127.0.0.1 | Out-Null
+                Write-Ok "Firewall rule added for TCP port $Port (localhost only)"
+                Write-Warn "IMPORTANT: Firewall restricted to localhost. For remote SIFT access, run:"
+                Write-Host "  Set-NetFirewallRule -DisplayName `"$ruleName`" -RemoteAddress SIFT_IP_HERE"
             }
         } else {
             Write-Ok "Firewall rule already exists"

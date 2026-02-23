@@ -137,6 +137,8 @@ def execute(
         raise ExecutionError(f"Binary not found: {cmd_list[0]}")
     except PermissionError:
         raise ExecutionError(f"Permission denied: {cmd_list[0]}")
+    except OSError as e:
+        raise ExecutionError(f"OS error executing {cmd_list[0]}: {e}")
 
 
 def _truncate(text: str, max_chars: int) -> str:
