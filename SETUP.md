@@ -55,7 +55,7 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 | `-InstallDir PATH` | Installation directory (default: `C:\Tools\aiir`) |
 | `-Examiner NAME` | Examiner slug (default: Windows username) |
 | `-Port PORT` | HTTP server port (default: 4624) |
-| `-Host ADDR` | HTTP bind address (default: 0.0.0.0) |
+| `-BindAddress ADDR` | HTTP bind address (default: 0.0.0.0) |
 | `-NoAuth` | Skip API key generation (development only) |
 
 ### Scripted Examples
@@ -233,7 +233,7 @@ net use Z: \\SIFT_IP\cases /persistent:yes
 set AIIR_CASE_DIR=Z:\INC-2026-0001
 ```
 
-When `AIIR_CASE_DIR` is set, wintools-mcp writes audit entries to `examiners\{examiner}\audit\wintools-mcp.jsonl` within the case directory. This is the same directory that SIFT MCPs write to, creating a unified audit trail.
+When `AIIR_CASE_DIR` is set, wintools-mcp writes audit entries to `audit\wintools-mcp.jsonl` within the case directory. This is the same layout that SIFT MCPs use, creating a unified audit trail.
 
 ### Standalone Mode (Local)
 
@@ -247,7 +247,7 @@ set AIIR_CASE_DIR=C:\Tools\aiir\cases\INC-2026-0001
 mkdir C:\Tools\aiir\cases\INC-2026-0001
 ```
 
-The examiner directory structure is created automatically when wintools-mcp receives its first tool call with `AIIR_CASE_DIR` set.
+The audit directory is created automatically when wintools-mcp receives its first tool call with `AIIR_CASE_DIR` set.
 
 ## Starting the Server
 

@@ -683,15 +683,13 @@ if ($Standalone) {
     Write-Host ""
     Write-Host "  In standalone mode, each case gets a subdirectory:" -ForegroundColor White
     Write-Host "    $caseDir\INC-2026-0001\" -ForegroundColor White
-    Write-Host "    $caseDir\INC-2026-0001\examiners\$Examiner\" -ForegroundColor White
-    Write-Host "    $caseDir\INC-2026-0001\examiners\$Examiner\audit\" -ForegroundColor White
+    Write-Host "    $caseDir\INC-2026-0001\audit\" -ForegroundColor White
     Write-Host ""
     Write-Host "  Set AIIR_CASE_DIR before starting a case:" -ForegroundColor White
     Write-Host "    set AIIR_CASE_DIR=$caseDir\INC-2026-0001" -ForegroundColor White
     Write-Host ""
     Write-Host "  Place evidence working copies in the case directory." -ForegroundColor White
-    Write-Host "  Tool output and audit entries are written alongside" -ForegroundColor White
-    Write-Host "  the evidence in the examiner's subdirectory." -ForegroundColor White
+    Write-Host "  Tool output and audit entries are written to the audit subdirectory." -ForegroundColor White
     Write-Host ""
 
     # Save standalone config (Machine level so SYSTEM scheduled task can see it)

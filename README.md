@@ -58,8 +58,8 @@ The additional controls in place (catalog allowlists, denylist of dangerous bina
 
 ```mermaid
 graph TB
-    INPUT["Tool Execution Request"] --> D{"Hardcoded Denylist<br/>14 binaries + .exe variants"}
-    D -->|"cmd, powershell, pwsh,<br/>wscript, cscript, mshta,<br/>rundll32, regsvr32, certutil,<br/>bitsadmin, msiexec, bash,<br/>wsl, sh"| BLOCKED["BLOCKED"]
+    INPUT["Tool Execution Request"] --> D{"Hardcoded Denylist<br/>20 binaries + .exe variants"}
+    D -->|"cmd, powershell, pwsh,<br/>wscript, cscript, mshta,<br/>rundll32, regsvr32, certutil,<br/>bitsadmin, msiexec, bash,<br/>wsl, sh, msbuild, installutil,<br/>regasm, regsvcs, cmstp, control"| BLOCKED["BLOCKED"]
     D -->|"pass"| A{"YAML Catalog<br/>Allowlist"}
     A -->|"unknown binary"| REJECTED["REJECTED"]
     A -->|"cataloged"| S{"Argument<br/>Sanitization"}
@@ -151,6 +151,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
   "success": true,
   "tool": "run_command",
   "data": {"output": {"rows": ["..."], "total_rows": 42}},
+  "data_provenance": "tool_output_may_contain_untrusted_evidence",
   "output_format": "parsed_csv",
   "evidence_id": "wintools-steve-20260220-001",
   "examiner": "steve",
@@ -175,7 +176,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 | `advisories` | forensic-knowledge | Usage guidance and common misinterpretation corrections |
 | `corroboration` | forensic-knowledge | Suggested cross-reference artifacts and tools |
 | `field_notes` | forensic-knowledge | Timestamp field meanings from artifact definitions |
-| `discipline_reminder` | Built-in | Rotating forensic methodology reminder (10 total, cycled per call) |
+| `discipline_reminder` | Built-in | Rotating forensic methodology reminder (14 total, cycled per call) |
 
 ## Configuration
 
@@ -201,7 +202,8 @@ Pass via `--config path/to/config.yaml`. Environment variables override YAML val
 | Key | Default | Description |
 |-----|---------|-------------|
 | `default_timeout` | `600` | Subprocess timeout in seconds |
-| `max_output_bytes` | `50000` | Output truncation threshold |
+| `max_output_bytes` | `52428800` | Subprocess capture limit (50MB) |
+| `response_byte_budget` | `10240` | Maximum bytes in MCP response envelope (10KB) |
 | `http_host` | `127.0.0.1` | HTTP bind address |
 | `http_port` | `4624` | HTTP port |
 | `hayabusa_dir` | `C:\Tools\Hayabusa` | Hayabusa installation directory |
