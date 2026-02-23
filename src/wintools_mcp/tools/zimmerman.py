@@ -87,7 +87,10 @@ def _run_zimmerman_tool(
             csv_files = []
         for csv_file in csv_files:
             try:
-                parsed_data[csv_file.stem] = parse_csv_file(str(csv_file), max_rows=max_rows)
+                parsed_data[csv_file.stem] = parse_csv_file(
+                    str(csv_file), max_rows=max_rows,
+                    byte_budget=get_config().response_byte_budget,
+                )
             except FileNotFoundError:
                 logger.warning("CSV file disappeared before parsing: %s", csv_file)
             except (csv.Error, UnicodeDecodeError) as e:

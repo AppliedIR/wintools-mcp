@@ -103,19 +103,28 @@ def execute(
         stdout = result.stdout.replace("\r\n", "\n") if result.stdout else ""
         stderr = result.stderr.replace("\r\n", "\n") if result.stderr else ""
 
+        stdout_bytes = len(stdout.encode("utf-8"))
+
         response: dict[str, Any] = {
             "exit_code": result.returncode,
-            "stdout": _truncate(stdout, config.max_output_bytes),
-            "stderr": _truncate(stderr, config.max_output_bytes // 2),
+            "stdout": stdout,
+            "stderr": _truncate(stderr, config.max_output_bytes // 10),
             "elapsed_seconds": round(elapsed, 2),
             "command": cmd_list,
+            "stdout_total_bytes": stdout_bytes,
         }
 
-        if stdout and len(stdout) > config.max_output_bytes:
-            response["stdout_truncated"] = True
-            response["stdout_total_bytes"] = len(stdout)
+        # Threshold-based save: auto-save when output exceeds response budget
+        case_dir = config.case_dir
+        exceeds_budget = stdout_bytes > config.response_byte_budget
 
-        if save_output and (stdout or stderr):
+        if exceeds_budget and case_dir:
+            _save_output(
+                cmd_list, stdout, stderr,
+                save_dir or os.path.join(case_dir, "extractions"),
+                response,
+            )
+        elif save_output and (stdout or stderr):
             _save_output(cmd_list, stdout, stderr, save_dir, response)
 
         return response

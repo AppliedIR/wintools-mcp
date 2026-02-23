@@ -22,7 +22,8 @@ _EXAMINER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9\-]{0,19}$")
 class WintoolsConfig:
     # Timeouts
     default_timeout: int = 600
-    max_output_bytes: int = 50_000
+    max_output_bytes: int = 52_428_800  # 50MB — subprocess capture limit
+    response_byte_budget: int = 10_240  # 10KB — max bytes in MCP response
 
     # Paths
     tool_paths: list[Path] = field(default_factory=list)
@@ -84,6 +85,12 @@ class WintoolsConfig:
                 "Examiner identity sanitized from %r to %r",
                 original, cfg.examiner,
             )
+
+        if os.environ.get("WINTOOLS_RESPONSE_BUDGET"):
+            try:
+                cfg.response_byte_budget = int(os.environ["WINTOOLS_RESPONSE_BUDGET"])
+            except ValueError:
+                pass
 
         # HTTP config
         cfg.http_host = os.environ.get("WINTOOLS_HOST", cfg.http_host)

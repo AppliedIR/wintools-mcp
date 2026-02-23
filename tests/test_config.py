@@ -10,7 +10,8 @@ class TestWintoolsConfig:
     def test_defaults(self):
         cfg = WintoolsConfig()
         assert cfg.default_timeout == 600
-        assert cfg.max_output_bytes == 50_000
+        assert cfg.max_output_bytes == 52_428_800
+        assert cfg.response_byte_budget == 10_240
         assert cfg.http_port == 4624
         assert cfg.file_transfer_enabled is True
 
