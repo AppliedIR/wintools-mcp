@@ -847,7 +847,7 @@ http_port: $Port
     if ($joinCodeValue -and $gatewayReachable) {
         # Generate API key first (needed for request body)
         try {
-            $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
             $bytes = New-Object byte[] 12
             $rng.GetBytes($bytes)
             $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
@@ -908,7 +908,7 @@ http_port: $Port
             Write-Host "  Use --NoAuth only for development on isolated networks"
         } elseif (-not $wintoolsApiKey) {
             try {
-                $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+                $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
                 $bytes = New-Object byte[] 12
                 $rng.GetBytes($bytes)
                 $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
