@@ -59,6 +59,16 @@
     Skip API key generation. The wintools-mcp server will accept
     unauthenticated requests. Use only for development on isolated networks.
 
+.PARAMETER GatewayHost
+    SIFT gateway IP or hostname (for NonInteractive mode).
+
+.PARAMETER GatewayPort
+    SIFT gateway port. Default: 4508.
+
+.PARAMETER JoinCode
+    One-time join code from 'aiir setup join-code' on SIFT workstation.
+    Enables automated credential exchange instead of manual copy-paste.
+
 .EXAMPLE
     # Interactive install with full AIIR integration
     .\setup-windows.ps1
@@ -98,6 +108,11 @@
     .\setup-windows.ps1
 
 .EXAMPLE
+    # Non-interactive with automated join
+    .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole `
+        -GatewayHost 10.0.0.1 -JoinCode "ABCD-EFGH" -Examiner "analyst1"
+
+.EXAMPLE
     # Deployment: Air-gapped lab
     #   Pre-stage: clone wintools-mcp repo to USB, transfer to lab
     #   Then run installer pointing to pre-staged directory
@@ -112,10 +127,31 @@ param(
     [string]$Examiner = "",
     [int]$Port = 4624,
     [string]$BindAddress = "0.0.0.0",
-    [switch]$NoAuth
+    [switch]$NoAuth,
+    [string]$GatewayHost = "",
+    [int]$GatewayPort = 4508,
+    [string]$JoinCode = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+$process = $null
+$skipServerStart = $false
+$serverHealthy = $false
+$joinSucceeded = $false
+
+trap {
+    if ($process -and -not $process.HasExited) {
+        try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch { }
+    }
+    Write-Host ""
+    Write-Err "Installation failed. Check output above for details."
+    Write-Host "  Install directory may contain partial state: $InstallDir" -ForegroundColor Yellow
+    Write-Host "  To retry: re-run setup-windows.ps1" -ForegroundColor White
+    Write-Host "  To clean up: Remove-Item -Recurse -Force '$InstallDir'" -ForegroundColor White
+    Write-Host ""
+    break
+}
 
 # =============================================================================
 # Helpers
@@ -146,6 +182,17 @@ function Read-YesNo {
     if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
     return $answer.ToLower().StartsWith("y")
 }
+
+function Validate-Port {
+    param([int]$PortNumber, [string]$Label = "Port")
+    if ($PortNumber -lt 1 -or $PortNumber -gt 65535) {
+        Write-Err "$Label must be between 1 and 65535 (got: $PortNumber)"
+        exit 1
+    }
+}
+
+Validate-Port $Port "Port"
+if ($GatewayPort) { Validate-Port $GatewayPort "GatewayPort" }
 
 # =============================================================================
 # Banner
@@ -756,46 +803,120 @@ http_port: $Port
     Write-Host "  so only the gateway can issue tool calls." -ForegroundColor White
     Write-Host ""
 
-    # Generate an API key for gateway-to-wintools auth
+    # Determine gateway coordinates
     $gatewayScheme = "http"
-    if (-not $NonInteractive) {
+    $siftIp = ""
+    $siftPort = ""
+    $joinCodeValue = ""
+    $gatewayReachable = $false
+
+    if ($NonInteractive) {
+        $siftIp = $GatewayHost
+        $siftPort = "$GatewayPort"
+        $joinCodeValue = $JoinCode
+    } else {
         $siftIp = Read-Prompt "SIFT workstation IP or hostname (blank to skip)" ""
         if ($siftIp) {
             $siftPort = Read-Prompt "SIFT gateway port" "4508"
-
-            # Try HTTPS first (TLS-enabled gateway), fall back to HTTP
-            $gatewayReachable = $false
-            foreach ($scheme in @("https", "http")) {
-                try {
-                    $response = Invoke-WebRequest -Uri "${scheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-                    Write-Ok "Connected to SIFT gateway at ${scheme}://${siftIp}:${siftPort}"
-                    $gatewayReachable = $true
-                    $gatewayScheme = $scheme
-                    break
-                } catch { }
-            }
-            if (-not $gatewayReachable) {
-                Write-Warn "Cannot reach SIFT gateway at ${siftIp}:${siftPort}"
-                Write-Host "  Ensure the AIIR gateway is running on the SIFT workstation"
-            }
         }
     }
 
-    # Token generation: always in AIIR mode unless --NoAuth
-    if ($NoAuth) {
-        Write-Warn "No API key configured -- wintools-mcp is unprotected"
-        Write-Host "  Use --NoAuth only for development on isolated networks"
-    } else {
+    # Reachability check
+    if ($siftIp) {
+        foreach ($scheme in @("https", "http")) {
+            try {
+                $response = Invoke-WebRequest -Uri "${scheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                Write-Ok "Connected to SIFT gateway at ${scheme}://${siftIp}:${siftPort}"
+                $gatewayReachable = $true
+                $gatewayScheme = $scheme
+                break
+            } catch { }
+        }
+        if (-not $gatewayReachable) {
+            Write-Warn "Cannot reach SIFT gateway at ${siftIp}:${siftPort}"
+            Write-Host "  Ensure the AIIR gateway is running on the SIFT workstation"
+        }
+    }
+
+    # Interactive: prompt for join code after gateway reachable
+    if (-not $NonInteractive -and $gatewayReachable -and -not $joinCodeValue) {
+        $joinCodeValue = Read-Prompt "Join code from 'aiir setup join-code' (blank to skip)" ""
+    }
+
+    # Join API call
+    if ($joinCodeValue -and $gatewayReachable) {
+        # Generate API key first (needed for request body)
         try {
-            # Generate a random key: aiir_wt_ + 24 hex chars
             $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
             $bytes = New-Object byte[] 12
             $rng.GetBytes($bytes)
             $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
             $rng.Dispose()
-            Write-Ok "Generated API key: $wintoolsApiKey"
         } catch {
-            Write-Warn "Could not generate API key"
+            Write-Warn "Could not generate API key for join"
+        }
+
+        if ($wintoolsApiKey) {
+            $joinBody = @{
+                code = $joinCodeValue
+                machine_type = "wintools"
+                hostname = $env:COMPUTERNAME
+                wintools_url = "http://${localIp}:${Port}/mcp"
+                wintools_token = $wintoolsApiKey
+            } | ConvertTo-Json
+
+            try {
+                $joinResponse = Invoke-WebRequest `
+                    -Uri "${gatewayScheme}://${siftIp}:${siftPort}/api/v1/setup/join" `
+                    -Method POST `
+                    -ContentType "application/json" `
+                    -Body $joinBody `
+                    -TimeoutSec 10 `
+                    -UseBasicParsing `
+                    -ErrorAction Stop
+                $joinData = $joinResponse.Content | ConvertFrom-Json
+                $joinSucceeded = $true
+                Write-Ok "Registered with SIFT gateway via join API"
+                if ($joinData.gateway_token) {
+                    Write-Ok "Gateway token received: $($joinData.gateway_token)"
+                }
+                if ($joinData.restart_required) {
+                    Write-Info "Gateway restart required. Run 'aiir service restart' on SIFT."
+                }
+            } catch {
+                $wintoolsApiKey = ""
+                $statusCode = $null
+                if ($_.Exception.Response) {
+                    $statusCode = [int]$_.Exception.Response.StatusCode
+                }
+                if ($statusCode -eq 403) {
+                    Write-Warn "Join failed: invalid, expired, or already-used join code"
+                } elseif ($statusCode -eq 429) {
+                    Write-Warn "Join failed: too many attempts. Try again later."
+                } else {
+                    Write-Warn "Join failed: $_"
+                }
+                Write-Host "  Falling back to manual configuration"
+            }
+        }
+    }
+
+    # Token generation (gated on join result)
+    if (-not $joinSucceeded) {
+        if ($NoAuth) {
+            Write-Warn "No API key configured -- wintools-mcp is unprotected"
+            Write-Host "  Use --NoAuth only for development on isolated networks"
+        } elseif (-not $wintoolsApiKey) {
+            try {
+                $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+                $bytes = New-Object byte[] 12
+                $rng.GetBytes($bytes)
+                $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+                $rng.Dispose()
+                Write-Ok "Generated API key: $wintoolsApiKey"
+            } catch {
+                Write-Warn "Could not generate API key"
+            }
         }
     }
 
@@ -818,22 +939,43 @@ api_keys:
     role: "examiner"
 "@ | Set-Content -Path $wintoolsConfigPath -Encoding UTF8
         Write-Ok "Wrote config with API key: $wintoolsConfigPath"
-        Write-Host ""
-        Write-Host "  Add this snippet to your SIFT workstation's gateway.yaml" -ForegroundColor White
-        Write-Host "  File: ~/.aiir/gateway.yaml (under the 'backends:' key)" -ForegroundColor White
-        Write-Host ""
-        Write-Host "    wintools-mcp:" -ForegroundColor Gray
-        Write-Host "      type: http" -ForegroundColor Gray
-        Write-Host "      url: `"http://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
-        Write-Host "      bearer_token: `"$wintoolsApiKey`"" -ForegroundColor Gray
-        Write-Host "      enabled: true" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "  After pasting, restart the gateway:" -ForegroundColor White
-        Write-Host "    aiir service restart" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "  Clients then access wintools via the gateway at:" -ForegroundColor White
-        Write-Host "    http://SIFT_IP:4508/mcp/wintools-mcp" -ForegroundColor Gray
-        Write-Host ""
+
+        if (-not $joinSucceeded) {
+            Write-Host ""
+            Write-Host "  Add this snippet to your SIFT workstation's gateway.yaml" -ForegroundColor White
+            Write-Host "  File: ~/.aiir/gateway.yaml (under the 'backends:' key)" -ForegroundColor White
+            Write-Host ""
+            Write-Host "    wintools-mcp:" -ForegroundColor Gray
+            Write-Host "      type: http" -ForegroundColor Gray
+            Write-Host "      url: `"http://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
+            Write-Host "      bearer_token: `"$wintoolsApiKey`"" -ForegroundColor Gray
+            Write-Host "      enabled: true" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "  After pasting, restart the gateway:" -ForegroundColor White
+            Write-Host "    aiir service restart" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "  Clients then access wintools via the gateway at:" -ForegroundColor White
+            Write-Host "    http://SIFT_IP:4508/mcp/wintools-mcp" -ForegroundColor Gray
+            Write-Host ""
+
+            # Save snippet to file for reference
+            $snippetPath = Join-Path $InstallDir "gateway-snippet.yaml"
+            try {
+                @"
+# Gateway backend snippet for wintools-mcp
+# Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm')
+# Paste into ~/.aiir/gateway.yaml under the 'backends:' key on SIFT
+wintools-mcp:
+  type: http
+  url: "http://${localIp}:${Port}/mcp"
+  bearer_token: "$wintoolsApiKey"
+  enabled: true
+"@ | Set-Content -Path $snippetPath -Encoding UTF8
+                Write-Ok "Saved gateway snippet: $snippetPath"
+            } catch {
+                Write-Warn "Could not save gateway snippet file"
+            }
+        }
     } else {
         @"
 # wintools-mcp configuration (generated by setup-windows.ps1)
@@ -866,38 +1008,44 @@ try {
         Write-Host ""
         if (-not (Read-YesNo "Continue anyway?" $false)) {
             Write-Info "Skipping server start. Fix the port conflict and re-run."
+            $skipServerStart = $true
         }
     }
 } catch { }
 
-Write-Info "Starting wintools-mcp on port $Port..."
+if (-not $skipServerStart) {
+    Write-Info "Starting wintools-mcp on port $Port..."
 
-# Start in background to validate it works
-$startArgs = @("-m", "wintools_mcp", "--http", "--host", $BindAddress, "--port", "$Port")
-if (Test-Path $wintoolsConfigPath) {
-    $startArgs += @("--config", $wintoolsConfigPath)
-}
-# Set env var before starting (PS 5.1 compatible -- -Environment requires PS 7+)
-$env:AIIR_EXAMINER = $Examiner
-
-try {
-    $process = Start-Process -FilePath $venvPython -ArgumentList $startArgs -PassThru -WindowStyle Hidden
-
-    Start-Sleep -Seconds 3
-
-    # Check if it's running
-    if (-not $process.HasExited) {
-        try {
-            $response = Invoke-WebRequest -Uri "http://localhost:$Port/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-            Write-Ok "wintools-mcp running on port $Port"
-        } catch {
-            Write-Warn "wintools-mcp started but health check failed"
-        }
-    } else {
-        Write-Warn "wintools-mcp exited immediately - check configuration"
+    # Start in background to validate it works
+    $startArgs = @("-m", "wintools_mcp", "--http", "--host", $BindAddress, "--port", "$Port")
+    if (Test-Path $wintoolsConfigPath) {
+        $startArgs += @("--config", $wintoolsConfigPath)
     }
-} catch {
-    Write-Warn "Could not start wintools-mcp"
+    # Set env var before starting (PS 5.1 compatible -- -Environment requires PS 7+)
+    $env:AIIR_EXAMINER = $Examiner
+
+    try {
+        $process = Start-Process -FilePath $venvPython -ArgumentList $startArgs -PassThru -WindowStyle Hidden
+
+        Start-Sleep -Seconds 3
+
+        # Check if it's running
+        if (-not $process.HasExited) {
+            try {
+                $response = Invoke-WebRequest -Uri "http://localhost:$Port/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                Write-Ok "wintools-mcp running on port $Port"
+                $serverHealthy = $true
+            } catch {
+                Write-Warn "wintools-mcp started but health check failed"
+            }
+        } else {
+            Write-Warn "wintools-mcp exited immediately - check configuration"
+        }
+    } catch {
+        Write-Warn "Could not start wintools-mcp"
+    }
+} else {
+    Write-Info "Server start skipped (port conflict)"
 }
 
 # =============================================================================
@@ -932,47 +1080,53 @@ try {
     Write-Warn "Could not write startup script"
 }
 
-if ($startChoice -eq "1") {
+if ($startChoice -eq "1" -and -not $skipServerStart) {
     # Register scheduled task for auto-start
     $taskName = "AIIR wintools-mcp"
 
-    try {
-        # Remove existing task if present
-        $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        if ($existing) {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-            Write-Info "Removed existing scheduled task"
+    if ($serverHealthy) {
+        try {
+            # Remove existing task if present
+            $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($existing) {
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+                Write-Info "Removed existing scheduled task"
+            }
+
+            # Run the startup script (which sets AIIR_EXAMINER and passes --config)
+            $action = New-ScheduledTaskAction `
+                -Execute "powershell.exe" `
+                -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startupPath`""
+            $trigger = New-ScheduledTaskTrigger -AtStartup
+            $settings = New-ScheduledTaskSettingsSet `
+                -AllowStartIfOnBatteries `
+                -DontStopIfGoingOnBatteries `
+                -StartWhenAvailable `
+                -RestartCount 3 `
+                -RestartInterval (New-TimeSpan -Minutes 1)
+
+            Register-ScheduledTask `
+                -TaskName $taskName `
+                -Action $action `
+                -Trigger $trigger `
+                -Settings $settings `
+                -RunLevel Highest `
+                -User "SYSTEM" `
+                -Description "AIIR wintools-mcp forensic tool server" | Out-Null
+
+            Write-Ok "Scheduled task registered: $taskName"
+            Write-Ok "Will auto-start at boot"
+        } catch {
+            Write-Warn "Could not register scheduled task (run as Administrator)"
+            Write-Host "  To register manually (as Administrator):"
+            Write-Host "  schtasks /create /tn `"$taskName`" /tr `"powershell.exe -ExecutionPolicy Bypass -File \`"$startupPath\`"`" /sc onstart /ru SYSTEM"
+            Write-Host ""
+            Write-Host "  Or use the startup script: $startupPath"
         }
-
-        # Run the startup script (which sets AIIR_EXAMINER and passes --config)
-        $action = New-ScheduledTaskAction `
-            -Execute "powershell.exe" `
-            -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startupPath`""
-        $trigger = New-ScheduledTaskTrigger -AtStartup
-        $settings = New-ScheduledTaskSettingsSet `
-            -AllowStartIfOnBatteries `
-            -DontStopIfGoingOnBatteries `
-            -StartWhenAvailable `
-            -RestartCount 3 `
-            -RestartInterval (New-TimeSpan -Minutes 1)
-
-        Register-ScheduledTask `
-            -TaskName $taskName `
-            -Action $action `
-            -Trigger $trigger `
-            -Settings $settings `
-            -RunLevel Highest `
-            -User "SYSTEM" `
-            -Description "AIIR wintools-mcp forensic tool server" | Out-Null
-
-        Write-Ok "Scheduled task registered: $taskName"
-        Write-Ok "Will auto-start at boot"
-    } catch {
-        Write-Warn "Could not register scheduled task (run as Administrator)"
-        Write-Host "  To register manually (as Administrator):"
+    } else {
+        Write-Warn "Server did not pass health check. Skipping scheduled task registration."
+        Write-Host "  Fix the issue and register manually:"
         Write-Host "  schtasks /create /tn `"$taskName`" /tr `"powershell.exe -ExecutionPolicy Bypass -File \`"$startupPath\`"`" /sc onstart /ru SYSTEM"
-        Write-Host ""
-        Write-Host "  Or use the startup script: $startupPath"
     }
 
     # Add firewall rule
@@ -980,8 +1134,14 @@ if ($startChoice -eq "1") {
         $ruleName = "AIIR wintools-mcp"
         $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if (-not $existingRule) {
-            New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow | Out-Null
-            Write-Ok "Firewall rule added for TCP port $Port"
+            if ($siftIp -and $siftIp -ne "THIS_MACHINE_IP") {
+                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress $siftIp | Out-Null
+                Write-Ok "Firewall rule added for TCP port $Port (restricted to $siftIp)"
+            } else {
+                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow | Out-Null
+                Write-Ok "Firewall rule added for TCP port $Port"
+                Write-Warn "Consider restricting: Set-NetFirewallRule -DisplayName `"$ruleName`" -RemoteAddress SIFT_IP"
+            }
         } else {
             Write-Ok "Firewall rule already exists"
         }
@@ -1000,7 +1160,13 @@ if ($startChoice -eq "1") {
 
 Write-Header "Installation Complete"
 
-Write-Ok "wintools-mcp installed and running"
+if ($skipServerStart) {
+    Write-Warn "wintools-mcp installed but server not started (port conflict)"
+} elseif ($serverHealthy) {
+    Write-Ok "wintools-mcp installed and running"
+} else {
+    Write-Warn "wintools-mcp installed but health check did not pass"
+}
 Write-Host ""
 Write-Host "  Examiner:       $Examiner"
 Write-Host "  Install dir:    $InstallDir"
@@ -1025,7 +1191,11 @@ Write-Host ""
 if (-not $Standalone) {
     Write-Host "--- SIFT Gateway Configuration ---" -ForegroundColor White
     Write-Host ""
-    if ($wintoolsApiKey) {
+    if ($joinSucceeded) {
+        Write-Ok "Registered via join API. No manual gateway configuration needed."
+        Write-Host ""
+    } elseif ($wintoolsApiKey) {
+        $snippetPath = Join-Path $InstallDir "gateway-snippet.yaml"
         Write-Host "  Add to your SIFT gateway.yaml:" -ForegroundColor White
         Write-Host "    backends:"
         Write-Host "      wintools-mcp:"
@@ -1033,6 +1203,10 @@ if (-not $Standalone) {
         Write-Host "        url: `"http://${localIp}:${Port}/mcp`""
         Write-Host "        bearer_token: `"$wintoolsApiKey`""
         Write-Host "        enabled: true"
+        Write-Host ""
+        if (Test-Path $snippetPath) {
+            Write-Host "  Snippet saved to: $snippetPath" -ForegroundColor White
+        }
     } else {
         Write-Host "  Add to your SIFT gateway.yaml:" -ForegroundColor White
         Write-Host "    backends:"
@@ -1076,8 +1250,12 @@ Write-Host "      }" -ForegroundColor Gray
 Write-Host "    }" -ForegroundColor Gray
 Write-Host ""
 
-if ($startChoice -eq "1") {
+if ($skipServerStart) {
+    Write-Host "  Auto-start: not configured (server not started)" -ForegroundColor Yellow
+} elseif ($startChoice -eq "1" -and $serverHealthy) {
     Write-Host "  Auto-start: enabled (scheduled task)" -ForegroundColor Green
+} elseif ($startChoice -eq "1") {
+    Write-Host "  Auto-start: not configured (health check failed)" -ForegroundColor Yellow
 } else {
     Write-Host "  Manual start: $startupPath" -ForegroundColor Yellow
 }
@@ -1107,7 +1285,7 @@ if ($Standalone) {
     Write-Host "  5. Start investigating" -ForegroundColor White
 }
 Write-Host ""
-if ($startChoice -eq "1") {
+if ($startChoice -eq "1" -and $serverHealthy -and -not $skipServerStart) {
     Write-Host "  Note: AIIR_CASE_DIR is set per case and must be updated when" -ForegroundColor Yellow
     Write-Host "  switching cases. If using auto-start (scheduled task), set it" -ForegroundColor Yellow
     Write-Host "  as a Machine-level environment variable:" -ForegroundColor Yellow
