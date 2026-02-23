@@ -83,3 +83,13 @@ class TestCreateServer:
         server = create_server(config)
         tool_names = [t.name for t in server._tool_manager._tools.values()]
         assert len(tool_names) == 7
+
+    def test_server_has_instructions(self, test_catalog):
+        """Verify forensic discipline instructions are set."""
+        config = WintoolsConfig()
+        server = create_server(config)
+        instructions = getattr(server, "instructions", None) or getattr(
+            getattr(server, "_mcp_server", None), "instructions", None
+        )
+        assert instructions is not None
+        assert "EVIDENCE IS SOVEREIGN" in instructions
