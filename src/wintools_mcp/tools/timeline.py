@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -14,7 +13,7 @@ from wintools_mcp.catalog import get_tool_def
 from wintools_mcp.environment import find_binary
 from wintools_mcp.exceptions import ToolNotFoundError
 from wintools_mcp.executor import execute
-from wintools_mcp.parsers.json_parser import parse_json, parse_jsonl
+from wintools_mcp.parsers.json_parser import parse_jsonl
 from wintools_mcp.parsers.text_parser import parse_text
 from wintools_mcp.response import build_response
 from wintools_mcp.security import sanitize_extra_args
@@ -30,7 +29,7 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
         evtx_dir: str,
         min_level: str = "medium",
         output_file: str = "",
-        extra_args: list[str] = [],
+        extra_args: list[str] | None = None,
     ) -> dict:
         """Run Hayabusa for Sigma-based Windows event log analysis.
 
@@ -40,6 +39,8 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
             output_file: Optional output file path (JSONL format)
             extra_args: Additional Hayabusa arguments
         """
+        if extra_args is None:
+            extra_args = []
         td = get_tool_def("hayabusa")
         if not td:
             raise ValueError("hayabusa not in catalog")
@@ -47,8 +48,8 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
         binary_path = find_binary(td.binary)
         if not binary_path:
             raise ToolNotFoundError(
-                f"Hayabusa is not installed. "
-                f"Download from https://github.com/Yamato-Security/hayabusa/releases"
+                "Hayabusa is not installed. "
+                "Download from https://github.com/Yamato-Security/hayabusa/releases"
             )
 
         evidence_id = audit._next_evidence_id()
@@ -78,7 +79,7 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
         stdout = exec_result.get("stdout", "")
         if output_file:
             try:
-                with open(output_file, "r", encoding="utf-8") as f:
+                with open(output_file, encoding="utf-8") as f:
                     content = f.read()
                 try:
                     data = parse_jsonl(content)
@@ -89,7 +90,9 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
                 logger.warning("Hayabusa output file not found: %s", output_file)
                 data = parse_text(stdout)
             except OSError as e:
-                logger.warning("Failed to read Hayabusa output file %s: %s", output_file, e)
+                logger.warning(
+                    "Failed to read Hayabusa output file %s: %s", output_file, e
+                )
                 data = parse_text(stdout)
         else:
             data = parse_text(stdout)
@@ -120,7 +123,7 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
     def run_mactime(
         body_file: str,
         date_range: str = "",
-        extra_args: list[str] = [],
+        extra_args: list[str] | None = None,
     ) -> dict:
         """Generate timeline from bodyfile (TSK mactime format).
 
@@ -129,6 +132,8 @@ def register_timeline_tools(server: FastMCP, audit: AuditWriter) -> None:
             date_range: Optional date range filter (e.g., "2026-01-01..2026-02-01")
             extra_args: Additional mactime arguments
         """
+        if extra_args is None:
+            extra_args = []
         td = get_tool_def("mactime")
         if not td:
             raise ValueError("mactime not in catalog")

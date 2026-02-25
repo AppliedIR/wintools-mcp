@@ -23,9 +23,9 @@ def to_share_relative(absolute_path: str, share_root: str) -> str:
     norm_path = absolute_path.replace("\\", "/").rstrip("/")
     norm_root = share_root.replace("\\", "/").rstrip("/")
     if norm_path.startswith(norm_root + "/"):
-        return norm_path[len(norm_root) + 1:]
+        return norm_path[len(norm_root) + 1 :]
     if norm_path.lower().startswith(norm_root.lower() + "/"):
-        return norm_path[len(norm_root) + 1:]
+        return norm_path[len(norm_root) + 1 :]
     return absolute_path.replace("\\", "/")
 
 

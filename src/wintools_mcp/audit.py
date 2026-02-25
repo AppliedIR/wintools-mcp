@@ -57,7 +57,9 @@ class AuditWriter:
     file writes wrapped in try/except with fsync for durability.
     """
 
-    def __init__(self, mcp_name: str = "wintools-mcp", audit_dir: str | None = None) -> None:
+    def __init__(
+        self, mcp_name: str = "wintools-mcp", audit_dir: str | None = None
+    ) -> None:
         self.mcp_name = mcp_name
         self._explicit_audit_dir = audit_dir
         self._sequence = 0
@@ -85,7 +87,9 @@ class AuditWriter:
                     return None
                 path = Path(case_dir)
                 if not path.is_dir():
-                    logger.warning("AIIR_CASE_DIR=%s is not a directory, skipping audit", case_dir)
+                    logger.warning(
+                        "AIIR_CASE_DIR=%s is not a directory, skipping audit", case_dir
+                    )
                     return None
                 audit_dir = path / "audit"
         try:
@@ -125,7 +129,9 @@ class AuditWriter:
         try:
             text = log_file.read_text(encoding="utf-8")
         except OSError as e:
-            logger.warning("Failed to read audit log for sequence resume %s: %s", log_file, e)
+            logger.warning(
+                "Failed to read audit log for sequence resume %s: %s", log_file, e
+            )
             return 0
         for line in text.strip().split("\n"):
             if not line:
@@ -135,7 +141,7 @@ class AuditWriter:
                 eid = entry.get("evidence_id", "")
                 if eid.startswith(pattern):
                     try:
-                        seq = int(eid[len(pattern):])
+                        seq = int(eid[len(pattern) :])
                         max_seq = max(max_seq, seq)
                     except ValueError:
                         pass
@@ -199,7 +205,9 @@ class AuditWriter:
             logger.warning(
                 "Failed to write audit entry for evidence_id=%s tool=%s: %s "
                 "(this evidence_id was NOT recorded to the audit trail)",
-                entry.get("evidence_id"), entry.get("tool"), e,
+                entry.get("evidence_id"),
+                entry.get("tool"),
+                e,
             )
             return False
 
@@ -215,7 +223,7 @@ class AuditWriter:
             return []
         entries = []
         try:
-            with open(log_file, "r", encoding="utf-8") as f:
+            with open(log_file, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:

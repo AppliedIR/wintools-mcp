@@ -25,6 +25,7 @@ _MAX_TOKEN_LENGTH = 1024
 # ASGI-level auth wrapper (same pattern as sift-gateway)
 # ---------------------------------------------------------------------------
 
+
 class MCPAuthASGIApp:
     """ASGI wrapper: auth check then delegate to MCP session manager."""
 
@@ -94,6 +95,7 @@ def _extract_bearer_token(scope: dict) -> str | None:
 # Health endpoint
 # ---------------------------------------------------------------------------
 
+
 async def health(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok", "service": "wintools-mcp"})
 
@@ -101,6 +103,7 @@ async def health(request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
+
 
 def create_http_app(config: WintoolsConfig) -> Starlette:
     """Build a Starlette app with /mcp (Streamable HTTP MCP) + /health + auth."""

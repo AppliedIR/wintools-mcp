@@ -1,18 +1,17 @@
 """Tests for the HTTP server with Streamable HTTP MCP endpoint."""
 
-import contextlib
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock
 from starlette.testclient import TestClient
 
 from wintools_mcp.config import WintoolsConfig
-from wintools_mcp.http_server import MCPAuthASGIApp, _MAX_TOKEN_LENGTH, create_http_app
-
+from wintools_mcp.http_server import _MAX_TOKEN_LENGTH, MCPAuthASGIApp, create_http_app
 
 # ---------------------------------------------------------------------------
 # MCPAuthASGIApp unit tests
 # ---------------------------------------------------------------------------
+
 
 class TestMCPAuthASGIApp:
     def _make_scope(self, headers: dict[str, str] | None = None) -> dict:
@@ -145,6 +144,7 @@ class TestMCPAuthASGIApp:
 # HTTP app integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestHTTPApp:
     @pytest.fixture
     def config(self):
@@ -185,7 +185,9 @@ class TestHTTPApp:
     def test_mcp_initialize(self, config):
         app = create_http_app(config)
         with TestClient(app, raise_server_exceptions=False) as client:
-            resp = client.post("/mcp", json=self._init_request(), headers=self._mcp_headers())
+            resp = client.post(
+                "/mcp", json=self._init_request(), headers=self._mcp_headers()
+            )
             assert resp.status_code in (200, 202)
 
     def test_mcp_auth_required(self):

@@ -1,17 +1,15 @@
 """Tests for catalog module — denylist, allowlist, PS exceptions."""
 
 import pytest
-from pathlib import Path
 
 from wintools_mcp.catalog import (
     BLOCKED_BINARIES,
-    PS_SCRIPT_EXCEPTIONS,
+    _is_valid_ps_exception,
     clear_catalog_cache,
     get_tool_def,
     is_in_catalog,
     load_catalog,
     validate_command,
-    _is_valid_ps_exception,
 )
 
 
@@ -38,7 +36,6 @@ tools:
 
 
 class TestDenylist:
-
     def test_cmd_blocked(self, test_catalog):
         assert validate_command(["cmd.exe", "/c", "dir"]) is not None
         assert "blocked" in validate_command(["cmd.exe"]).lower()
@@ -69,7 +66,6 @@ class TestDenylist:
 
 
 class TestAllowlist:
-
     def test_cataloged_tool_allowed(self, test_catalog):
         result = validate_command(["testtool.exe", "-f", "input.hve"])
         assert result is None  # No error = allowed
@@ -90,13 +86,14 @@ class TestAllowlist:
 
 
 class TestPsException:
-
     def test_valid_ps_exception(self, test_catalog):
         cmd = [
             "powershell.exe",
             "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", "C:\\Scripts\\Get-InjectedThreadEx.ps1",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "C:\\Scripts\\Get-InjectedThreadEx.ps1",
         ]
         assert _is_valid_ps_exception(cmd) is True
 
@@ -104,8 +101,10 @@ class TestPsException:
         cmd = [
             "powershell.exe",
             "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-Command", "Get-Process",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "Get-Process",
         ]
         assert _is_valid_ps_exception(cmd) is False
 
@@ -113,16 +112,20 @@ class TestPsException:
         cmd = [
             "powershell.exe",
             "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-EncodedCommand", "R2V0LVByb2Nlc3M=",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-EncodedCommand",
+            "R2V0LVByb2Nlc3M=",
         ]
         assert _is_valid_ps_exception(cmd) is False
 
     def test_ps_exception_requires_noprofile(self, test_catalog):
         cmd = [
             "powershell.exe",
-            "-ExecutionPolicy", "Bypass",
-            "-File", "C:\\Scripts\\Get-InjectedThreadEx.ps1",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "C:\\Scripts\\Get-InjectedThreadEx.ps1",
         ]
         assert _is_valid_ps_exception(cmd) is False
 
@@ -130,7 +133,8 @@ class TestPsException:
         cmd = [
             "powershell.exe",
             "-NoProfile",
-            "-File", "C:\\Scripts\\Get-InjectedThreadEx.ps1",
+            "-File",
+            "C:\\Scripts\\Get-InjectedThreadEx.ps1",
         ]
         assert _is_valid_ps_exception(cmd) is False
 
@@ -138,8 +142,10 @@ class TestPsException:
         cmd = [
             "powershell.exe",
             "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", "C:\\Scripts\\Evil.ps1",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "C:\\Scripts\\Evil.ps1",
         ]
         assert _is_valid_ps_exception(cmd) is False
 
@@ -147,7 +153,8 @@ class TestPsException:
         cmd = [
             "powershell.exe",
             "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
+            "-ExecutionPolicy",
+            "Bypass",
         ]
         assert _is_valid_ps_exception(cmd) is False
 
@@ -155,8 +162,10 @@ class TestPsException:
         cmd = [
             "powershell.exe",
             "-NoProfile",
-            "-ExecutionPolicy", "Bypass",
-            "-File", "C:\\Scripts\\Get-InjectedThreadEx.ps1",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "C:\\Scripts\\Get-InjectedThreadEx.ps1",
         ]
         assert validate_command(cmd) is None
 
@@ -168,7 +177,6 @@ class TestPsException:
 
 
 class TestCatalogLoading:
-
     def test_load_with_install_methods(self, test_catalog):
         catalog = load_catalog()
         td = catalog.get("testtool")
@@ -262,7 +270,12 @@ class TestMemoryCatalog:
         assert td.binary == "dumpit.exe"
 
     def test_memory_tools_allowed(self):
-        for binary in ("winpmem.exe", "dumpit.exe", "moneta64.exe", "hollows_hunter.exe"):
+        for binary in (
+            "winpmem.exe",
+            "dumpit.exe",
+            "moneta64.exe",
+            "hollows_hunter.exe",
+        ):
             result = validate_command([binary, "--help"])
             assert result is None, f"{binary} should be allowed"
 
@@ -281,7 +294,11 @@ class TestMalformedCatalogYAML:
 
     def test_yaml_syntax_error(self, tmp_path, monkeypatch):
         """Truncated/malformed YAML must not allow any binaries."""
-        self._make_catalog(tmp_path, monkeypatch, "tools:\n  - name: Foo\n    binary: foo.exe\n  invalid: [")
+        self._make_catalog(
+            tmp_path,
+            monkeypatch,
+            "tools:\n  - name: Foo\n    binary: foo.exe\n  invalid: [",
+        )
         catalog = load_catalog()
         # Malformed YAML should be skipped; catalog should be empty
         assert len(catalog) == 0

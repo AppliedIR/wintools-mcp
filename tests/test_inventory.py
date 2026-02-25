@@ -1,9 +1,10 @@
 """Tests for inventory and discovery modules."""
 
-import pytest
 from unittest.mock import patch
 
-from wintools_mcp.inventory import scan_tools, get_install_guidance, print_scan_report
+import pytest
+
+from wintools_mcp.inventory import get_install_guidance, print_scan_report, scan_tools
 
 
 @pytest.fixture
@@ -38,7 +39,6 @@ tools:
 
 
 class TestScanTools:
-
     def test_all_missing(self, test_catalog):
         with patch("wintools_mcp.inventory.find_binary", return_value=None):
             result = scan_tools()
@@ -62,14 +62,18 @@ class TestScanTools:
     def test_missing_includes_install_methods(self, test_catalog):
         with patch("wintools_mcp.inventory.find_binary", return_value=None):
             result = scan_tools()
-        amcache = next(t for t in result["missing_tools"] if t["name"] == "AmcacheParser")
+        amcache = next(
+            t for t in result["missing_tools"] if t["name"] == "AmcacheParser"
+        )
         assert len(amcache["install_methods"]) == 2
         assert amcache["install_methods"][0]["method"] == "dotnet"
 
     def test_missing_includes_alternatives(self, test_catalog):
         with patch("wintools_mcp.inventory.find_binary", return_value=None):
             result = scan_tools()
-        amcache = next(t for t in result["missing_tools"] if t["name"] == "AmcacheParser")
+        amcache = next(
+            t for t in result["missing_tools"] if t["name"] == "AmcacheParser"
+        )
         assert "alternatives" in amcache
 
     def test_by_category(self, test_catalog):
@@ -80,7 +84,6 @@ class TestScanTools:
 
 
 class TestInstallGuidance:
-
     def test_known_tool(self, test_catalog):
         with patch("wintools_mcp.inventory.find_binary", return_value=None):
             result = get_install_guidance("AmcacheParser")
@@ -89,7 +92,10 @@ class TestInstallGuidance:
         assert len(result["install_methods"]) == 2
 
     def test_installed_tool(self, test_catalog):
-        with patch("wintools_mcp.inventory.find_binary", return_value="C:\\Tools\\AmcacheParser.exe"):
+        with patch(
+            "wintools_mcp.inventory.find_binary",
+            return_value="C:\\Tools\\AmcacheParser.exe",
+        ):
             result = get_install_guidance("AmcacheParser")
         assert result["installed"] is True
         assert result["path"] == "C:\\Tools\\AmcacheParser.exe"
@@ -100,7 +106,6 @@ class TestInstallGuidance:
 
 
 class TestScanReport:
-
     def test_report_format(self, test_catalog):
         with patch("wintools_mcp.inventory.find_binary", return_value=None):
             report = print_scan_report()

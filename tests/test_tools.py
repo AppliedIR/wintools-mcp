@@ -1,9 +1,8 @@
 """Tests for Zimmerman and timeline tool wrappers."""
 
-import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from wintools_mcp.audit import AuditWriter
 
@@ -57,7 +56,6 @@ tools:
 
 
 class TestZimmermanTools:
-
     def test_register_tools(self, zimmerman_catalog):
         from wintools_mcp.tools.zimmerman import register_zimmerman_tools
 
@@ -85,7 +83,13 @@ class TestZimmermanTools:
             "stdout": "AmcacheParser v1.5\nProcessing...\n",
             "stderr": "",
             "elapsed_seconds": 1.0,
-            "command": ["AmcacheParser.exe", "-f", "Amcache.hve", "--csv", str(output_dir)],
+            "command": [
+                "AmcacheParser.exe",
+                "-f",
+                "Amcache.hve",
+                "--csv",
+                str(output_dir),
+            ],
         }
 
         csv_content = "SHA1,FullPath,FileSize\nabc123,C:\\Windows\\notepad.exe,123456\n"
@@ -93,10 +97,17 @@ class TestZimmermanTools:
 
         audit = AuditWriter()
 
-        with patch("wintools_mcp.tools.zimmerman.find_binary", return_value="C:\\Tools\\AmcacheParser.exe"), \
-             patch("wintools_mcp.tools.zimmerman.execute", return_value=mock_result):
+        with (
+            patch(
+                "wintools_mcp.tools.zimmerman.find_binary",
+                return_value="C:\\Tools\\AmcacheParser.exe",
+            ),
+            patch("wintools_mcp.tools.zimmerman.execute", return_value=mock_result),
+        ):
             result = _run_zimmerman_tool(
-                "AmcacheParser", "Amcache.hve", audit,
+                "AmcacheParser",
+                "Amcache.hve",
+                audit,
                 output_dir=str(output_dir),
             )
 
@@ -106,8 +117,8 @@ class TestZimmermanTools:
         assert "Amcache_UnassociatedFileEntries" in result["data"]
 
     def test_tool_not_found_includes_guidance(self, zimmerman_catalog):
-        from wintools_mcp.tools.zimmerman import _run_zimmerman_tool
         from wintools_mcp.exceptions import ToolNotFoundError
+        from wintools_mcp.tools.zimmerman import _run_zimmerman_tool
 
         audit = AuditWriter()
 
@@ -117,7 +128,6 @@ class TestZimmermanTools:
 
 
 class TestTimelineTools:
-
     def test_register_tools(self, zimmerman_catalog):
         from wintools_mcp.tools.timeline import register_timeline_tools
 
@@ -132,8 +142,8 @@ class TestTimelineTools:
         assert "run_mactime" in tools
 
     def test_hayabusa_not_found(self, zimmerman_catalog):
-        from wintools_mcp.tools.timeline import register_timeline_tools
         from wintools_mcp.exceptions import ToolNotFoundError
+        from wintools_mcp.tools.timeline import register_timeline_tools
 
         tools = {}
         server = MagicMock()
@@ -166,8 +176,13 @@ class TestTimelineTools:
             "command": ["mactime.pl", "-b", "body.txt"],
         }
 
-        with patch("wintools_mcp.tools.timeline.find_binary", return_value="/usr/bin/mactime.pl"), \
-             patch("wintools_mcp.tools.timeline.execute", return_value=mock_result):
+        with (
+            patch(
+                "wintools_mcp.tools.timeline.find_binary",
+                return_value="/usr/bin/mactime.pl",
+            ),
+            patch("wintools_mcp.tools.timeline.execute", return_value=mock_result),
+        ):
             result = tools["run_mactime"]("body.txt")
 
         assert result["success"] is True

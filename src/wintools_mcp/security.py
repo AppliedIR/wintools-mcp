@@ -8,9 +8,17 @@ from wintools_mcp.catalog import is_in_catalog
 
 # Flags that could be abused for data exfiltration or code execution
 _DANGEROUS_FLAGS = {
-    "-e", "--exec", "--command", "-enc", "-encodedcommand",
-    "--script", "--invoke",
-    "-o", "--output", "-O", "--output-file",
+    "-e",
+    "--exec",
+    "--command",
+    "-enc",
+    "-encodedcommand",
+    "--script",
+    "--invoke",
+    "-o",
+    "--output",
+    "-O",
+    "--output-file",
 }
 
 _DANGEROUS_PATTERNS = [";", "&&", "||", "`", "$(", "${"]
@@ -49,9 +57,7 @@ def sanitize_extra_args(extra_args: list[str], tool_name: str = "") -> list[str]
             )
         flag = arg.lower().split("=")[0]
         if flag in tool_blocked:
-            raise ValueError(
-                f"Blocked dangerous flag '{arg}' for {tool_name}"
-            )
+            raise ValueError(f"Blocked dangerous flag '{arg}' for {tool_name}")
         if flag in _DANGEROUS_FLAGS:
             raise ValueError(
                 f"Blocked dangerous flag '{arg}' in extra_args for {tool_name}"

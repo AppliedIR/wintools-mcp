@@ -13,11 +13,11 @@ from mcp.server.fastmcp import FastMCP
 
 from wintools_mcp.audit import AuditWriter
 from wintools_mcp.catalog import get_tool_def
+from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_binary
 from wintools_mcp.exceptions import ToolNotFoundError
 from wintools_mcp.executor import execute
-from wintools_mcp.config import get_config
-from wintools_mcp.output import get_output_dir, build_manifest, to_share_relative
+from wintools_mcp.output import build_manifest, get_output_dir, to_share_relative
 from wintools_mcp.parsers.csv_parser import parse_csv_file
 from wintools_mcp.response import build_response
 from wintools_mcp.security import sanitize_extra_args
@@ -49,8 +49,7 @@ def _run_zimmerman_tool(
             elif im.url:
                 guidance.append({"method": im.method, "url": im.url})
         raise ToolNotFoundError(
-            f"{td.name} ({td.binary}) is not installed. "
-            f"Install guidance: {guidance}"
+            f"{td.name} ({td.binary}) is not installed. Install guidance: {guidance}"
         )
 
     evidence_id = audit._next_evidence_id()
@@ -66,7 +65,9 @@ def _run_zimmerman_tool(
     elif working_dir:
         csv_dir = str(get_output_dir(working_dir, evidence_id))
     else:
-        _temp_cleanup = tempfile.TemporaryDirectory(prefix=f"wintools_{tool_name.lower()}_")
+        _temp_cleanup = tempfile.TemporaryDirectory(
+            prefix=f"wintools_{tool_name.lower()}_"
+        )
         csv_dir = _temp_cleanup.name
 
     try:
@@ -88,7 +89,8 @@ def _run_zimmerman_tool(
         for csv_file in csv_files:
             try:
                 parsed_data[csv_file.stem] = parse_csv_file(
-                    str(csv_file), max_rows=max_rows,
+                    str(csv_file),
+                    max_rows=max_rows,
                     byte_budget=get_config().response_byte_budget,
                 )
             except FileNotFoundError:
@@ -104,8 +106,7 @@ def _run_zimmerman_tool(
             output_files = build_manifest(Path(csv_dir))
             cfg = get_config()
             extraction_paths = [
-                to_share_relative(str(f), cfg.share_root)
-                for f in csv_files
+                to_share_relative(str(f), cfg.share_root) for f in csv_files
             ]
 
         response = build_response(
@@ -148,8 +149,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Amcache.hve for program execution evidence."""
         return _run_zimmerman_tool(
-            "AmcacheParser", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "AmcacheParser",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -158,8 +162,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Application Compatibility Cache (ShimCache) from SYSTEM hive."""
         return _run_zimmerman_tool(
-            "AppCompatCacheParser", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "AppCompatCacheParser",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -168,8 +175,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Windows Event Log (EVTX) files."""
         return _run_zimmerman_tool(
-            "EvtxECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "EvtxECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -178,8 +188,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Jump List files for recent file access."""
         return _run_zimmerman_tool(
-            "JLECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "JLECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -188,8 +201,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse LNK (shortcut) files."""
         return _run_zimmerman_tool(
-            "LECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "LECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -198,8 +214,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse MFT ($MFT, $J, $SDS, $Boot) files."""
         return _run_zimmerman_tool(
-            "MFTECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "MFTECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -208,8 +227,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Prefetch files for program execution history."""
         return _run_zimmerman_tool(
-            "PECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "PECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -218,8 +240,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Recycle Bin ($I) files."""
         return _run_zimmerman_tool(
-            "RBCmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "RBCmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -228,8 +253,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Windows Registry hive files."""
         return _run_zimmerman_tool(
-            "RECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "RECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -238,8 +266,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse ShellBags for folder access history."""
         return _run_zimmerman_tool(
-            "SBECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "SBECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -248,8 +279,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse SQLite databases (browser history, etc.)."""
         return _run_zimmerman_tool(
-            "SQLECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "SQLECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -258,8 +292,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse SRUM database for resource usage monitoring."""
         return _run_zimmerman_tool(
-            "SrumECmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "SrumECmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -268,8 +305,11 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Parse Windows Timeline (ActivitiesCache.db) database."""
         return _run_zimmerman_tool(
-            "WxTCmd", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "WxTCmd",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )
 
     @server.tool()
@@ -278,6 +318,9 @@ def register_zimmerman_tools(server: FastMCP, audit: AuditWriter) -> None:
     ) -> dict:
         """Extract strings with regex pattern matching."""
         return _run_zimmerman_tool(
-            "bstrings", input_file, audit,
-            extra_flags=extra_flags, max_rows=max_rows,
+            "bstrings",
+            input_file,
+            audit,
+            extra_flags=extra_flags,
+            max_rows=max_rows,
         )

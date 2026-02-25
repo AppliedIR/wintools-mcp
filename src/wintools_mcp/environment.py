@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_TOOL_PATHS = [
     Path(os.environ.get("ProgramFiles", "C:\\Program Files")),
     Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")),
-    Path(os.environ.get("LOCALAPPDATA", "") or "C:\\Users\\Default\\AppData\\Local") / "Programs",
+    Path(os.environ.get("LOCALAPPDATA", "") or "C:\\Users\\Default\\AppData\\Local")
+    / "Programs",
     Path("C:\\Tools"),
     Path("C:\\Tools\\ZimmermanTools"),
     Path("C:\\Tools\\Hayabusa"),
@@ -24,7 +25,9 @@ DEFAULT_TOOL_PATHS = [
     Path("C:\\Tools\\Moneta"),
     Path("C:\\Tools\\HollowsHunter"),
     Path("C:\\Tools\\CAPA"),
-    Path(os.environ.get("USERPROFILE", "") or "C:\\Users\\Default") / "Desktop" / "ZimmermanTools",
+    Path(os.environ.get("USERPROFILE", "") or "C:\\Users\\Default")
+    / "Desktop"
+    / "ZimmermanTools",
     # Chocolatey
     Path("C:\\ProgramData\\chocolatey\\bin"),
     # Scoop
@@ -74,6 +77,7 @@ def get_windows_version() -> dict:
     if os.name == "nt":
         try:
             import winreg
+
             key = winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE,
                 r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",

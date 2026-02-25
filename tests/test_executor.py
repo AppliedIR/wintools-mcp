@@ -1,16 +1,15 @@
 """Tests for executor module."""
 
-import os
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock
-from wintools_mcp.executor import execute, _truncate, _validate_output_dir, _BLOCKED_OUTPUT_DIRS_WIN, _BLOCKED_OUTPUT_DIRS_POSIX
-from wintools_mcp.exceptions import ExecutionError, ExecutionTimeoutError
+
+from wintools_mcp.exceptions import ExecutionError
+from wintools_mcp.executor import _truncate, _validate_output_dir, execute
 
 
 class TestExecutor:
-
     def test_successful_execution(self, monkeypatch):
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -51,7 +50,7 @@ class TestExecutor:
 
         assert "\r\n" not in result["stdout"]
         assert "\r\n" not in result["stderr"]
-        assert "line1\nline2\n" == result["stdout"]
+        assert result["stdout"] == "line1\nline2\n"
 
     def test_truncation(self):
         long_text = "x" * 100_000
@@ -86,8 +85,10 @@ class TestExecutor:
         # On Linux, C:\Windows resolves to a POSIX path. Patch Path.resolve
         # to return a Windows-style path so we can test the blocking logic.
         fake_resolved = Path(r"C:\Windows\Temp\evil")
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result), \
-             patch("wintools_mcp.executor.Path.resolve", return_value=fake_resolved):
+        with (
+            patch("wintools_mcp.executor.subprocess.run", return_value=mock_result),
+            patch("wintools_mcp.executor.Path.resolve", return_value=fake_resolved),
+        ):
             with pytest.raises(ValueError, match="Output directory blocked"):
                 execute(
                     ["test"],

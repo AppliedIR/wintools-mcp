@@ -1,16 +1,14 @@
 """Tests for security module — input sanitization and path validation."""
 
 import pytest
+
 from wintools_mcp.security import (
     sanitize_extra_args,
     validate_input_path,
-    _DANGEROUS_FLAGS,
-    _TOOL_BLOCKED_FLAGS,
 )
 
 
 class TestSanitizeExtraArgs:
-
     def test_clean_args_pass(self):
         result = sanitize_extra_args(["--csv", "input/", "-q"])
         assert result == ["--csv", "input/", "-q"]
@@ -64,8 +62,9 @@ class TestValidateInputPath:
 
     def test_blocked_system32(self, tmp_path):
         """Paths inside System32 should be blocked."""
-        from unittest.mock import patch
         from pathlib import Path
+        from unittest.mock import patch
+
         fake_resolved = Path(r"C:\Windows\System32\config\SAM")
         with patch("wintools_mcp.security.Path.resolve", return_value=fake_resolved):
             with pytest.raises(ValueError, match="blocked system directory"):
@@ -73,8 +72,9 @@ class TestValidateInputPath:
 
     def test_blocked_syswow64(self, tmp_path):
         """Paths inside SysWOW64 should be blocked."""
-        from unittest.mock import patch
         from pathlib import Path
+        from unittest.mock import patch
+
         fake_resolved = Path(r"C:\Windows\SysWOW64\evil.dll")
         with patch("wintools_mcp.security.Path.resolve", return_value=fake_resolved):
             with pytest.raises(ValueError, match="blocked system directory"):

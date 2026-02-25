@@ -1,13 +1,9 @@
 """Tests for output file tracking and manifest generation."""
 
-import pytest
-from pathlib import Path
-
-from wintools_mcp.output import get_output_dir, build_manifest, to_share_relative
+from wintools_mcp.output import build_manifest, get_output_dir, to_share_relative
 
 
 class TestOutputDir:
-
     def test_creates_evidence_dir(self, tmp_path):
         out = get_output_dir(str(tmp_path), "win-jane-20260220-001")
         assert out.exists()
@@ -21,7 +17,6 @@ class TestOutputDir:
 
 
 class TestManifest:
-
     def test_empty_dir(self, tmp_path):
         out_dir = tmp_path / "output" / "test"
         out_dir.mkdir(parents=True)
@@ -48,7 +43,9 @@ class TestManifest:
         (out_dir / "test.csv").write_text("data")
 
         manifest = build_manifest(out_dir, base_url="http://localhost:4624")
-        assert manifest[0]["download_url"].startswith("http://localhost:4624/api/v1/files/download")
+        assert manifest[0]["download_url"].startswith(
+            "http://localhost:4624/api/v1/files/download"
+        )
 
     def test_nonexistent_dir(self, tmp_path):
         manifest = build_manifest(tmp_path / "nonexistent")
@@ -56,7 +53,6 @@ class TestManifest:
 
 
 class TestShareRelative:
-
     def test_strips_share_root(self):
         result = to_share_relative(
             "E:\\cases\\SRL2\\extractions\\output.csv",

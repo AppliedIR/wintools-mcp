@@ -8,7 +8,6 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -32,10 +31,12 @@ class WintoolsConfig:
 
     # AIR integration
     case_dir: str = ""
-    active_case: str = ""          # Maps to case_id in audit entries
-    examiner: str = ""             # Primary identity — set once at startup, immutable
-    share_root: str = ""           # SMB mount root (e.g., E:\cases\SRL2\) for share-relative paths
-    audit_dir: str = ""            # Local audit directory (default: AIIR_CASE_DIR/audit/)
+    active_case: str = ""  # Maps to case_id in audit entries
+    examiner: str = ""  # Primary identity — set once at startup, immutable
+    share_root: str = (
+        ""  # SMB mount root (e.g., E:\cases\SRL2\) for share-relative paths
+    )
+    audit_dir: str = ""  # Local audit directory (default: AIIR_CASE_DIR/audit/)
 
     # HTTP mode
     http_host: str = "127.0.0.1"
@@ -44,7 +45,7 @@ class WintoolsConfig:
 
     # File transfer
     file_transfer_enabled: bool = True
-    working_dir: str = ""          # Defaults to case_dir or C:\Cases
+    working_dir: str = ""  # Defaults to case_dir or C:\Cases
     max_upload_bytes: int = 2_147_483_648  # 2 GB
 
     @classmethod
@@ -83,7 +84,8 @@ class WintoolsConfig:
             cfg.examiner = sanitized or "unknown"
             logger.warning(
                 "Examiner identity sanitized from %r to %r",
-                original, cfg.examiner,
+                original,
+                cfg.examiner,
             )
 
         if os.environ.get("WINTOOLS_RESPONSE_BUDGET"):
@@ -99,9 +101,15 @@ class WintoolsConfig:
             if 1 <= port <= 65535:
                 cfg.http_port = port
             else:
-                logger.warning("WINTOOLS_PORT=%d out of range (1-65535), using default %d", port, cfg.http_port)
+                logger.warning(
+                    "WINTOOLS_PORT=%d out of range (1-65535), using default %d",
+                    port,
+                    cfg.http_port,
+                )
         except ValueError:
-            logger.warning("Invalid WINTOOLS_PORT value, using default %d", cfg.http_port)
+            logger.warning(
+                "Invalid WINTOOLS_PORT value, using default %d", cfg.http_port
+            )
 
         # Tool paths
         extra = os.environ.get("WINTOOLS_TOOL_PATHS", "")
@@ -116,7 +124,7 @@ class WintoolsConfig:
         if not p.is_file():
             return
         try:
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 doc = yaml.safe_load(f)
         except yaml.YAMLError as e:
             logger.warning("Failed to parse config file %s: %s", path, e)
@@ -134,8 +142,12 @@ class WintoolsConfig:
         if isinstance(port, int) and 1 <= port <= 65535:
             self.http_port = port
         elif port != self.http_port:
-            logger.warning("Invalid port %r in config, using default %d", port, self.http_port)
-        self.file_transfer_enabled = doc.get("file_transfer_enabled", self.file_transfer_enabled)
+            logger.warning(
+                "Invalid port %r in config, using default %d", port, self.http_port
+            )
+        self.file_transfer_enabled = doc.get(
+            "file_transfer_enabled", self.file_transfer_enabled
+        )
         self.working_dir = doc.get("working_dir", self.working_dir)
         self.share_root = doc.get("share_root", self.share_root)
         self.audit_dir = doc.get("audit_dir", self.audit_dir)

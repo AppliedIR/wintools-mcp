@@ -27,7 +27,15 @@ _BLOCKED_OUTPUT_DIRS_WIN = (
     r"C:\ProgramData",
 )
 _BLOCKED_OUTPUT_DIRS_POSIX = (
-    "/etc", "/usr", "/bin", "/sbin", "/lib", "/boot", "/proc", "/sys", "/dev",
+    "/etc",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/boot",
+    "/proc",
+    "/sys",
+    "/dev",
 )
 
 
@@ -120,7 +128,9 @@ def execute(
 
         if exceeds_budget and case_dir:
             _save_output(
-                cmd_list, stdout, stderr,
+                cmd_list,
+                stdout,
+                stderr,
                 save_dir or os.path.join(case_dir, "extractions"),
                 response,
             )
@@ -129,16 +139,16 @@ def execute(
 
         return response
 
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         raise ExecutionTimeoutError(
             f"Command timed out after {timeout}s: {' '.join(cmd_list)}"
-        )
-    except FileNotFoundError:
-        raise ExecutionError(f"Binary not found: {cmd_list[0]}")
-    except PermissionError:
-        raise ExecutionError(f"Permission denied: {cmd_list[0]}")
+        ) from exc
+    except FileNotFoundError as exc:
+        raise ExecutionError(f"Binary not found: {cmd_list[0]}") from exc
+    except PermissionError as exc:
+        raise ExecutionError(f"Permission denied: {cmd_list[0]}") from exc
     except OSError as e:
-        raise ExecutionError(f"OS error executing {cmd_list[0]}: {e}")
+        raise ExecutionError(f"OS error executing {cmd_list[0]}: {e}") from e
 
 
 def _truncate(text: str, max_chars: int) -> str:

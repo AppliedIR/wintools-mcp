@@ -1,6 +1,5 @@
 """Shared fixtures for wintools-mcp tests."""
 
-import os
 import pytest
 
 from wintools_mcp.catalog import clear_catalog_cache

@@ -1,15 +1,12 @@
 """Tests for audit module — evidence IDs, JSONL writing, examiner identity."""
 
 import json
-import os
 import threading
-import pytest
 
 from wintools_mcp.audit import AuditWriter, resolve_examiner
 
 
 class TestExaminerResolution:
-
     def test_examiner_from_env(self, monkeypatch):
         monkeypatch.setenv("AIIR_EXAMINER", "Jane")
         assert resolve_examiner() == "jane"
@@ -28,7 +25,6 @@ class TestExaminerResolution:
 
 
 class TestEvidenceIds:
-
     def test_evidence_id_format(self, monkeypatch):
         monkeypatch.setenv("AIIR_EXAMINER", "jane")
         audit = AuditWriter()
@@ -62,7 +58,6 @@ class TestEvidenceIds:
 
 
 class TestAuditWriting:
-
     def test_writes_jsonl(self, case_dir, examiner):
         audit = AuditWriter()
         eid = audit.log(
@@ -127,7 +122,6 @@ class TestAuditWriting:
 
 
 class TestAuditRetrieval:
-
     def test_get_entries(self, case_dir, examiner):
         audit = AuditWriter()
         audit.log(tool="t1", params={}, result_summary={})
@@ -156,7 +150,6 @@ class TestAuditRetrieval:
 
 
 class TestAuditDirParameter:
-
     def test_explicit_audit_dir(self, tmp_path, examiner):
         audit_dir = tmp_path / "local_audit"
         audit = AuditWriter(audit_dir=str(audit_dir))
@@ -201,7 +194,6 @@ class TestAuditDirParameter:
 
 
 class TestThreadSafety:
-
     def test_concurrent_log_calls(self, case_dir, examiner):
         audit = AuditWriter()
         ids = []

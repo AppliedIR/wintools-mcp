@@ -10,46 +10,73 @@ from typing import Any
 
 import yaml
 
-from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
-
 logger = logging.getLogger(__name__)
 
 _CATALOG_DIR: Path | None = None
 _catalog_cache: dict[str, Any] = {}
 
-BLOCKED_BINARIES = frozenset({
-    "cmd", "cmd.exe",
-    "powershell", "powershell.exe",
-    "pwsh", "pwsh.exe",
-    "wscript", "wscript.exe",
-    "cscript", "cscript.exe",
-    "mshta", "mshta.exe",
-    "rundll32", "rundll32.exe",
-    "regsvr32", "regsvr32.exe",
-    "certutil", "certutil.exe",
-    "bitsadmin", "bitsadmin.exe",
-    "msiexec", "msiexec.exe",
-    "bash", "bash.exe",
-    "wsl", "wsl.exe",
-    "sh", "sh.exe",
-    # LOLBins: code execution proxies (LOLBAS)
-    "msbuild", "msbuild.exe",
-    "installutil", "installutil.exe",
-    "regasm", "regasm.exe",
-    "regsvcs", "regsvcs.exe",
-    "cmstp", "cmstp.exe",
-    "control", "control.exe",
-})
+BLOCKED_BINARIES = frozenset(
+    {
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "powershell.exe",
+        "pwsh",
+        "pwsh.exe",
+        "wscript",
+        "wscript.exe",
+        "cscript",
+        "cscript.exe",
+        "mshta",
+        "mshta.exe",
+        "rundll32",
+        "rundll32.exe",
+        "regsvr32",
+        "regsvr32.exe",
+        "certutil",
+        "certutil.exe",
+        "bitsadmin",
+        "bitsadmin.exe",
+        "msiexec",
+        "msiexec.exe",
+        "bash",
+        "bash.exe",
+        "wsl",
+        "wsl.exe",
+        "sh",
+        "sh.exe",
+        # LOLBins: code execution proxies (LOLBAS)
+        "msbuild",
+        "msbuild.exe",
+        "installutil",
+        "installutil.exe",
+        "regasm",
+        "regasm.exe",
+        "regsvcs",
+        "regsvcs.exe",
+        "cmstp",
+        "cmstp.exe",
+        "control",
+        "control.exe",
+    }
+)
 
-PS_SCRIPT_EXCEPTIONS = frozenset({
-    "get-injectedthreadex.ps1",
-})
+PS_SCRIPT_EXCEPTIONS = frozenset(
+    {
+        "get-injectedthreadex.ps1",
+    }
+)
 
-_PS_BANNED_FLAGS = frozenset({
-    "-command", "-c",
-    "-encodedcommand", "-e", "-enc",
-    "-invoke-expression",
-})
+_PS_BANNED_FLAGS = frozenset(
+    {
+        "-command",
+        "-c",
+        "-encodedcommand",
+        "-e",
+        "-enc",
+        "-invoke-expression",
+    }
+)
 
 
 def _find_catalog_dir() -> Path:
@@ -75,9 +102,9 @@ def _find_catalog_dir() -> Path:
 
 @dataclass
 class InstallMethod:
-    method: str          # "chocolatey", "scoop", "pip", "dotnet", "direct", "github"
-    command: str = ""    # e.g., "choco install hayabusa"
-    url: str = ""        # direct download URL
+    method: str  # "chocolatey", "scoop", "pip", "dotnet", "direct", "github"
+    command: str = ""  # e.g., "choco install hayabusa"
+    url: str = ""  # direct download URL
     notes: str = ""
 
 
@@ -86,7 +113,7 @@ class ToolDefinition:
     name: str
     binary: str
     category: str
-    exec_type: str = "binary"   # binary, python_module, script, ps_script
+    exec_type: str = "binary"  # binary, python_module, script, ps_script
     input_style: str = "flag"
     input_flag: str = ""
     output_format: str = "text"
@@ -112,15 +139,19 @@ def load_catalog() -> dict[str, ToolDefinition]:
     try:
         yaml_files = sorted(catalog_dir.glob("*.yaml"))
     except PermissionError as e:
-        logger.warning("Permission denied reading catalog directory %s: %s", catalog_dir, e)
+        logger.warning(
+            "Permission denied reading catalog directory %s: %s", catalog_dir, e
+        )
         return _catalog_cache
 
     for yaml_file in yaml_files:
         try:
-            with open(yaml_file, "r", encoding="utf-8") as f:
+            with open(yaml_file, encoding="utf-8") as f:
                 doc = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            logger.warning("Failed to parse YAML catalog file %s: %s", yaml_file.name, e)
+            logger.warning(
+                "Failed to parse YAML catalog file %s: %s", yaml_file.name, e
+            )
             continue
         except OSError as e:
             logger.warning("Failed to read catalog file %s: %s", yaml_file.name, e)
@@ -136,12 +167,14 @@ def load_catalog() -> dict[str, ToolDefinition]:
             name = tool_entry["name"]
             install_methods = []
             for im in tool_entry.get("install_methods", []):
-                install_methods.append(InstallMethod(
-                    method=im.get("method", ""),
-                    command=im.get("command", ""),
-                    url=im.get("url", ""),
-                    notes=im.get("notes", ""),
-                ))
+                install_methods.append(
+                    InstallMethod(
+                        method=im.get("method", ""),
+                        command=im.get("command", ""),
+                        url=im.get("url", ""),
+                        notes=im.get("notes", ""),
+                    )
+                )
 
             td = ToolDefinition(
                 name=name,
@@ -175,12 +208,14 @@ def list_tools_in_catalog(category: str | None = None) -> list[dict]:
     for td in catalog.values():
         if category and td.category != category:
             continue
-        results.append({
-            "name": td.name,
-            "binary": td.binary,
-            "category": td.category,
-            "description": td.description,
-        })
+        results.append(
+            {
+                "name": td.name,
+                "binary": td.binary,
+                "category": td.category,
+                "description": td.description,
+            }
+        )
     return results
 
 

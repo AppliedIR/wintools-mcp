@@ -7,7 +7,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def parse_json(text: str, *, max_entries: int = 100000, byte_budget: int = 0) -> dict[str, Any]:
+def parse_json(
+    text: str, *, max_entries: int = 100000, byte_budget: int = 0
+) -> dict[str, Any]:
     """Parse JSON text into structured data.
 
     Args:
@@ -18,14 +20,25 @@ def parse_json(text: str, *, max_entries: int = 100000, byte_budget: int = 0) ->
     Returns: {"data": parsed, "total_entries": int, "truncated": bool}
     """
     if not text.strip():
-        return {"data": None, "total_entries": 0, "truncated": False,
-                "preview_entries": 0, "preview_bytes": 0}
+        return {
+            "data": None,
+            "total_entries": 0,
+            "truncated": False,
+            "preview_entries": 0,
+            "preview_bytes": 0,
+        }
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as e:
         logger.warning("JSON parse error: %s", e)
-        return {"data": {"_raw": text[:2000]}, "total_entries": 1, "truncated": False,
-                "preview_entries": 1, "preview_bytes": 0, "parse_error": str(e)}
+        return {
+            "data": {"_raw": text[:2000]},
+            "total_entries": 1,
+            "truncated": False,
+            "preview_entries": 1,
+            "preview_bytes": 0,
+            "parse_error": str(e),
+        }
     if isinstance(parsed, list):
         total = len(parsed)
         preview = []
@@ -46,11 +59,18 @@ def parse_json(text: str, *, max_entries: int = 100000, byte_budget: int = 0) ->
             "preview_bytes": used_bytes,
             "truncated": total > len(preview),
         }
-    return {"data": parsed, "total_entries": 1, "truncated": False,
-            "preview_entries": 1, "preview_bytes": 0}
+    return {
+        "data": parsed,
+        "total_entries": 1,
+        "truncated": False,
+        "preview_entries": 1,
+        "preview_bytes": 0,
+    }
 
 
-def parse_jsonl(text: str, *, max_entries: int = 100000, byte_budget: int = 0) -> dict[str, Any]:
+def parse_jsonl(
+    text: str, *, max_entries: int = 100000, byte_budget: int = 0
+) -> dict[str, Any]:
     """Parse JSONL text into structured data.
 
     Args:

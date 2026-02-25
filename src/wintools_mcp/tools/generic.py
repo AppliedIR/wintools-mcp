@@ -3,10 +3,10 @@
 import logging
 from pathlib import Path
 
-from wintools_mcp.catalog import validate_command, get_tool_def
+from wintools_mcp.catalog import get_tool_def, validate_command
 from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_binary
-from wintools_mcp.exceptions import ToolNotInCatalogError, DenylistError
+from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
 from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args
 
@@ -68,7 +68,7 @@ def run_command(
         return exec_result
 
     # Large output — parse with byte budget
-    from wintools_mcp.parsers import csv_parser, text_parser, json_parser
+    from wintools_mcp.parsers import csv_parser, json_parser, text_parser
 
     if output_format == "csv":
         parsed = csv_parser.parse_csv(stdout, byte_budget=cfg.response_byte_budget)
@@ -77,7 +77,9 @@ def run_command(
     elif output_format == "json":
         parsed = json_parser.parse_json(stdout, byte_budget=cfg.response_byte_budget)
         if parsed.get("parse_error"):
-            parsed = json_parser.parse_jsonl(stdout, byte_budget=cfg.response_byte_budget)
+            parsed = json_parser.parse_jsonl(
+                stdout, byte_budget=cfg.response_byte_budget
+            )
         exec_result["_parsed"] = parsed
         exec_result["_output_format"] = "parsed_json"
     else:

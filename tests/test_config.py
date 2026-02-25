@@ -1,12 +1,9 @@
 """Tests for config module."""
 
-import os
-import pytest
-from wintools_mcp.config import WintoolsConfig, get_config, reset_config
+from wintools_mcp.config import WintoolsConfig, get_config
 
 
 class TestWintoolsConfig:
-
     def test_defaults(self):
         cfg = WintoolsConfig()
         assert cfg.default_timeout == 600
@@ -64,9 +61,7 @@ class TestWintoolsConfig:
     def test_yaml_config(self, tmp_path):
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
-            "default_timeout: 120\n"
-            "http_port: 9000\n"
-            "hayabusa_dir: D:\\Tools\\Hayabusa\n"
+            "default_timeout: 120\nhttp_port: 9000\nhayabusa_dir: D:\\Tools\\Hayabusa\n"
         )
         cfg = WintoolsConfig.from_env(config_file=str(yaml_file))
         assert cfg.default_timeout == 120
@@ -78,15 +73,16 @@ class TestWintoolsConfig:
         assert cfg.share_root == "E:\\cases\\SRL2"
 
     def test_audit_dir_from_env(self, monkeypatch):
-        monkeypatch.setenv("AIIR_AUDIT_DIR", "C:\\Users\\jane\\AppData\\Local\\aiir\\audit")
+        monkeypatch.setenv(
+            "AIIR_AUDIT_DIR", "C:\\Users\\jane\\AppData\\Local\\aiir\\audit"
+        )
         cfg = WintoolsConfig.from_env()
         assert cfg.audit_dir == "C:\\Users\\jane\\AppData\\Local\\aiir\\audit"
 
     def test_share_root_from_yaml(self, tmp_path):
         yaml_file = tmp_path / "config.yaml"
         yaml_file.write_text(
-            "share_root: E:\\cases\\SRL2\n"
-            "audit_dir: C:\\local\\audit\n"
+            "share_root: E:\\cases\\SRL2\naudit_dir: C:\\local\\audit\n"
         )
         cfg = WintoolsConfig.from_env(config_file=str(yaml_file))
         assert cfg.share_root == "E:\\cases\\SRL2"

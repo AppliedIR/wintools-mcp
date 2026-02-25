@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 MAX_CSV_BYTES = 50_000_000  # 50 MB — refuse to read larger files into memory
 
 
-def parse_csv(text: str, *, max_rows: int = 10000, byte_budget: int = 0) -> dict[str, Any]:
+def parse_csv(
+    text: str, *, max_rows: int = 10000, byte_budget: int = 0
+) -> dict[str, Any]:
     """Parse CSV text into structured data.
 
     Args:
@@ -22,8 +24,14 @@ def parse_csv(text: str, *, max_rows: int = 10000, byte_budget: int = 0) -> dict
     Returns: {"rows": [...], "total_rows": int, "truncated": bool, "columns": [...]}
     """
     if not text.strip():
-        return {"rows": [], "total_rows": 0, "truncated": False, "columns": [],
-                "preview_rows": 0, "preview_bytes": 0}
+        return {
+            "rows": [],
+            "total_rows": 0,
+            "truncated": False,
+            "columns": [],
+            "preview_rows": 0,
+            "preview_bytes": 0,
+        }
 
     if max_rows < 1:
         max_rows = 1
@@ -32,8 +40,14 @@ def parse_csv(text: str, *, max_rows: int = 10000, byte_budget: int = 0) -> dict
 
     if reader.fieldnames is None:
         logger.warning("CSV has no header row; returning empty result")
-        return {"rows": [], "total_rows": 0, "truncated": False, "columns": [],
-                "preview_rows": 0, "preview_bytes": 0}
+        return {
+            "rows": [],
+            "total_rows": 0,
+            "truncated": False,
+            "columns": [],
+            "preview_rows": 0,
+            "preview_bytes": 0,
+        }
 
     rows = []
     used_bytes = 0
@@ -44,7 +58,10 @@ def parse_csv(text: str, *, max_rows: int = 10000, byte_budget: int = 0) -> dict
                 break
             row_dict = dict(row)
             if byte_budget:
-                row_bytes = sum(len(v.encode("utf-8")) for v in row_dict.values()) + len(row_dict) * 4
+                row_bytes = (
+                    sum(len(v.encode("utf-8")) for v in row_dict.values())
+                    + len(row_dict) * 4
+                )
                 if used_bytes + row_bytes > byte_budget and rows:
                     budget_hit = True
                     break
@@ -82,7 +99,9 @@ def parse_csv(text: str, *, max_rows: int = 10000, byte_budget: int = 0) -> dict
     }
 
 
-def parse_csv_file(file_path: str, *, max_rows: int = 10000, byte_budget: int = 0) -> dict[str, Any]:
+def parse_csv_file(
+    file_path: str, *, max_rows: int = 10000, byte_budget: int = 0
+) -> dict[str, Any]:
     """Parse a CSV file into structured data."""
     # Check file size before reading to prevent OOM on large files
     try:

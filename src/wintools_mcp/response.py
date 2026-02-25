@@ -74,10 +74,24 @@ def build_response(
     # FK enrichment
     fk_name = fk_tool_name or tool_name
     try:
-        corroboration, caveats, advisories, field_notes, field_meanings, cross_mcp_checks = _build_knowledge_context(fk_name)
+        (
+            corroboration,
+            caveats,
+            advisories,
+            field_notes,
+            field_meanings,
+            cross_mcp_checks,
+        ) = _build_knowledge_context(fk_name)
     except Exception as e:
         logger.warning("FK enrichment failed for %s: %s", fk_name, e)
-        corroboration, caveats, advisories, field_notes, field_meanings, cross_mcp_checks = {}, [], [], {}, {}, []
+        (
+            corroboration,
+            caveats,
+            advisories,
+            field_notes,
+            field_meanings,
+            cross_mcp_checks,
+        ) = {}, [], [], {}, {}, []
     if caveats:
         response["caveats"] = caveats
     if advisories:
@@ -109,7 +123,9 @@ def build_response(
                     if meaning:
                         metadata["exit_code_meaning"] = meaning
             except Exception as e:
-                logger.warning("FK exit_code_hints lookup failed for %s: %s", fk_name, e)
+                logger.warning(
+                    "FK exit_code_hints lookup failed for %s: %s", fk_name, e
+                )
     if command:
         metadata["command"] = command
     if metadata:

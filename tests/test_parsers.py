@@ -1,15 +1,13 @@
 """Tests for output parsers."""
 
 import json
-import pytest
 
 from wintools_mcp.parsers.csv_parser import parse_csv, parse_csv_file
 from wintools_mcp.parsers.json_parser import parse_json, parse_jsonl
-from wintools_mcp.parsers.text_parser import parse_text, extract_lines
+from wintools_mcp.parsers.text_parser import extract_lines, parse_text
 
 
 class TestCsvParser:
-
     def test_parse_csv(self):
         text = "name,value\nfoo,1\nbar,2\n"
         result = parse_csv(text)
@@ -37,7 +35,6 @@ class TestCsvParser:
 
 
 class TestJsonParser:
-
     def test_parse_json_object(self):
         result = parse_json('{"key": "value"}')
         assert result["data"] == {"key": "value"}
@@ -66,7 +63,6 @@ class TestJsonParser:
 
 
 class TestTextParser:
-
     def test_parse_text(self):
         result = parse_text("line1\nline2\nline3\n")
         assert result["total_lines"] == 4  # includes trailing empty

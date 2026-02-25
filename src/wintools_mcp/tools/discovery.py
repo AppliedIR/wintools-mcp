@@ -6,9 +6,8 @@ import itertools
 import logging
 from typing import Any
 
-from wintools_mcp.catalog import load_catalog, get_tool_def
+from wintools_mcp.catalog import get_tool_def, load_catalog
 from wintools_mcp.environment import find_binary
-from wintools_mcp.inventory import scan_tools, get_install_guidance
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,12 @@ except ImportError:
 
 # Alias mapping — common artifact names to FK artifact YAML names
 ARTIFACT_ALIASES: dict[str, list[str]] = {
-    "evtx": ["event_logs_security", "event_logs_system", "event_logs_sysmon", "event_logs_powershell"],
+    "evtx": [
+        "event_logs_security",
+        "event_logs_system",
+        "event_logs_sysmon",
+        "event_logs_powershell",
+    ],
     "evt": ["event_logs_security", "event_logs_system"],
     "event_log": ["event_logs_security", "event_logs_system", "event_logs_sysmon"],
     "event_logs": ["event_logs_security", "event_logs_system", "event_logs_sysmon"],
@@ -47,14 +51,16 @@ def list_available_tools(category: str | None = None) -> list[dict]:
         if category and td.category != category:
             continue
         path = find_binary(td.binary)
-        results.append({
-            "name": td.name,
-            "binary": td.binary,
-            "category": td.category,
-            "description": td.description,
-            "available": path is not None,
-            "path": path,
-        })
+        results.append(
+            {
+                "name": td.name,
+                "binary": td.binary,
+                "category": td.category,
+                "description": td.description,
+                "available": path is not None,
+                "path": path,
+            }
+        )
     return sorted(results, key=lambda x: (x["category"], x["name"]))
 
 
@@ -136,7 +142,9 @@ def get_tool_help(tool_name: str) -> dict:
                 if tool_info.get("quick_start"):
                     result["quick_start"] = tool_info["quick_start"]
                 if tool_info.get("investigation_sequence"):
-                    result["investigation_sequence"] = tool_info["investigation_sequence"]
+                    result["investigation_sequence"] = tool_info[
+                        "investigation_sequence"
+                    ]
                 if tool_info.get("field_meanings"):
                     result["field_meanings"] = tool_info["field_meanings"]
         except Exception as e:
@@ -237,5 +245,7 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
         "advisories": all_advisories,
         "corroboration": all_corroboration,
         "cross_mcp_checks": all_cross_mcp,
-        "discipline_reminder": DISCIPLINE_REMINDERS[call_num % len(DISCIPLINE_REMINDERS)],
+        "discipline_reminder": DISCIPLINE_REMINDERS[
+            call_num % len(DISCIPLINE_REMINDERS)
+        ],
     }

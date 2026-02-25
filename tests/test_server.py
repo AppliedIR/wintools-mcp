@@ -1,7 +1,6 @@
 """Tests for MCP server — tool registration and basic operation."""
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 from wintools_mcp.config import WintoolsConfig
 from wintools_mcp.server import create_server
@@ -44,7 +43,6 @@ tools:
 
 
 class TestCreateServer:
-
     def test_server_creates(self, test_catalog):
         config = WintoolsConfig()
         server = create_server(config)

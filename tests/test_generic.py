@@ -1,7 +1,8 @@
 """Tests for generic run_command — catalog gating and denylist."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
 from wintools_mcp.tools.generic import run_command
@@ -24,15 +25,19 @@ tools:
 
 
 class TestRunCommand:
-
     def test_cataloged_tool_executes(self, test_catalog):
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "output"
         mock_result.stderr = ""
 
-        with patch("wintools_mcp.tools.generic.find_binary", return_value="/resolved/testtool.exe"), \
-             patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with (
+            patch(
+                "wintools_mcp.tools.generic.find_binary",
+                return_value="/resolved/testtool.exe",
+            ),
+            patch("wintools_mcp.executor.subprocess.run", return_value=mock_result),
+        ):
             result = run_command(["testtool.exe", "-f", "input.hve"])
         assert result["exit_code"] == 0
 
@@ -59,6 +64,9 @@ class TestRunCommand:
             run_command([])
 
     def test_dangerous_args_blocked(self, test_catalog):
-        with patch("wintools_mcp.tools.generic.find_binary", return_value="/resolved/testtool.exe"):
+        with patch(
+            "wintools_mcp.tools.generic.find_binary",
+            return_value="/resolved/testtool.exe",
+        ):
             with pytest.raises(ValueError, match="Blocked"):
                 run_command(["testtool.exe", "-e", "malicious"])

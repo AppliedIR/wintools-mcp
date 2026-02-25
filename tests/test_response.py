@@ -1,11 +1,9 @@
 """Tests for response envelope builder."""
 
-import pytest
-from wintools_mcp.response import build_response, reset_call_counter, DISCIPLINE_REMINDERS
+from wintools_mcp.response import DISCIPLINE_REMINDERS, build_response
 
 
 class TestBuildResponse:
-
     def test_basic_response(self, examiner):
         resp = build_response(
             tool_name="run_test",
@@ -63,7 +61,7 @@ class TestBuildResponse:
                 tool_name="run_test",
                 success=True,
                 data={},
-                evidence_id=f"win-testuser-20260220-{i+1:03d}",
+                evidence_id=f"win-testuser-20260220-{i + 1:03d}",
             )
             reminders.add(resp["discipline_reminder"])
         assert len(reminders) == len(DISCIPLINE_REMINDERS)
