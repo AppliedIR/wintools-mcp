@@ -63,11 +63,11 @@ graph TB
     D -->|"pass"| A{"YAML Catalog<br/>Allowlist"}
     A -->|"unknown binary"| REJECTED["REJECTED"]
     A -->|"cataloged"| S{"Argument<br/>Sanitization"}
-    S -->|"shell metacharacters<br/>or dangerous flags"| REJECTED
+    S -->|"shell metacharacters,<br/>dangerous flags, or<br/>@file response-file"| REJECTED
     S -->|"clean"| E["EXECUTE<br/>subprocess.run(shell=False)"]
 ```
 
-All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML catalog files can run. Dangerous binaries (cmd, powershell, wscript, etc.) are unconditionally blocked by a hardcoded denylist. Arguments are checked for shell metacharacters and dangerous flags.
+All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML catalog files can run. Dangerous binaries (cmd, powershell, wscript, etc.) are unconditionally blocked by a hardcoded denylist. Arguments are checked for shell metacharacters, dangerous flags, response-file syntax (`@filename`), and output redirect flags (`-o`, `--output`, `/out:`, `--csv`, `--json`).
 
 ## Quick Start
 
