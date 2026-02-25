@@ -19,9 +19,13 @@ _DANGEROUS_FLAGS = {
     "--output",
     "-O",
     "--output-file",
+    "/out",
+    "/out:",
+    "--csv",
+    "--json",
 }
 
-_DANGEROUS_PATTERNS = [";", "&&", "||", "`", "$(", "${"]
+_DANGEROUS_PATTERNS = [";", "&&", "||", "`", "$(", "${", "@"]
 
 # Per-tool blocked flags: flags that are dangerous for specific tools
 _TOOL_BLOCKED_FLAGS: dict[str, set[str]] = {

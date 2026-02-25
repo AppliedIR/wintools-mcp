@@ -10,8 +10,8 @@ from wintools_mcp.security import (
 
 class TestSanitizeExtraArgs:
     def test_clean_args_pass(self):
-        result = sanitize_extra_args(["--csv", "input/", "-q"])
-        assert result == ["--csv", "input/", "-q"]
+        result = sanitize_extra_args(["--verbose", "input/", "-q"])
+        assert result == ["--verbose", "input/", "-q"]
 
     def test_empty_args(self):
         assert sanitize_extra_args([]) == []
@@ -43,9 +43,14 @@ class TestSanitizeExtraArgs:
 
     def test_output_flags_blocked(self):
         """MED-06: output redirect flags are blocked."""
-        for flag in ("-o", "--output", "-O", "--output-file"):
+        for flag in ("-o", "--output", "-O", "--output-file", "/out", "/out:", "--csv", "--json"):
             with pytest.raises(ValueError, match="Blocked dangerous flag"):
                 sanitize_extra_args([flag, "outfile.txt"])
+
+    def test_response_file_blocked(self):
+        """Backlog #11: @file response-file syntax blocked."""
+        with pytest.raises(ValueError, match="metacharacter"):
+            sanitize_extra_args(["@args.txt"])
 
     def test_tool_specific_blocked_flags(self):
         """Per-tool blocked flags are enforced."""
