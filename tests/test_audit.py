@@ -2,6 +2,7 @@
 
 import json
 import threading
+from pathlib import Path
 
 from wintools_mcp.audit import AuditWriter, resolve_examiner
 
@@ -142,8 +143,10 @@ class TestAuditRetrieval:
         assert len(entries) == 1
         assert entries[0]["tool"] == "t1"
 
-    def test_get_entries_empty(self, monkeypatch, examiner):
+    def test_get_entries_empty(self, monkeypatch, tmp_path, examiner):
         monkeypatch.delenv("AIIR_CASE_DIR", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         audit = AuditWriter()
         entries = audit.get_entries()
         assert entries == []

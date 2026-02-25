@@ -15,6 +15,20 @@ from wintools_mcp.response import build_response
 
 logger = logging.getLogger(__name__)
 
+_MAX_CMD_ARG = 10_000
+_MAX_TEXT = 10_000
+_MAX_SHORT = 500
+
+
+def _validate_str_length(value: str | None, field: str, max_len: int) -> None:
+    """Reject strings exceeding max_len or containing null bytes."""
+    if value is not None and isinstance(value, str):
+        if len(value) > max_len:
+            raise ValueError(f"{field} exceeds maximum length of {max_len} characters")
+        if "\x00" in value:
+            raise ValueError(f"{field} contains invalid null byte")
+
+
 _INSTRUCTIONS = """\
 You are executing forensic tools on a Windows workstation as part of an AIIR investigation. You run Zimmerman tools and Windows-native utilities and return results. The following discipline governs how you handle evidence and tool output.
 
@@ -112,6 +126,10 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         save_output: bool = False,
     ) -> dict:
         """Execute a catalog-approved forensic tool. Rejects unknown and denylisted binaries."""
+        _validate_str_length(purpose, "purpose", _MAX_TEXT)
+        if command:
+            for i, arg in enumerate(command):
+                _validate_str_length(arg, f"command[{i}]", _MAX_CMD_ARG)
         from pathlib import Path
 
         from wintools_mcp.tools.generic import run_command as _run
