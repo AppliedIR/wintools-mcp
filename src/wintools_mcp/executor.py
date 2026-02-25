@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import subprocess
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,6 +62,19 @@ def _validate_output_dir(resolved_path: Path) -> None:
             )
 
 
+def _read_pipe(pipe, chunks: list[bytes], limit: int, total: list[int]) -> None:
+    """Read from a pipe incrementally, respecting byte limit."""
+    while True:
+        remaining = limit - total[0]
+        if remaining <= 0:
+            break
+        data = pipe.read(min(65536, remaining))
+        if not data:
+            break
+        chunks.append(data)
+        total[0] += len(data)
+
+
 def execute(
     cmd_list: list[str],
     *,
@@ -71,15 +85,18 @@ def execute(
 ) -> dict[str, Any]:
     """Execute a command with safety controls.
 
+    Uses Popen with incremental pipe reading to enforce max_output_bytes
+    at capture time, preventing OOM from runaway processes.
+
     Windows-specific behaviors:
     - Forces UTF-8 encoding (prevents cp1252 mojibake)
-    - Handles long paths via \\\\?\\ prefix when needed
     - Sets CREATE_NO_WINDOW flag to suppress console popups
     - Never uses shell=True
     - Normalizes \\r\\n -> \\n in output
     """
     config = get_config()
     timeout = timeout or config.default_timeout
+    max_bytes = config.max_output_bytes
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -90,13 +107,11 @@ def execute(
         creation_flags = subprocess.CREATE_NO_WINDOW
 
     start = time.monotonic()
+    truncated = False
     try:
         kwargs: dict[str, Any] = {
-            "capture_output": True,
-            "text": True,
-            "encoding": "utf-8",
-            "errors": "replace",
-            "timeout": timeout,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
             "shell": False,
             "env": env,
         }
@@ -105,26 +120,58 @@ def execute(
         if creation_flags:
             kwargs["creationflags"] = creation_flags
 
-        result = subprocess.run(cmd_list, **kwargs)
+        proc = subprocess.Popen(cmd_list, **kwargs)
+
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+        total = [0]  # shared mutable counter across both pipes
+
+        # Read stderr in a thread to avoid deadlock
+        stderr_thread = threading.Thread(
+            target=_read_pipe,
+            args=(proc.stderr, stderr_chunks, max_bytes, total),
+        )
+        stderr_thread.start()
+
+        # Read stdout in main thread
+        _read_pipe(proc.stdout, stdout_chunks, max_bytes, total)
+
+        # If limit reached, kill the process
+        if total[0] >= max_bytes:
+            truncated = True
+            proc.kill()
+
+        stderr_thread.join(timeout=5)
+
+        try:
+            proc.wait(timeout=max(0, timeout - (time.monotonic() - start)))
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+            raise
+
         elapsed = time.monotonic() - start
 
-        stdout = result.stdout.replace("\r\n", "\n") if result.stdout else ""
-        stderr = result.stderr.replace("\r\n", "\n") if result.stderr else ""
-
-        stdout_bytes = len(stdout.encode("utf-8"))
+        stdout_raw = b"".join(stdout_chunks)
+        stderr_raw = b"".join(stderr_chunks)
+        stdout = stdout_raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+        stderr = stderr_raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+        stdout_byte_count = len(stdout_raw)
 
         response: dict[str, Any] = {
-            "exit_code": result.returncode,
+            "exit_code": proc.returncode,
             "stdout": stdout,
             "stderr": _truncate(stderr, config.max_output_bytes // 10),
             "elapsed_seconds": round(elapsed, 2),
             "command": cmd_list,
-            "stdout_total_bytes": stdout_bytes,
+            "stdout_total_bytes": stdout_byte_count,
         }
+        if truncated:
+            response["truncated"] = True
 
         # Threshold-based save: auto-save when output exceeds response budget
         case_dir = config.case_dir
-        exceeds_budget = stdout_bytes > config.response_byte_budget
+        exceeds_budget = stdout_byte_count > config.response_byte_budget
 
         if exceeds_budget and case_dir:
             _save_output(

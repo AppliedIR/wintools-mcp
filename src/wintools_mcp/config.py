@@ -94,6 +94,12 @@ class WintoolsConfig:
             except ValueError:
                 pass
 
+        if os.environ.get("WINTOOLS_MAX_OUTPUT"):
+            try:
+                cfg.max_output_bytes = int(os.environ["WINTOOLS_MAX_OUTPUT"])
+            except ValueError:
+                pass
+
         # HTTP config
         cfg.http_host = os.environ.get("WINTOOLS_HOST", cfg.http_host)
         try:

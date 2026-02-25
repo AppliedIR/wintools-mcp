@@ -1,22 +1,31 @@
 """Tests for executor module."""
 
+import io
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wintools_mcp.exceptions import ExecutionError
+from wintools_mcp.exceptions import ExecutionError, ExecutionTimeoutError
 from wintools_mcp.executor import _truncate, _validate_output_dir, execute
+
+
+def _mock_popen(stdout=b"", stderr=b"", returncode=0):
+    """Create a mock Popen that yields given output bytes."""
+    proc = MagicMock()
+    proc.stdout = io.BytesIO(stdout)
+    proc.stderr = io.BytesIO(stderr)
+    proc.returncode = returncode
+    proc.wait.return_value = returncode
+    proc.kill = MagicMock()
+    return proc
 
 
 class TestExecutor:
     def test_successful_execution(self, monkeypatch):
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "output line 1\noutput line 2\n"
-        mock_result.stderr = ""
+        proc = _mock_popen(stdout=b"output line 1\noutput line 2\n")
 
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["echo", "hello"])
 
         assert result["exit_code"] == 0
@@ -24,12 +33,9 @@ class TestExecutor:
         assert result["elapsed_seconds"] >= 0
 
     def test_failed_execution(self, monkeypatch):
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stdout = ""
-        mock_result.stderr = "error message"
+        proc = _mock_popen(stderr=b"error message", returncode=1)
 
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["false"])
 
         assert result["exit_code"] == 1
@@ -40,12 +46,11 @@ class TestExecutor:
             execute(["nonexistent_binary_xyz123"])
 
     def test_crlf_normalization(self):
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "line1\r\nline2\r\n"
-        mock_result.stderr = "err\r\n"
+        proc = _mock_popen(
+            stdout=b"line1\r\nline2\r\n", stderr=b"err\r\n"
+        )
 
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["test"])
 
         assert "\r\n" not in result["stdout"]
@@ -63,13 +68,10 @@ class TestExecutor:
         assert _truncate(short_text, 50_000) == "hello"
 
     def test_save_output(self, tmp_path):
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "saved output"
-        mock_result.stderr = ""
+        proc = _mock_popen(stdout=b"saved output")
 
         save_dir = str(tmp_path / "output")
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["test"], save_output=True, save_dir=save_dir)
 
         assert "output_file" in result
@@ -77,16 +79,11 @@ class TestExecutor:
 
     def test_save_output_blocked_dir(self, tmp_path):
         """S-H4: saving output to a blocked Windows system directory raises ValueError."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "output"
-        mock_result.stderr = ""
+        proc = _mock_popen(stdout=b"output")
 
-        # On Linux, C:\Windows resolves to a POSIX path. Patch Path.resolve
-        # to return a Windows-style path so we can test the blocking logic.
         fake_resolved = Path(r"C:\Windows\Temp\evil")
         with (
-            patch("wintools_mcp.executor.subprocess.run", return_value=mock_result),
+            patch("wintools_mcp.executor.subprocess.Popen", return_value=proc),
             patch("wintools_mcp.executor.Path.resolve", return_value=fake_resolved),
         ):
             with pytest.raises(ValueError, match="Output directory blocked"):
@@ -98,81 +95,92 @@ class TestExecutor:
 
     def test_save_output_safe_dir(self, tmp_path):
         """S-H4: saving to a non-blocked directory succeeds."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "safe output"
-        mock_result.stderr = ""
+        proc = _mock_popen(stdout=b"safe output")
 
         save_dir = str(tmp_path / "safe_output")
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["test"], save_output=True, save_dir=save_dir)
 
         assert "output_file" in result
 
     def test_save_output_returns_extractions(self, tmp_path):
         """Saved output files should appear in extractions list."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "extraction data"
-        mock_result.stderr = "some warnings"
+        proc = _mock_popen(stdout=b"extraction data", stderr=b"some warnings")
 
         save_dir = str(tmp_path / "extractions")
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)
 
         assert "extractions" in result
         assert len(result["extractions"]) == 2  # stdout + stderr
-        # Paths should be normalized (forward slashes)
         for path in result["extractions"]:
             assert "\\" not in path or "/" in path
 
     def test_save_output_extractions_share_relative(self, tmp_path, monkeypatch):
         """When AIIR_SHARE_ROOT is set, extractions use share-relative paths."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "data"
-        mock_result.stderr = ""
+        proc = _mock_popen(stdout=b"data")
 
         save_dir = str(tmp_path / "extractions")
         monkeypatch.setenv("AIIR_SHARE_ROOT", str(tmp_path))
 
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)
 
         assert "extractions" in result
         assert len(result["extractions"]) == 1
-        # Should be relative to share root (starts with "extractions/")
         assert result["extractions"][0].startswith("extractions/")
         assert str(tmp_path) not in result["extractions"][0]
 
     def test_save_output_extractions_no_share_root(self, tmp_path, monkeypatch):
         """Without AIIR_SHARE_ROOT, extractions contain full paths."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "data"
-        mock_result.stderr = ""
+        proc = _mock_popen(stdout=b"data")
 
         save_dir = str(tmp_path / "extractions")
         monkeypatch.delenv("AIIR_SHARE_ROOT", raising=False)
 
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)
 
         assert "extractions" in result
-        # Should contain the full path (normalized to forward slashes)
         assert "extractions" in result["extractions"][0]
 
     def test_no_extractions_without_save_output(self):
         """No extractions key when save_output is False."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "output"
-        mock_result.stderr = ""
+        proc = _mock_popen(stdout=b"output")
 
-        with patch("wintools_mcp.executor.subprocess.run", return_value=mock_result):
+        with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["test"])
 
         assert "extractions" not in result
+
+
+class TestByteLimit:
+    """Tests for incremental pipe reading with byte limit enforcement."""
+
+    def test_normal_output_unaffected(self):
+        result = execute(["echo", "hello"])
+        assert "hello" in result["stdout"]
+        assert result.get("truncated") is not True
+
+    def test_output_truncated_at_limit(self, monkeypatch):
+        monkeypatch.setenv("WINTOOLS_MAX_OUTPUT", "1000")
+        result = execute(
+            ["python3", "-c", "import sys; sys.stdout.buffer.write(b'x' * 5000)"]
+        )
+        assert result["truncated"] is True
+        assert result["stdout_total_bytes"] <= 1000
+
+    def test_process_killed_on_limit(self, monkeypatch):
+        monkeypatch.setenv("WINTOOLS_MAX_OUTPUT", "2000")
+        result = execute(
+            ["python3", "-c", "import sys;\nwhile True: sys.stdout.buffer.write(b'A' * 1024)"]
+        )
+        assert result["truncated"] is True
+        assert result["stdout_total_bytes"] <= 2000
+
+    def test_timeout_still_works(self):
+        with pytest.raises(ExecutionTimeoutError):
+            execute(["sleep", "30"], timeout=2)
 
 
 class TestValidateOutputDir:

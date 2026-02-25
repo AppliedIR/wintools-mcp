@@ -1,5 +1,6 @@
 """Tests for generic run_command — catalog gating and denylist."""
 
+import io
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,17 +27,19 @@ tools:
 
 class TestRunCommand:
     def test_cataloged_tool_executes(self, test_catalog):
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "output"
-        mock_result.stderr = ""
+        proc = MagicMock()
+        proc.stdout = io.BytesIO(b"output")
+        proc.stderr = io.BytesIO(b"")
+        proc.returncode = 0
+        proc.wait.return_value = 0
+        proc.kill = MagicMock()
 
         with (
             patch(
                 "wintools_mcp.tools.generic.find_binary",
                 return_value="/resolved/testtool.exe",
             ),
-            patch("wintools_mcp.executor.subprocess.run", return_value=mock_result),
+            patch("wintools_mcp.executor.subprocess.Popen", return_value=proc),
         ):
             result = run_command(["testtool.exe", "-f", "input.hve"])
         assert result["exit_code"] == 0
