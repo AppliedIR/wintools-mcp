@@ -2,8 +2,8 @@
 
 Catalog-gated Windows forensic tool execution with knowledge-enriched response envelopes.
 
-**[Platform Documentation](https://appliedir.github.io/sift-mcp/)** ·
-[Deployment Guide](https://appliedir.github.io/sift-mcp/deployment/)
+**[Platform Documentation](https://appliedir.github.io/aiir/)** ·
+[Deployment Guide](https://appliedir.github.io/aiir/deployment/)
 
 ## Architecture
 
