@@ -2,6 +2,9 @@
 
 Catalog-gated Windows forensic tool execution with knowledge-enriched response envelopes.
 
+**[Platform Documentation](https://appliedir.github.io/sift-mcp/)** ·
+[Deployment Guide](https://appliedir.github.io/sift-mcp/deployment/)
+
 ## Architecture
 
 wintools-mcp runs independently on a Windows forensic workstation, exposing a Streamable HTTP endpoint on port 4624. The LLM client and aiir CLI are the two human-facing tools. The aiir CLI always runs on the SIFT workstation — it requires direct filesystem access to the case directory. When the LLM client runs on a separate machine, the examiner must have SSH access to SIFT for all CLI operations. The LLM client connects to wintools-mcp over the network.
