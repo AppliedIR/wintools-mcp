@@ -182,7 +182,7 @@ class TestByteLimit:
 
     def test_timeout_still_works(self):
         with pytest.raises(ExecutionTimeoutError):
-            execute(["sleep", "30"], timeout=2)
+            execute(["sleep", "300"], timeout=1)
 
 
 class TestValidateOutputDir:
