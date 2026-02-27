@@ -181,8 +181,10 @@ class TestByteLimit:
         assert result["stdout_total_bytes"] <= 2000
 
     def test_timeout_still_works(self):
+        # Use a command that produces continuous output so _read_pipe stays
+        # engaged and proc.wait() can fire the timeout.
         with pytest.raises(ExecutionTimeoutError):
-            execute(["sleep", "300"], timeout=1)
+            execute(["yes"], timeout=1)
 
 
 class TestValidateOutputDir:
