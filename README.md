@@ -1,4 +1,6 @@
 # Windows Tools MCP
+[![CI](https://github.com/AppliedIR/wintools-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AppliedIR/wintools-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/AppliedIR/wintools-mcp/blob/main/LICENSE)
 
 Catalog-gated Windows forensic tool execution with knowledge-enriched response envelopes.
 
