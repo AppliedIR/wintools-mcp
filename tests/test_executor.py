@@ -180,10 +180,6 @@ class TestByteLimit:
         assert result["truncated"] is True
         assert result["stdout_total_bytes"] <= 2000
 
-    @pytest.mark.skip(
-        reason="Executor _read_pipe blocks until EOF; timeout only fires at proc.wait(). "
-        "Fix tracked as future-enhancements #8 (incremental pipe reading with kill)."
-    )
     def test_timeout_still_works(self):
         with pytest.raises(ExecutionTimeoutError):
             execute(["sleep", "30"], timeout=2)
