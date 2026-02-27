@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ============================================================
 # Section 1: String length validation
 # ============================================================
@@ -256,7 +255,7 @@ class TestAuditWriterConcurrency:
         # Verify every line is valid JSON
         audit_file = tmp_path / "audit" / "wintools-mcp.jsonl"
         assert audit_file.exists()
-        lines = [l for l in audit_file.read_text().strip().split("\n") if l.strip()]
+        lines = [line for line in audit_file.read_text().strip().split("\n") if line.strip()]
         assert len(lines) == 200
         for i, line in enumerate(lines):
             try:
