@@ -43,7 +43,16 @@ class TestSanitizeExtraArgs:
 
     def test_output_flags_blocked(self):
         """MED-06: output redirect flags are blocked."""
-        for flag in ("-o", "--output", "-O", "--output-file", "/out", "/out:", "--csv", "--json"):
+        for flag in (
+            "-o",
+            "--output",
+            "-O",
+            "--output-file",
+            "/out",
+            "/out:",
+            "--csv",
+            "--json",
+        ):
             with pytest.raises(ValueError, match="Blocked dangerous flag"):
                 sanitize_extra_args([flag, "outfile.txt"])
 

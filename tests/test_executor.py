@@ -46,9 +46,7 @@ class TestExecutor:
             execute(["nonexistent_binary_xyz123"])
 
     def test_crlf_normalization(self):
-        proc = _mock_popen(
-            stdout=b"line1\r\nline2\r\n", stderr=b"err\r\n"
-        )
+        proc = _mock_popen(stdout=b"line1\r\nline2\r\n", stderr=b"err\r\n")
 
         with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["test"])
@@ -173,7 +171,11 @@ class TestByteLimit:
     def test_process_killed_on_limit(self, monkeypatch):
         monkeypatch.setenv("WINTOOLS_MAX_OUTPUT", "2000")
         result = execute(
-            ["python3", "-c", "import sys;\nwhile True: sys.stdout.buffer.write(b'A' * 1024)"]
+            [
+                "python3",
+                "-c",
+                "import sys;\nwhile True: sys.stdout.buffer.write(b'A' * 1024)",
+            ]
         )
         assert result["truncated"] is True
         assert result["stdout_total_bytes"] <= 2000

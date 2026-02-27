@@ -227,9 +227,13 @@ class TestAuditWriterConcurrency:
 
         assert not errors, f"Errors during concurrent audit: {errors}"
         assert len(ids) == 500
-        assert len(set(ids)) == 500, f"Duplicate IDs found! {len(ids) - len(set(ids))} dupes"
+        assert len(set(ids)) == 500, (
+            f"Duplicate IDs found! {len(ids) - len(set(ids))} dupes"
+        )
 
-    def test_audit_file_not_corrupted_after_concurrent_writes(self, tmp_path, monkeypatch):
+    def test_audit_file_not_corrupted_after_concurrent_writes(
+        self, tmp_path, monkeypatch
+    ):
         """Verify JSONL file is parseable after concurrent writes."""
         monkeypatch.setenv("AIIR_EXAMINER", "tester")
         monkeypatch.setenv("AIIR_CASE_DIR", str(tmp_path))
@@ -255,7 +259,9 @@ class TestAuditWriterConcurrency:
         # Verify every line is valid JSON
         audit_file = tmp_path / "audit" / "wintools-mcp.jsonl"
         assert audit_file.exists()
-        lines = [line for line in audit_file.read_text().strip().split("\n") if line.strip()]
+        lines = [
+            line for line in audit_file.read_text().strip().split("\n") if line.strip()
+        ]
         assert len(lines) == 200
         for i, line in enumerate(lines):
             try:
