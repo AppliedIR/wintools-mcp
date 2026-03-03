@@ -18,7 +18,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_EXAMINER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+_EXAMINER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
 
 
 def _sanitize_slug(raw: str) -> str:
@@ -28,11 +28,11 @@ def _sanitize_slug(raw: str) -> str:
     hyphens, and truncates to 40 characters.
     """
     slug = re.sub(r"[^a-z0-9-]", "-", raw.lower()).strip("-")
-    if len(slug) > 40:
+    if len(slug) > 20:
         logger.warning(
-            "Examiner slug truncated from %d to 40 chars: %s", len(slug), slug[:40]
+            "Examiner slug truncated from %d to 20 chars: %s", len(slug), slug[:20]
         )
-        slug = slug[:40]
+        slug = slug[:20]
     if not slug:
         return "unknown"
     # Ensure starts with alphanumeric

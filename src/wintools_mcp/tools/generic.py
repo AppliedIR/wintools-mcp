@@ -8,7 +8,7 @@ from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_binary
 from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
 from wintools_mcp.executor import execute
-from wintools_mcp.security import sanitize_extra_args
+from wintools_mcp.security import sanitize_extra_args, validate_input_path
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,15 @@ def run_command(
 
     # Sanitize extra args
     sanitize_extra_args(command[1:], tool_name=binary_name)
+
+    # Validate file path arguments against blocked system directories
+    for arg in command[1:]:
+        if arg.startswith(("-", "/")) and "=" in arg:
+            continue  # Skip flags
+        if len(arg) >= 3 and arg[1] == ":" and arg[2] in ("/", "\\"):
+            validate_input_path(arg)
+    if cwd:
+        validate_input_path(cwd)
 
     exec_result = execute(
         command,

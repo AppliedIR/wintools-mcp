@@ -20,7 +20,6 @@ _DANGEROUS_FLAGS = {
     "-O",
     "--output-file",
     "/out",
-    "/out:",
     "--csv",
     "--json",
 }
@@ -59,7 +58,8 @@ def sanitize_extra_args(extra_args: list[str], tool_name: str = "") -> list[str]
             raise ValueError(
                 f"Non-string argument {arg!r} in extra_args for {tool_name}"
             )
-        flag = arg.lower().split("=")[0]
+        # Split on both = and : to catch Windows-style flags (/out:path)
+        flag = arg.lower().split("=")[0].split(":")[0]
         if flag in tool_blocked:
             raise ValueError(f"Blocked dangerous flag '{arg}' for {tool_name}")
         if flag in _DANGEROUS_FLAGS:

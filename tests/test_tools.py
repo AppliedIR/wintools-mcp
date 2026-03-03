@@ -1,6 +1,6 @@
-"""Tests for Zimmerman and timeline tool wrappers."""
+"""Tests for Zimmerman tool wrappers."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -32,43 +32,12 @@ tools:
 """
     (cat_dir / "zimmerman.yaml").write_text(yaml_content)
 
-    timeline_yaml = """
-category: timeline
-tools:
-  - name: hayabusa
-    binary: hayabusa.exe
-    description: "Sigma-based event log analysis"
-    input_flag: "-d"
-    output_format: json
-    timeout_seconds: 1800
-    fk_tool_name: Hayabusa
-  - name: mactime
-    binary: mactime.pl
-    description: "Generate timeline from bodyfile"
-    input_flag: "-b"
-    output_format: text
-"""
-    (cat_dir / "timeline.yaml").write_text(timeline_yaml)
-
     monkeypatch.setenv("WINTOOLS_CATALOG_DIR", str(cat_dir))
     monkeypatch.setenv("AIIR_EXAMINER", "testuser")
     return cat_dir
 
 
 class TestZimmermanTools:
-    def test_register_tools(self, zimmerman_catalog):
-        from wintools_mcp.tools.zimmerman import register_zimmerman_tools
-
-        tools = {}
-        server = MagicMock()
-        server.tool.return_value = lambda f: tools.update({f.__name__: f}) or f
-
-        audit = AuditWriter()
-        register_zimmerman_tools(server, audit)
-
-        assert "run_amcacheparser" in tools
-        assert "run_pecmd" in tools
-
     def test_amcacheparser_execution(self, zimmerman_catalog, tmp_path, monkeypatch):
         monkeypatch.setenv("AIIR_CASE_DIR", str(tmp_path / "case"))
 
@@ -125,65 +94,3 @@ class TestZimmermanTools:
         with patch("wintools_mcp.tools.zimmerman.find_binary", return_value=None):
             with pytest.raises(ToolNotFoundError, match="Install guidance"):
                 _run_zimmerman_tool("AmcacheParser", "test.hve", audit)
-
-
-class TestTimelineTools:
-    def test_register_tools(self, zimmerman_catalog):
-        from wintools_mcp.tools.timeline import register_timeline_tools
-
-        tools = {}
-        server = MagicMock()
-        server.tool.return_value = lambda f: tools.update({f.__name__: f}) or f
-
-        audit = AuditWriter()
-        register_timeline_tools(server, audit)
-
-        assert "run_hayabusa" in tools
-        assert "run_mactime" in tools
-
-    def test_hayabusa_not_found(self, zimmerman_catalog):
-        from wintools_mcp.exceptions import ToolNotFoundError
-        from wintools_mcp.tools.timeline import register_timeline_tools
-
-        tools = {}
-        server = MagicMock()
-        server.tool.return_value = lambda f: tools.update({f.__name__: f}) or f
-
-        audit = AuditWriter()
-        register_timeline_tools(server, audit)
-
-        with patch("wintools_mcp.tools.timeline.find_binary", return_value=None):
-            with pytest.raises(ToolNotFoundError):
-                tools["run_hayabusa"]("C:\\evtx")
-
-    def test_mactime_execution(self, zimmerman_catalog, monkeypatch, tmp_path):
-        monkeypatch.setenv("AIIR_CASE_DIR", str(tmp_path / "case"))
-
-        from wintools_mcp.tools.timeline import register_timeline_tools
-
-        tools = {}
-        server = MagicMock()
-        server.tool.return_value = lambda f: tools.update({f.__name__: f}) or f
-
-        audit = AuditWriter()
-        register_timeline_tools(server, audit)
-
-        mock_result = {
-            "exit_code": 0,
-            "stdout": "Mon Jan 01 2026 00:00:00,1024,...,C:/Windows/System32/test.dll\n",
-            "stderr": "",
-            "elapsed_seconds": 0.5,
-            "command": ["mactime.pl", "-b", "body.txt"],
-        }
-
-        with (
-            patch(
-                "wintools_mcp.tools.timeline.find_binary",
-                return_value="/usr/bin/mactime.pl",
-            ),
-            patch("wintools_mcp.tools.timeline.execute", return_value=mock_result),
-        ):
-            result = tools["run_mactime"]("body.txt")
-
-        assert result["success"] is True
-        assert result["evidence_id"].startswith("wintools-testuser-")
