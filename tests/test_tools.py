@@ -5,11 +5,7 @@ generic.run_command() in FU-3.  These tests validate the catalog-driven
 execution path.
 """
 
-from unittest.mock import patch
-
 import pytest
-
-from wintools_mcp.audit import AuditWriter
 
 
 @pytest.fixture
