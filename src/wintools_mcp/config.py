@@ -80,7 +80,7 @@ class WintoolsConfig:
         if not _EXAMINER_PATTERN.match(cfg.examiner):
             # Sanitize: keep only valid chars, truncate
             original = cfg.examiner
-            sanitized = re.sub(r"[^a-z0-9\-]", "", cfg.examiner)[:20]
+            sanitized = re.sub(r"[^a-z0-9\-]", "-", cfg.examiner).strip("-")[:20]
             cfg.examiner = sanitized or "unknown"
             logger.warning(
                 "Examiner identity sanitized from %r to %r",

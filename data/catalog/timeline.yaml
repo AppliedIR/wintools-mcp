@@ -16,18 +16,49 @@ tools:
     install_paths:
       - "C:\\Tools\\Hayabusa"
 
+  - name: chainsaw
+    binary: chainsaw.exe
+    description: "Rapidly search and hunt through Windows forensic artifacts using Sigma rules"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 1800
+    fk_tool_name: chainsaw
+    common_flags:
+      - flag: "--rules"
+        description: "Path to Sigma rules directory"
+      - flag: "--mapping"
+        description: "Path to field mapping file"
+      - flag: "--csv"
+        description: "Output as CSV"
+      - flag: "--json"
+        description: "Output as JSON"
+      - flag: "--full"
+        description: "Show full event content in results"
+      - flag: "--lateral-all"
+        description: "Detect lateral movement (all techniques)"
+    install_methods:
+      - method: github
+        url: "https://github.com/WithSecureLabs/chainsaw/releases"
+        notes: "Download pre-built Windows binary from releases"
+    install_paths:
+      - "C:\\Tools\\Chainsaw"
+      - "C:\\Tools"
+    alternatives:
+      - "hayabusa (alternative Sigma-based scanner)"
+
   - name: mactime
     binary: mactime.pl
     description: "Generate timeline from bodyfile (TSK mactime format)"
     input_style: flag
     input_flag: "-b"
+    exec_type: script
     output_format: text
     timeout_seconds: 600
     fk_tool_name: mactime
     install_methods:
       - method: direct
         url: "https://strawberryperl.com"
-        notes: "Requires Perl runtime"
+        notes: "Requires Perl runtime (Strawberry Perl recommended on Windows)"
     install_paths:
       - "C:\\Strawberry\\perl\\bin"
     alternatives:

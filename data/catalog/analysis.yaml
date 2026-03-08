@@ -1,0 +1,83 @@
+category: analysis
+tools:
+  - name: capa
+    binary: capa.exe
+    description: "Detect capabilities in executable files using FLARE rules"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 600
+    fk_tool_name: capa
+    common_flags:
+      - flag: "-v"
+        description: "Verbose output (show matched rules with evidence)"
+      - flag: "-vv"
+        description: "Very verbose (show all rule matches and features)"
+      - flag: "-j"
+        description: "Output as JSON"
+      - flag: "-r"
+        description: "Path to rules directory"
+      - flag: "-f"
+        description: "Input format (pe, sc32, sc64, dotnet, freeze)"
+    install_methods:
+      - method: github
+        url: "https://github.com/mandiant/capa/releases"
+        notes: "Download pre-built Windows binary from releases"
+    install_paths:
+      - "C:\\Tools\\CAPA"
+      - "C:\\Tools"
+
+  - name: yara
+    binary: yara64.exe
+    description: "Pattern matching tool for malware identification"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 300
+    fk_tool_name: yara
+    common_flags:
+      - flag: "-r"
+        description: "Recursively search directories"
+      - flag: "-s"
+        description: "Print matching strings"
+      - flag: "-m"
+        description: "Print metadata"
+      - flag: "-C"
+        description: "Use compiled rules"
+      - flag: "-c"
+        description: "Print count of matches only"
+    install_methods:
+      - method: github
+        url: "https://github.com/VirusTotal/yara/releases"
+        notes: "Download pre-built Windows binary"
+      - method: chocolatey
+        command: "choco install yara"
+    install_paths:
+      - "C:\\Tools\\YARA"
+      - "C:\\Tools"
+    alternatives:
+      - "yara32.exe (for 32-bit scanning)"
+
+  - name: densityscout
+    binary: densityscout.exe
+    description: "Measure entropy/density of files to identify packed or encrypted binaries"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 300
+    fk_tool_name: densityscout
+    common_flags:
+      - flag: "-r"
+        description: "Recursive directory scan"
+      - flag: "-pe"
+        description: "Only scan PE files"
+      - flag: "-o"
+        description: "Output file"
+      - flag: "-l"
+        description: "Lower density boundary"
+      - flag: "-u"
+        description: "Upper density boundary"
+    install_methods:
+      - method: direct
+        url: "https://cert.at/en/downloads/software/software-densityscout"
+        notes: "Download from CERT.at"
+    install_paths:
+      - "C:\\Tools\\DensityScout"
+      - "C:\\Tools"

@@ -25,6 +25,12 @@ DEFAULT_TOOL_PATHS = [
     Path("C:\\Tools\\Moneta"),
     Path("C:\\Tools\\HollowsHunter"),
     Path("C:\\Tools\\CAPA"),
+    Path("C:\\Tools\\SysinternalsSuite"),
+    Path("C:\\Tools\\Chainsaw"),
+    Path("C:\\Tools\\YARA"),
+    Path("C:\\Tools\\DensityScout"),
+    # SANS FOR508 default
+    Path("C:\\Forensic_Program_Files"),
     Path(os.environ.get("USERPROFILE", "") or "C:\\Users\\Default")
     / "Desktop"
     / "ZimmermanTools",
@@ -62,6 +68,20 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
             candidate_exe = d / f"{name}.exe"
             if candidate_exe.is_file():
                 return str(candidate_exe)
+        # One-level subdirectory walk (catches version dirs like net9/, x64/)
+        try:
+            for sub in d.iterdir():
+                if not sub.is_dir():
+                    continue
+                candidate = sub / name
+                if candidate.is_file():
+                    return str(candidate)
+                if not name.lower().endswith(".exe"):
+                    candidate_exe = sub / f"{name}.exe"
+                    if candidate_exe.is_file():
+                        return str(candidate_exe)
+        except OSError:
+            continue
 
     return None
 

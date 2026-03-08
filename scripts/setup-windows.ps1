@@ -69,6 +69,17 @@
     One-time join code from 'aiir setup join-code' on SIFT workstation.
     Enables automated credential exchange instead of manual copy-paste.
 
+.PARAMETER Uninstall
+    Remove wintools-mcp: scheduled task, firewall rule, environment variables,
+    and optionally the install directory. Prompts for confirmation on each
+    component. After uninstalling on Windows, also run
+    'aiir setup client --uninstall' on the SIFT workstation.
+
+.PARAMETER Update
+    Update wintools-mcp: git pull, pip reinstall, restart scheduled task.
+    Fails cleanly on dirty working tree or merge conflicts instead of
+    silently proceeding with stale code.
+
 .EXAMPLE
     # Interactive install with full AIIR integration
     .\setup-windows.ps1
@@ -130,7 +141,9 @@ param(
     [switch]$NoAuth,
     [string]$GatewayHost = "",
     [int]$GatewayPort = 4508,
-    [string]$JoinCode = ""
+    [string]$JoinCode = "",
+    [switch]$Uninstall,
+    [switch]$Update
 )
 
 $ErrorActionPreference = "Stop"
@@ -163,6 +176,12 @@ function Write-Warn   { param($msg) Write-Host "[WARN] " -ForegroundColor Yellow
 function Write-Err    { param($msg) Write-Host "[ERROR] " -ForegroundColor Red -NoNewline; Write-Host $msg }
 function Write-Header { param($msg) Write-Host "`n=== $msg ===`n" -ForegroundColor White }
 
+function Mask-ApiKey {
+    param([string]$Key)
+    if ($Key.Length -le 12) { return "****" }
+    return $Key.Substring(0, 8) + ("*" * ($Key.Length - 12)) + $Key.Substring($Key.Length - 4)
+}
+
 function Read-Prompt {
     param([string]$Message, [string]$Default = "")
     if ($NonInteractive) { return $Default }
@@ -193,6 +212,224 @@ function Validate-Port {
 
 Validate-Port $Port "Port"
 if ($GatewayPort) { Validate-Port $GatewayPort "GatewayPort" }
+
+# =============================================================================
+# Uninstall
+# =============================================================================
+
+if ($Uninstall) {
+    Write-Header "wintools-mcp Uninstall"
+
+    # Resolve install dir from env or default
+    if (-not $InstallDir) {
+        if (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
+        elseif (Test-Path "$env:USERPROFILE\aiir") { $InstallDir = "$env:USERPROFILE\aiir" }
+        else {
+            Write-Warn "Could not find wintools-mcp installation directory"
+            Write-Host "  Specify with: .\setup-windows.ps1 -Uninstall -InstallDir <path>"
+            exit 1
+        }
+    }
+    Write-Info "Install directory: $InstallDir"
+
+    # 1. Remove scheduled task
+    $taskName = "AIIR wintools-mcp"
+    try {
+        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($task) {
+            if (Read-YesNo "Remove scheduled task '$taskName'?" "y") {
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+                Write-Ok "Scheduled task removed"
+            }
+        } else {
+            Write-Info "No scheduled task found"
+        }
+    } catch {
+        Write-Warn "Could not check/remove scheduled task: $_"
+    }
+
+    # 2. Remove firewall rule
+    $ruleName = "AIIR wintools-mcp"
+    try {
+        $rule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
+        if ($rule) {
+            if (Read-YesNo "Remove firewall rule '$ruleName'?" "y") {
+                Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop
+                Write-Ok "Firewall rule removed"
+            }
+        } else {
+            Write-Info "No firewall rule found"
+        }
+    } catch {
+        Write-Warn "Could not remove firewall rule: $_"
+    }
+
+    # 3. Remove environment variables
+    foreach ($varName in @("AIIR_EXAMINER", "AIIR_CASE_DIR", "AIIR_ACTIVE_CASE", "AIIR_SHARE_ROOT", "AIIR_AUDIT_DIR")) {
+        $userVal = [Environment]::GetEnvironmentVariable($varName, "User")
+        $machVal = [Environment]::GetEnvironmentVariable($varName, "Machine")
+        if ($userVal -or $machVal) {
+            if (Read-YesNo "Remove environment variable $varName?" "y") {
+                if ($userVal) { [Environment]::SetEnvironmentVariable($varName, $null, "User") }
+                if ($machVal) {
+                    try { [Environment]::SetEnvironmentVariable($varName, $null, "Machine") }
+                    catch { Write-Warn "Could not remove Machine-level $varName (run as Administrator)" }
+                }
+                Write-Ok "Removed $varName"
+            }
+        }
+    }
+
+    # 4. Remove install directory (venv, source, config)
+    if (Test-Path $InstallDir) {
+        $dirSize = "{0:N1} MB" -f ((Get-ChildItem -Recurse -File $InstallDir -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB)
+        if (Read-YesNo "Remove install directory $InstallDir ($dirSize)?" "n") {
+            try {
+                Remove-Item -Recurse -Force $InstallDir
+                Write-Ok "Install directory removed"
+            } catch {
+                Write-Warn "Could not remove install directory: $_"
+            }
+        } else {
+            Write-Info "Install directory preserved at $InstallDir"
+        }
+    }
+
+    Write-Host ""
+    Write-Ok "Uninstall complete"
+    Write-Host "  Note: On the SIFT workstation, also run:" -ForegroundColor Yellow
+    Write-Host "    aiir setup client --uninstall    (removes MCP config entries)" -ForegroundColor Gray
+    exit 0
+}
+
+# =============================================================================
+# Update
+# =============================================================================
+
+if ($Update) {
+    Write-Header "wintools-mcp Update"
+
+    # Resolve install dir
+    if (-not $InstallDir) {
+        if (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
+        elseif (Test-Path "$env:USERPROFILE\aiir") { $InstallDir = "$env:USERPROFILE\aiir" }
+        else {
+            Write-Err "Could not find wintools-mcp installation directory"
+            exit 1
+        }
+    }
+
+    $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
+    # Install creates .venv inside $wintoolsDir, not $InstallDir/venv
+    $venvDir = Join-Path $wintoolsDir ".venv"
+    $venvPython = Join-Path $venvDir "Scripts\python.exe"
+
+    if (-not (Test-Path $wintoolsDir)) {
+        Write-Err "wintools-mcp source not found at $wintoolsDir"
+        exit 1
+    }
+    if (-not (Test-Path $venvPython)) {
+        Write-Err "Python venv not found at $venvDir"
+        exit 1
+    }
+
+    # 1. Git pull
+    Write-Info "Pulling latest changes..."
+    Push-Location $wintoolsDir
+    try {
+        # Check for dirty working tree
+        $status = git status --porcelain 2>&1
+        if ($status) {
+            Write-Warn "Working tree has uncommitted changes:"
+            $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+            if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" "n")) {
+                Pop-Location
+                exit 1
+            }
+        }
+
+        # Check current branch
+        $branch = git rev-parse --abbrev-ref HEAD 2>&1
+        Write-Info "Current branch: $branch"
+
+        # Fetch and show what's available
+        git fetch origin 2>&1 | Out-Null
+        $behind = git rev-list "HEAD..origin/$branch" --count 2>&1
+        if ($behind -eq "0") {
+            Write-Ok "Already up to date"
+        } else {
+            Write-Info "$behind commit(s) behind origin/$branch"
+            git pull --ff-only 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "git pull failed (merge conflict or non-fast-forward). Resolve manually."
+                Pop-Location
+                exit 1
+            }
+            Write-Ok "Source updated"
+        }
+    } catch {
+        Write-Err "Git update failed: $_"
+        Pop-Location
+        exit 1
+    }
+    Pop-Location
+
+    # 2. Reinstall package
+    Write-Info "Reinstalling wintools-mcp..."
+    try {
+        & $venvPython -m pip install --progress-bar off -e $wintoolsDir 2>&1 | Out-Null
+        Write-Ok "Package reinstalled"
+    } catch {
+        Write-Err "pip install failed: $_"
+        exit 1
+    }
+
+    # 3. Reinstall FK if present (local copy or from sift-mcp repo)
+    $fkDir = Join-Path $InstallDir "forensic-knowledge"
+    $githubOrg = "https://github.com/AppliedIR"
+    if (Test-Path $fkDir) {
+        try {
+            & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1 | Out-Null
+            Write-Ok "forensic-knowledge reinstalled (local)"
+        } catch {
+            Write-Warn "FK reinstall failed (non-fatal)"
+        }
+    } else {
+        try {
+            & $venvPython -m pip install --progress-bar off --upgrade `
+                "forensic-knowledge @ git+${githubOrg}/sift-mcp.git#subdirectory=packages/forensic-knowledge" 2>&1 | Out-Null
+            Write-Ok "forensic-knowledge updated (from sift-mcp repo)"
+        } catch {
+            Write-Warn "FK update failed (non-fatal)"
+        }
+    }
+
+    # 4. Restart scheduled task
+    $taskName = "AIIR wintools-mcp"
+    try {
+        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($task) {
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            Start-ScheduledTask -TaskName $taskName
+            Write-Ok "Scheduled task restarted"
+        } else {
+            Write-Info "No scheduled task found -- restart manually if needed"
+        }
+    } catch {
+        Write-Warn "Could not restart scheduled task: $_"
+    }
+
+    # 5. Version check
+    try {
+        $ver = & $venvPython -c "from wintools_mcp import __version__; print(__version__)" 2>&1
+        Write-Ok "wintools-mcp $ver"
+    } catch { }
+
+    Write-Host ""
+    Write-Ok "Update complete"
+    exit 0
+}
 
 # =============================================================================
 # Banner
@@ -326,17 +563,31 @@ if ($hasGit) {
 $hasDotnet = $false
 try {
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
-        $dotnetVer = (dotnet --version 2>&1)
-        if ($LASTEXITCODE -eq 0 -and $dotnetVer) {
-            Write-Ok ".NET $dotnetVer"
-            $hasDotnet = $true
+        # Check for runtime (works without SDK installed)
+        $runtimes = (dotnet --list-runtimes 2>&1)
+        if ($LASTEXITCODE -eq 0 -and $runtimes) {
+            # Extract highest version from runtime list
+            $versions = ($runtimes | Select-String 'Microsoft\.NETCore\.App (\d+\.\d+)' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value }
+            if ($versions) {
+                $highest = ($versions | Sort-Object { [version]$_ } -Descending | Select-Object -First 1)
+                Write-Ok ".NET Runtime $highest"
+                $hasDotnet = $true
+            }
+        }
+        # Fallback: SDK version (dotnet --version works only when SDK is installed)
+        if (-not $hasDotnet) {
+            $dotnetVer = (dotnet --version 2>&1)
+            if ($LASTEXITCODE -eq 0 -and $dotnetVer) {
+                Write-Ok ".NET SDK $dotnetVer"
+                $hasDotnet = $true
+            }
         }
     }
 } catch { }
 if (-not $hasDotnet) {
     Write-Warn ".NET Runtime not found (needed for Zimmerman tools)"
     Write-Host "  Install from: https://dotnet.microsoft.com/download"
-    Write-Host "  Or via winget: winget install Microsoft.DotNet.Runtime.8"
+    Write-Host "  Or via winget: winget install Microsoft.DotNet.Runtime.9"
 }
 
 # Network (test with a public endpoint -- AppliedIR repos may be private)
@@ -369,7 +620,7 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     if (-not (Test-Path "C:\Tools")) {
         $defaultDir = "$env:USERPROFILE\aiir"
     }
-    $InstallDir = Read-Prompt "Installation directory" $defaultDir
+    $InstallDir = Read-Prompt "Specify installation directory" $defaultDir
 }
 
 if (-not (Test-Path $InstallDir)) {
@@ -421,11 +672,26 @@ if ($hasGit) {
         if (Test-Path $wintoolsDir) {
             Write-Info "Directory exists, pulling latest..."
             Push-Location $wintoolsDir
-            try { git pull --quiet 2>&1 | Out-Null } catch { Write-Warn "Could not update (network issue?)" }
-            Pop-Location
-            $cloneOk = $true
+            try {
+                $pullOutput = git pull --quiet 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warn "git pull failed (exit $LASTEXITCODE). Using existing code."
+                } else {
+                    $cloneOk = $true
+                }
+            } catch {
+                Write-Warn "Could not update (network issue?). Using existing code."
+            } finally {
+                Pop-Location
+            }
+            # Even if pull failed, existing dir may have usable code
+            if (-not $cloneOk -and (Test-Path (Join-Path $wintoolsDir "pyproject.toml"))) {
+                Write-Info "Existing source appears usable, continuing with current version"
+                $cloneOk = $true
+            }
         } else {
             git clone --quiet "$githubOrg/wintools-mcp.git" $wintoolsDir 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "git clone exit code $LASTEXITCODE" }
             $cloneOk = $true
         }
     } catch {
@@ -470,44 +736,52 @@ try { & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1 | O
     exit 1
 }
 
-# Try to install forensic-knowledge (best-effort)
+# forensic-knowledge (FK) enrichment — optional
+# FK lives inside the sift-mcp monorepo at packages/forensic-knowledge/.
+# pip can install it directly from that subdirectory via git+subdirectory syntax.
+# Without FK, tool execution still works but responses lack caveats, advisories,
+# and corroboration hints.
 $fkDir = Join-Path $InstallDir "forensic-knowledge"
 $fkInstalled = $false
 
-# Try git clone / ZIP (existing logic)
-if (-not $fkInstalled -and -not (Test-Path $fkDir)) {
-    $fkCloneOk = $false
-    if ($hasGit) {
-        try {
-            git clone --quiet "$githubOrg/forensic-knowledge.git" $fkDir 2>&1 | Out-Null
-            $fkCloneOk = $true
-        } catch {
-            Write-Warn "git clone failed for forensic-knowledge, trying ZIP download"
-        }
+# Check if already installed in this venv
+try {
+    $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
+    if ($fkTest -eq "ok") {
+        $fkInstalled = $true
     }
-    if (-not $fkCloneOk) {
-        try {
-            Get-RepoAsZip "forensic-knowledge" $fkDir
-        } catch {
-            Write-Warn "Could not download forensic-knowledge (FK enrichment will be unavailable)"
-        }
-    }
-}
+} catch { }
 
-if (-not $fkInstalled -and (Test-Path $fkDir)) {
-    try {
-        & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1 | Out-Null
-        $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
-        if ($fkTest -eq "ok") {
-            $fkInstalled = $true
+# If not installed, try pip install from sift-mcp repo subdirectory
+if (-not $fkInstalled) {
+    # First check if a local copy exists (from a previous install or manual placement)
+    if (Test-Path $fkDir) {
+        try {
+            & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1 | Out-Null
+            $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
+            if ($fkTest -eq "ok") { $fkInstalled = $true }
+        } catch { }
+    }
+    # Otherwise install from sift-mcp GitHub repo subdirectory
+    if (-not $fkInstalled -and $networkOk) {
+        Write-Info "Installing forensic-knowledge from sift-mcp repository..."
+        try {
+            & $venvPython -m pip install --progress-bar off `
+                "forensic-knowledge @ git+${githubOrg}/sift-mcp.git#subdirectory=packages/forensic-knowledge" 2>&1 | Out-Null
+            $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
+            if ($fkTest -eq "ok") { $fkInstalled = $true }
+        } catch {
+            Write-Warn "Could not install forensic-knowledge: $_"
         }
-    } catch { }
+    }
 }
 
 if ($fkInstalled) {
     Write-Ok "forensic-knowledge installed (FK enrichment enabled)"
 } else {
-    Write-Warn "forensic-knowledge not available (FK enrichment disabled -- wintools-mcp works without it)"
+    Write-Info "forensic-knowledge not available (FK enrichment disabled)"
+    Write-Host "  Tool execution works without FK. Responses will lack caveats," -ForegroundColor White
+    Write-Host "  advisories, and corroboration hints." -ForegroundColor White
 }
 
 # Smoke test
@@ -668,7 +942,7 @@ $wintoolsApiKey = ""
 if ($Standalone) {
     # --- Standalone mode: local case directory ---
     $defaultCaseDir = Join-Path $InstallDir "cases"
-    $caseDir = Read-Prompt "Local case directory" $defaultCaseDir
+    $caseDir = Read-Prompt "Specify local case directory" $defaultCaseDir
 
     if (-not (Test-Path $caseDir)) {
         try {
@@ -719,7 +993,7 @@ if ($Standalone) {
         $rng.GetBytes($bytes)
         $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
         $rng.Dispose()
-        Write-Ok "Generated API key: $wintoolsApiKey"
+        Write-Ok "Generated API key: $(Mask-ApiKey $wintoolsApiKey)"
     } catch {
         Write-Warn "Could not generate API key. Standalone will run without auth."
     }
@@ -808,6 +1082,22 @@ http_port: $Port
     } else {
         $siftIp = Read-Prompt "SIFT workstation IP or hostname (blank to skip)" ""
         if ($siftIp) {
+            # Resolve hostname to IP for firewall rules
+            if ($siftIp -and $siftIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
+                try {
+                    $resolved = [System.Net.Dns]::GetHostAddresses($siftIp) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+                    if ($resolved) {
+                        Write-Ok "Resolved '$siftIp' to $($resolved.IPAddressToString)"
+                        $siftIp = $resolved.IPAddressToString
+                    } else {
+                        Write-Warn "Could not resolve '$siftIp' to an IPv4 address"
+                        $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
+                    }
+                } catch {
+                    Write-Warn "DNS resolution failed for '$siftIp': $_"
+                    $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
+                }
+            }
             $siftPort = Read-Prompt "SIFT gateway port" "4508"
         }
     }
@@ -869,23 +1159,30 @@ http_port: $Port
                 $joinSucceeded = $true
                 Write-Ok "Registered with SIFT gateway via join API"
                 if ($joinData.gateway_token) {
-                    Write-Ok "Gateway token received: $($joinData.gateway_token)"
+                    Write-Ok "Gateway token received: $(Mask-ApiKey $joinData.gateway_token)"
                 }
                 if ($joinData.restart_required) {
                     Write-Info "Gateway restart required. Run 'aiir service restart' on SIFT."
                 }
             } catch {
-                $wintoolsApiKey = ""
                 $statusCode = $null
                 if ($_.Exception.Response) {
                     $statusCode = [int]$_.Exception.Response.StatusCode
                 }
                 if ($statusCode -eq 403) {
+                    # Server rejected the request — key was NOT stored. Safe to clear.
+                    $wintoolsApiKey = ""
                     Write-Warn "Join failed: invalid, expired, or already-used join code"
                 } elseif ($statusCode -eq 429) {
+                    $wintoolsApiKey = ""
                     Write-Warn "Join failed: too many attempts. Try again later."
                 } else {
+                    # Timeout or network error — server MAY have stored the key.
+                    # Keep the generated key so config.yaml matches what was sent.
                     Write-Warn "Join failed: $_"
+                    Write-Warn "The API key sent to the gateway may or may not have been stored."
+                    Write-Host "  The same key will be written to config.yaml." -ForegroundColor Yellow
+                    Write-Host "  If the gateway did not receive it, re-register manually." -ForegroundColor Yellow
                 }
                 Write-Host "  Falling back to manual configuration"
             }
@@ -904,7 +1201,7 @@ http_port: $Port
                 $rng.GetBytes($bytes)
                 $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
                 $rng.Dispose()
-                Write-Ok "Generated API key: $wintoolsApiKey"
+                Write-Ok "Generated API key: $(Mask-ApiKey $wintoolsApiKey)"
             } catch {
                 Write-Warn "Could not generate API key"
             }
@@ -1060,13 +1357,21 @@ if (Test-Path $wintoolsConfigPath) {
     $scriptArgs += " --config `"$wintoolsConfigPath`""
 }
 try {
-    @"
-# Start wintools-mcp in HTTP mode
-# AIIR_EXAMINER is set here (not read from system env vars)
-# because the scheduled task runs as SYSTEM which doesn't see User-level vars
-`$env:AIIR_EXAMINER = "$Examiner"
-& "$venvPython" -m wintools_mcp $scriptArgs
-"@ | Set-Content -Path $startupPath -Encoding UTF8
+    # Build startup script with all env vars the SYSTEM task needs
+    $startupLines = @(
+        "# Start wintools-mcp in HTTP mode",
+        "# Environment vars set here because the scheduled task runs as SYSTEM",
+        "# which doesn't see User-level environment variables",
+        "`$env:AIIR_EXAMINER = `"$Examiner`""
+    )
+    if ($env:AIIR_CASE_DIR) {
+        $startupLines += "`$env:AIIR_CASE_DIR = `"$($env:AIIR_CASE_DIR)`""
+    }
+    if ($env:AIIR_ACTIVE_CASE) {
+        $startupLines += "`$env:AIIR_ACTIVE_CASE = `"$($env:AIIR_ACTIVE_CASE)`""
+    }
+    $startupLines += "& `"$venvPython`" -m wintools_mcp $scriptArgs"
+    ($startupLines -join "`r`n") | Set-Content -Path $startupPath -Encoding UTF8
 } catch {
     Write-Warn "Could not write startup script"
 }
@@ -1126,10 +1431,10 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
         $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if (-not $existingRule) {
             if ($siftIp -and $siftIp -ne "THIS_MACHINE_IP") {
-                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress $siftIp | Out-Null
+                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress $siftIp -ErrorAction Stop | Out-Null
                 Write-Ok "Firewall rule added for TCP port $Port (restricted to $siftIp)"
             } else {
-                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress 127.0.0.1 | Out-Null
+                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress 127.0.0.1 -ErrorAction Stop | Out-Null
                 Write-Ok "Firewall rule added for TCP port $Port (localhost only)"
                 Write-Warn "IMPORTANT: Firewall restricted to localhost. For remote SIFT access, run:"
                 Write-Host "  Set-NetFirewallRule -DisplayName `"$ruleName`" -RemoteAddress SIFT_IP_HERE"
@@ -1165,10 +1470,13 @@ Write-Host "  Install dir:    $InstallDir"
 Write-Host "  HTTP server:    http://localhost:$Port"
 Write-Host "  Health check:   http://localhost:$Port/health"
 Write-Host "  MCP endpoint:   http://localhost:$Port/mcp"
-Write-Host "  Tool inventory: $overviewPath"
+if (Test-Path $overviewPath) {
+    Write-Host "  Tool inventory: $overviewPath"
+}
 
 if ($wintoolsApiKey) {
-    Write-Host "  API key:        $wintoolsApiKey"
+    Write-Host "  API key:        $(Mask-ApiKey $wintoolsApiKey)"
+    Write-Host "  (full key in config.yaml and gateway-snippet.yaml)" -ForegroundColor Gray
 }
 
 if ($Standalone) {

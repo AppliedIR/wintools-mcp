@@ -31,6 +31,87 @@ tools:
       - "C:\\Tools\\SysinternalsSuite"
       - "C:\\SysinternalsSuite"
 
+  - name: strings
+    binary: strings64.exe
+    description: "Extract printable strings from binary files"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 300
+    fk_tool_name: strings
+    common_flags:
+      - flag: "-a"
+        description: "Scan entire file (not just image sections)"
+      - flag: "-n"
+        description: "Minimum string length (default 3)"
+      - flag: "-u"
+        description: "Unicode strings only"
+      - flag: "-accepteula"
+        description: "Accept EULA (required for first run)"
+    install_methods:
+      - method: direct
+        url: "https://learn.microsoft.com/en-us/sysinternals/downloads/strings"
+        notes: "Download from Sysinternals suite"
+      - method: chocolatey
+        command: "choco install sysinternals"
+    install_paths:
+      - "C:\\Tools\\SysinternalsSuite"
+      - "C:\\SysinternalsSuite"
+    alternatives:
+      - "strings.exe (32-bit version)"
+      - "bstrings.exe (Zimmerman tool with regex support)"
+
+  - name: handle
+    binary: handle64.exe
+    description: "List open file handles by process"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 120
+    fk_tool_name: handle
+    common_flags:
+      - flag: "-a"
+        description: "Show all handle information"
+      - flag: "-p"
+        description: "Filter by process name or PID"
+      - flag: "-accepteula"
+        description: "Accept EULA (required for first run)"
+    install_methods:
+      - method: direct
+        url: "https://learn.microsoft.com/en-us/sysinternals/downloads/handle"
+        notes: "Download from Sysinternals suite"
+      - method: chocolatey
+        command: "choco install sysinternals"
+    install_paths:
+      - "C:\\Tools\\SysinternalsSuite"
+      - "C:\\SysinternalsSuite"
+    alternatives:
+      - "handle.exe (32-bit version)"
+
+  - name: procdump
+    binary: procdump64.exe
+    description: "Dump process memory for analysis"
+    input_style: positional
+    output_format: text
+    timeout_seconds: 300
+    fk_tool_name: procdump
+    common_flags:
+      - flag: "-ma"
+        description: "Full dump (all memory)"
+      - flag: "-mp"
+        description: "Mini plus dump"
+      - flag: "-accepteula"
+        description: "Accept EULA (required for first run)"
+    install_methods:
+      - method: direct
+        url: "https://learn.microsoft.com/en-us/sysinternals/downloads/procdump"
+        notes: "Download from Sysinternals suite"
+      - method: chocolatey
+        command: "choco install sysinternals"
+    install_paths:
+      - "C:\\Tools\\SysinternalsSuite"
+      - "C:\\SysinternalsSuite"
+    alternatives:
+      - "procdump.exe (32-bit version)"
+
   - name: sigcheck
     binary: sigcheck.exe
     description: "Verify digital signatures and check VirusTotal for files"

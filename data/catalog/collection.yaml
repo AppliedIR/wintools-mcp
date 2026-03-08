@@ -1,0 +1,33 @@
+category: collection
+tools:
+  - name: kape
+    binary: kape.exe
+    description: "Kroll Artifact Parser and Extractor — automated evidence collection and processing"
+    input_style: flag
+    output_format: text
+    timeout_seconds: 1800
+    fk_tool_name: KAPE
+    common_flags:
+      - flag: "--tsource"
+        description: "Target source directory"
+      - flag: "--tdest"
+        description: "Target destination directory"
+      - flag: "--target"
+        description: "Target name(s) to collect"
+      - flag: "--msource"
+        description: "Module source directory"
+      - flag: "--mdest"
+        description: "Module destination directory"
+      - flag: "--module"
+        description: "Module name(s) to run"
+      - flag: "--tlist"
+        description: "List available targets"
+      - flag: "--mlist"
+        description: "List available modules"
+    install_methods:
+      - method: direct
+        url: "https://www.kroll.com/en/services/cyber-risk/incident-response-litigation-support/kroll-artifact-parser-extractor-kape"
+        notes: "Requires Kroll license — download from Kroll website"
+    install_paths:
+      - "C:\\Tools\\KAPE"
+      - "C:\\KAPE"

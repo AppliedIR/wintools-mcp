@@ -1,4 +1,9 @@
-"""Tests for Zimmerman tool wrappers."""
+"""Tests for tool catalog and execution pipeline.
+
+The per-tool wrappers (zimmerman.py, timeline.py) were consolidated into
+generic.run_command() in FU-3.  These tests validate the catalog-driven
+execution path.
+"""
 
 from unittest.mock import patch
 
@@ -8,7 +13,7 @@ from wintools_mcp.audit import AuditWriter
 
 
 @pytest.fixture
-def zimmerman_catalog(tmp_path, monkeypatch):
+def tool_catalog(tmp_path, monkeypatch):
     cat_dir = tmp_path / "catalog"
     cat_dir.mkdir()
     yaml_content = """
@@ -37,60 +42,16 @@ tools:
     return cat_dir
 
 
-class TestZimmermanTools:
-    def test_amcacheparser_execution(self, zimmerman_catalog, tmp_path, monkeypatch):
-        monkeypatch.setenv("AIIR_CASE_DIR", str(tmp_path / "case"))
+class TestToolCatalog:
+    def test_catalog_loads(self, tool_catalog):
+        from wintools_mcp.catalog import load_catalog
 
-        from wintools_mcp.tools.zimmerman import _run_zimmerman_tool
+        catalog = load_catalog()
+        assert "amcacheparser" in catalog
+        assert "pecmd" in catalog
 
-        # Create mock CSV output
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
+    def test_uncataloged_tool_rejected(self, tool_catalog):
+        from wintools_mcp.security import verify_catalog
 
-        mock_result = {
-            "exit_code": 0,
-            "stdout": "AmcacheParser v1.5\nProcessing...\n",
-            "stderr": "",
-            "elapsed_seconds": 1.0,
-            "command": [
-                "AmcacheParser.exe",
-                "-f",
-                "Amcache.hve",
-                "--csv",
-                str(output_dir),
-            ],
-        }
-
-        csv_content = "SHA1,FullPath,FileSize\nabc123,C:\\Windows\\notepad.exe,123456\n"
-        (output_dir / "Amcache_UnassociatedFileEntries.csv").write_text(csv_content)
-
-        audit = AuditWriter()
-
-        with (
-            patch(
-                "wintools_mcp.tools.zimmerman.find_binary",
-                return_value="C:\\Tools\\AmcacheParser.exe",
-            ),
-            patch("wintools_mcp.tools.zimmerman.execute", return_value=mock_result),
-        ):
-            result = _run_zimmerman_tool(
-                "AmcacheParser",
-                "Amcache.hve",
-                audit,
-                output_dir=str(output_dir),
-            )
-
-        assert result["success"] is True
-        assert result["examiner"] == "testuser"
-        assert result["evidence_id"].startswith("wintools-testuser-")
-        assert "Amcache_UnassociatedFileEntries" in result["data"]
-
-    def test_tool_not_found_includes_guidance(self, zimmerman_catalog):
-        from wintools_mcp.exceptions import ToolNotFoundError
-        from wintools_mcp.tools.zimmerman import _run_zimmerman_tool
-
-        audit = AuditWriter()
-
-        with patch("wintools_mcp.tools.zimmerman.find_binary", return_value=None):
-            with pytest.raises(ToolNotFoundError, match="Install guidance"):
-                _run_zimmerman_tool("AmcacheParser", "test.hve", audit)
+        with pytest.raises(ValueError, match="not in the approved catalog"):
+            verify_catalog("evil.exe")

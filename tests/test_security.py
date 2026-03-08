@@ -41,20 +41,23 @@ class TestSanitizeExtraArgs:
         with pytest.raises(ValueError, match="metacharacter"):
             sanitize_extra_args(["`whoami`"])
 
-    def test_output_flags_blocked(self):
-        """MED-06: output redirect flags are blocked."""
+    def test_output_flags_allowed(self):
+        """Output flags are NOT blocked — they are legitimate forensic tool flags.
+
+        Blocking --csv/--json/--output/-o broke Zimmerman tools, Hayabusa, and
+        winpmem. sift-mcp validates output paths instead of blocking these flags.
+        """
         for flag in (
             "-o",
             "--output",
             "-O",
             "--output-file",
             "/out",
-            "/out:",
             "--csv",
             "--json",
         ):
-            with pytest.raises(ValueError, match="Blocked dangerous flag"):
-                sanitize_extra_args([flag, "outfile.txt"])
+            result = sanitize_extra_args([flag, "outfile.txt"])
+            assert result == [flag, "outfile.txt"]
 
     def test_response_file_blocked(self):
         """Backlog #11: @file response-file syntax blocked."""

@@ -17,11 +17,6 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
     parser.add_argument("--config", help="Path to YAML config file")
     parser.add_argument(
-        "--stdio",
-        action="store_true",
-        help="Enable MCP stdio (default when --http not set)",
-    )
-    parser.add_argument(
         "--scan",
         action="store_true",
         help="Scan for installed tools and exit",

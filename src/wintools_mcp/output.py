@@ -9,6 +9,20 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_HASH_CHUNK_SIZE = 65536  # 64 KB
+
+
+def _chunked_sha256(path: Path) -> str:
+    """Compute SHA-256 without reading the entire file into memory."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        while True:
+            chunk = fh.read(_HASH_CHUNK_SIZE)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
 
 def to_share_relative(absolute_path: str, share_root: str) -> str:
     """Convert an absolute path to a share-relative path.
@@ -52,7 +66,6 @@ def build_manifest(output_dir: Path, base_url: str = "") -> list[dict[str, Any]]
         if not f.is_file():
             continue
         try:
-            file_bytes = f.read_bytes()
             file_size = f.stat().st_size
         except FileNotFoundError:
             logger.warning("File disappeared during manifest build: %s", f)
@@ -60,8 +73,12 @@ def build_manifest(output_dir: Path, base_url: str = "") -> list[dict[str, Any]]
         except OSError as e:
             logger.warning("Failed to read file %s for manifest: %s", f, e)
             continue
+        try:
+            sha256 = _chunked_sha256(f)
+        except OSError as e:
+            logger.warning("Failed to hash file %s: %s", f, e)
+            continue
         rel_path = f.relative_to(output_dir.parent.parent)  # relative to working_dir
-        sha256 = hashlib.sha256(file_bytes).hexdigest()
         entry: dict[str, Any] = {
             "path": str(rel_path).replace("\\", "/"),
             "size_bytes": file_size,

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from wintools_mcp.catalog import is_in_catalog
 
-# Flags that could be abused for data exfiltration or code execution
+# Flags that could be abused for code execution
 _DANGEROUS_FLAGS = {
     "-e",
     "--exec",
@@ -15,6 +15,13 @@ _DANGEROUS_FLAGS = {
     "-encodedcommand",
     "--script",
     "--invoke",
+}
+
+# Output flags are NOT dangerous — they control output format/path.
+# sift-mcp validates the output path; wintools-mcp runs shell=False so
+# these cannot be chained into exfiltration.  Blocking them broke every
+# Zimmerman tool (--csv), Hayabusa (--csv/--json/-o), and winpmem (-o).
+_OUTPUT_FLAGS = {
     "-o",
     "--output",
     "-O",

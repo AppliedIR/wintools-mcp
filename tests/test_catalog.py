@@ -206,7 +206,7 @@ class TestSysinternalsCatalog:
     def test_sysinternals_catalog_loads(self):
         catalog = load_catalog()
         sysinternals = [td for td in catalog.values() if td.category == "sysinternals"]
-        assert len(sysinternals) == 2
+        assert len(sysinternals) == 5
 
     def test_autorunsc_in_catalog(self):
         td = get_tool_def("autorunsc")

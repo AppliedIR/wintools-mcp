@@ -27,8 +27,8 @@ tools:
     fk_tool_name: dumpit
     install_methods:
       - method: direct
-        url: "https://www.yourdownloadsite.com"
-        notes: "Download from Magnet Forensics (formerly Comae)"
+        url: "https://www.magnetforensics.com/resources/magnet-dumpit-for-windows/"
+        notes: "Download from Magnet Forensics (requires registration)"
     install_paths:
       - "C:\\Tools\\Memory"
       - "C:\\Tools"

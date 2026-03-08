@@ -68,21 +68,23 @@ graph TB
     D -->|"pass"| A{"YAML Catalog<br/>Allowlist"}
     A -->|"unknown binary"| REJECTED["REJECTED"]
     A -->|"cataloged"| S{"Argument<br/>Sanitization"}
-    S -->|"shell metacharacters,<br/>dangerous flags, or<br/>@file response-file"| REJECTED
+    S -->|"shell metacharacters,<br/>execution flags, or<br/>@file response-file"| REJECTED
     S -->|"clean"| E["EXECUTE<br/>subprocess.run(shell=False)"]
 ```
 
-All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML catalog files can run. Dangerous binaries (cmd, powershell, wscript, etc.) are unconditionally blocked by a hardcoded denylist. Arguments are checked for shell metacharacters, dangerous flags, response-file syntax (`@filename`), and output redirect flags (`-o`, `--output`, `/out:`, `--csv`, `--json`).
+All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML catalog files can run. Dangerous binaries (cmd, powershell, wscript, etc.) are unconditionally blocked by a hardcoded denylist. Arguments are checked for shell metacharacters, dangerous flags (execution-related: `-e`, `--exec`, `--command`, `-enc`), and response-file syntax (`@filename`).
 
 ## Quick Start
 
-On the Windows forensic workstation:
+On the Windows forensic workstation, clone the repo:
 
 ```powershell
-# Option 1: git clone
 git clone https://github.com/AppliedIR/wintools-mcp.git; cd wintools-mcp
+```
 
-# Option 2: download ZIP (no git required)
+Or if git is not installed, download and extract the ZIP:
+
+```powershell
 Invoke-WebRequest https://github.com/AppliedIR/wintools-mcp/archive/refs/heads/main.zip -OutFile wintools.zip
 Expand-Archive wintools.zip -DestinationPath .; cd wintools-mcp-main
 ```
@@ -118,12 +120,15 @@ All per-tool wrappers (Zimmerman suite, Hayabusa, mactime) are consolidated into
 
 ## Tool Catalog
 
-Tools are defined in YAML catalog files under `data/catalog/`. The catalog currently contains **22 tool entries** across 4 files:
+Tools are defined in YAML catalog files under `data/catalog/`. The catalog currently contains **31 tool entries** across 7 files:
 
 - `zimmerman.yaml` -- 14 tools (AmcacheParser, AppCompatCacheParser, EvtxECmd, JLECmd, LECmd, MFTECmd, PECmd, RBCmd, RECmd, SBECmd, SQLECmd, SrumECmd, WxTCmd, bstrings)
-- `timeline.yaml` -- 2 tools (Hayabusa, mactime)
-- `sysinternals.yaml` -- 2 tools (autorunsc, sigcheck)
+- `sysinternals.yaml` -- 5 tools (autorunsc, sigcheck, strings, handle, procdump)
 - `memory.yaml` -- 4 tools (winpmem, dumpit, moneta, hollows_hunter)
+- `timeline.yaml` -- 3 tools (Hayabusa, chainsaw, mactime)
+- `analysis.yaml` -- 3 tools (capa, yara, densityscout)
+- `collection.yaml` -- 1 tool (KAPE)
+- `scripts.yaml` -- 1 tool (Get-InjectedThreadEx)
 
 Each entry defines the binary name, input style, output format, timeout, FK knowledge name, install methods, and search paths:
 

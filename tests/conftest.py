@@ -29,9 +29,10 @@ def catalog_dir(tmp_path):
 
 @pytest.fixture
 def case_dir(tmp_path, monkeypatch):
-    """Set up a temporary case directory."""
+    """Set up a temporary case directory with CASE.yaml."""
     cd = tmp_path / "case"
     cd.mkdir()
+    (cd / "CASE.yaml").write_text("case_id: test\n")
     monkeypatch.setenv("AIIR_CASE_DIR", str(cd))
     return cd
 

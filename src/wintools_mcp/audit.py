@@ -25,7 +25,7 @@ def _sanitize_slug(raw: str) -> str:
     """Sanitize a raw string into a valid examiner slug.
 
     Lowercases, replaces invalid characters with hyphens, strips leading/trailing
-    hyphens, and truncates to 40 characters.
+    hyphens, and truncates to 20 characters.
     """
     slug = re.sub(r"[^a-z0-9-]", "-", raw.lower()).strip("-")
     if len(slug) > 20:
@@ -102,6 +102,11 @@ class AuditWriter:
                 if not path.is_dir():
                     logger.warning(
                         "AIIR_CASE_DIR=%s is not a directory, skipping audit", case_dir
+                    )
+                    return None
+                if not (path / "CASE.yaml").exists():
+                    logger.warning(
+                        "AIIR_CASE_DIR=%s has no CASE.yaml, skipping audit", case_dir
                     )
                     return None
                 audit_dir = path / "audit"

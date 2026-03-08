@@ -15,8 +15,18 @@ def scan_tools(extra_paths: list[Path] | None = None) -> dict[str, Any]:
     available = []
     missing = []
 
+    # Single pass: find each binary once, using catalog install_paths
+    binary_cache: dict[str, str | None] = {}
     for td in catalog.values():
-        path = find_binary(td.binary, extra_paths)
+        # Merge catalog install_paths with caller-supplied extra_paths
+        tool_paths = list(extra_paths) if extra_paths else []
+        for ip in td.install_paths:
+            p = Path(ip)
+            if p not in tool_paths:
+                tool_paths.append(p)
+        path = find_binary(td.binary, tool_paths or None)
+        binary_cache[td.name] = path
+
         if path:
             available.append(
                 {
@@ -44,14 +54,14 @@ def scan_tools(extra_paths: list[Path] | None = None) -> dict[str, Any]:
                 entry["alternatives"] = td.alternatives
             missing.append(entry)
 
+    # Build category summary from cached results (no second find_binary pass)
     by_category: dict[str, dict[str, int]] = {}
     for td in catalog.values():
         cat = td.category
         if cat not in by_category:
             by_category[cat] = {"total": 0, "available": 0, "missing": 0}
         by_category[cat]["total"] += 1
-        path = find_binary(td.binary, extra_paths)
-        if path:
+        if binary_cache.get(td.name):
             by_category[cat]["available"] += 1
         else:
             by_category[cat]["missing"] += 1

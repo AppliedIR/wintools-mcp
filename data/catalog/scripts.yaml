@@ -1,0 +1,22 @@
+category: scripts
+tools:
+  - name: Get-InjectedThreadEx
+    binary: powershell.exe
+    description: "Detect injected threads in running processes (PowerShell script)"
+    input_style: script
+    exec_type: script
+    output_format: text
+    timeout_seconds: 300
+    fk_tool_name: Get-InjectedThreadEx
+    common_flags:
+      - flag: "-ExecutionPolicy Bypass"
+        description: "Bypass execution policy for unsigned script"
+      - flag: "-File"
+        description: "Path to Get-InjectedThreadEx.ps1 script"
+    install_methods:
+      - method: github
+        url: "https://gist.github.com/jaredcatkinson/23905d34537ce4b5b1818c3e6405c1d2"
+        notes: "Download Get-InjectedThreadEx.ps1 from GitHub Gist"
+    install_paths:
+      - "C:\\Tools\\Scripts"
+      - "C:\\Tools"
