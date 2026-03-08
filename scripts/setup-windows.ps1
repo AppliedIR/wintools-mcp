@@ -765,13 +765,43 @@ if (-not $fkInstalled) {
     # Otherwise install from sift-mcp GitHub repo subdirectory
     if (-not $fkInstalled -and $networkOk) {
         Write-Info "Installing forensic-knowledge from sift-mcp repository..."
-        try {
-            & $venvPython -m pip install --progress-bar off `
-                "forensic-knowledge @ git+${githubOrg}/sift-mcp.git#subdirectory=packages/forensic-knowledge" 2>&1 | Out-Null
-            $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
-            if ($fkTest -eq "ok") { $fkInstalled = $true }
-        } catch {
-            Write-Warn "Could not install forensic-knowledge: $_"
+        if ($hasGit) {
+            # With git: pip can install directly from the repo subdirectory
+            try {
+                & $venvPython -m pip install --progress-bar off `
+                    "forensic-knowledge @ git+${githubOrg}/sift-mcp.git#subdirectory=packages/forensic-knowledge" 2>&1 | Out-Null
+                $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
+                if ($fkTest -eq "ok") { $fkInstalled = $true }
+            } catch {
+                Write-Warn "Could not install forensic-knowledge: $_"
+            }
+        } else {
+            # Without git: download sift-mcp ZIP, extract FK subdirectory, pip install
+            try {
+                $siftZipUrl = "$githubOrg/sift-mcp/archive/refs/heads/main.zip"
+                $siftZipPath = Join-Path $InstallDir "sift-mcp-fk.zip"
+                $siftExtractDir = Join-Path $InstallDir "sift-mcp-main"
+                Invoke-WebRequest -Uri $siftZipUrl -OutFile $siftZipPath -UseBasicParsing
+                Expand-Archive -Path $siftZipPath -DestinationPath $InstallDir -Force
+                $fkSourceDir = Join-Path $siftExtractDir "packages" "forensic-knowledge"
+                if (Test-Path $fkSourceDir) {
+                    # Copy FK to persistent location so it survives cleanup
+                    if (Test-Path $fkDir) { Remove-Item $fkDir -Recurse -Force }
+                    Copy-Item $fkSourceDir $fkDir -Recurse
+                    & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1 | Out-Null
+                    $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
+                    if ($fkTest -eq "ok") { $fkInstalled = $true }
+                } else {
+                    Write-Warn "FK subdirectory not found in sift-mcp archive"
+                }
+                # Cleanup temporary files
+                Remove-Item $siftZipPath -ErrorAction SilentlyContinue
+                Remove-Item $siftExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+            } catch {
+                Write-Warn "Could not install forensic-knowledge: $_"
+                Remove-Item (Join-Path $InstallDir "sift-mcp-fk.zip") -ErrorAction SilentlyContinue
+                Remove-Item (Join-Path $InstallDir "sift-mcp-main") -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 }
@@ -911,7 +941,10 @@ lines.append('  - Sysinternals: winget install Microsoft.Sysinternals')
 lines.append('')
 print('\n'.join(lines))
 "@ 2>&1
-} catch { $overviewContent = $null }
+} catch {
+    Write-Warn "TOOLS_OVERVIEW.md generation error: $_"
+    $overviewContent = $null
+}
 
 if ($overviewContent) {
     try {
