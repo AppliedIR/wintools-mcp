@@ -1135,20 +1135,86 @@ http_port: $Port
         }
     }
 
-    # Reachability check
+    # Reachability check with diagnostics and retry
     if ($siftIp) {
-        foreach ($scheme in @("https", "http")) {
-            try {
-                $response = Invoke-WebRequest -Uri "${scheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-                Write-Ok "Connected to SIFT gateway at ${scheme}://${siftIp}:${siftPort}"
-                $gatewayReachable = $true
-                $gatewayScheme = $scheme
+        $retryGateway = $true
+        while ($retryGateway) {
+            $retryGateway = $false
+            $gatewayReachable = $false
+
+            # Step 1: Ping (network layer)
+            Write-Info "Testing network connectivity to $siftIp..."
+            $pingOk = Test-Connection -ComputerName $siftIp -Count 1 -Quiet -ErrorAction SilentlyContinue
+            if ($pingOk) {
+                Write-Ok "Ping to $siftIp succeeded"
+            } else {
+                Write-Warn "Ping to $siftIp failed"
+                Write-Host "  Check:" -ForegroundColor Yellow
+                Write-Host "    - Both VMs are on the same network segment" -ForegroundColor White
+                Write-Host "    - The SIFT workstation is powered on" -ForegroundColor White
+                Write-Host "    - No firewall is blocking ICMP between the two machines" -ForegroundColor White
+                if (-not $NonInteractive) {
+                    Write-Host ""
+                    $retry = Read-Prompt "Fix the issue and press Enter to retry (or 'skip' to continue without gateway)" ""
+                    if ($retry -ne "skip") { $retryGateway = $true; continue }
+                }
                 break
+            }
+
+            # Step 2: TCP port check (gateway binding)
+            Write-Info "Testing TCP port ${siftPort}..."
+            $tcpOk = $false
+            try {
+                $tcp = New-Object System.Net.Sockets.TcpClient
+                $tcp.Connect($siftIp, [int]$siftPort)
+                $tcpOk = $true
+                $tcp.Close()
             } catch { }
-        }
-        if (-not $gatewayReachable) {
-            Write-Warn "Cannot reach SIFT gateway at ${siftIp}:${siftPort}"
-            Write-Host "  Ensure the AIIR gateway is running on the SIFT workstation"
+
+            if (-not $tcpOk) {
+                Write-Warn "TCP port $siftPort on $siftIp is not accepting connections"
+                Write-Host ""
+                Write-Host "  Most likely cause: the SIFT gateway is bound to localhost only." -ForegroundColor Yellow
+                Write-Host "  This is the default when SIFT was installed without --remote." -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "  To fix, run these commands on the SIFT workstation:" -ForegroundColor White
+                Write-Host "    sed -i 's/host: 127.0.0.1/host: 0.0.0.0/' ~/.aiir/gateway.yaml" -ForegroundColor Gray
+                Write-Host "    systemctl --user restart aiir-gateway" -ForegroundColor Gray
+                Write-Host ""
+                Write-Host "  Other possibilities:" -ForegroundColor White
+                Write-Host "    - Gateway is not running (start: aiir service start)" -ForegroundColor White
+                Write-Host "    - A firewall on SIFT is blocking port $siftPort" -ForegroundColor White
+                if (-not $NonInteractive) {
+                    Write-Host ""
+                    $retry = Read-Prompt "Fix the issue and press Enter to retry (or 'skip' to continue without gateway)" ""
+                    if ($retry -ne "skip") { $retryGateway = $true; continue }
+                }
+                break
+            }
+
+            Write-Ok "TCP port $siftPort is open"
+
+            # Step 3: HTTP health check
+            foreach ($scheme in @("https", "http")) {
+                try {
+                    $response = Invoke-WebRequest -Uri "${scheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                    Write-Ok "Connected to SIFT gateway at ${scheme}://${siftIp}:${siftPort}"
+                    $gatewayReachable = $true
+                    $gatewayScheme = $scheme
+                    break
+                } catch { }
+            }
+
+            if (-not $gatewayReachable) {
+                Write-Warn "Port is open but HTTP health check failed"
+                Write-Host "  The port is accepting connections but not responding to HTTP." -ForegroundColor Yellow
+                Write-Host "  Check that the AIIR gateway (not another service) is on port $siftPort." -ForegroundColor White
+                if (-not $NonInteractive) {
+                    Write-Host ""
+                    $retry = Read-Prompt "Fix the issue and press Enter to retry (or 'skip' to continue without gateway)" ""
+                    if ($retry -ne "skip") { $retryGateway = $true; continue }
+                }
+            }
         }
     }
 
