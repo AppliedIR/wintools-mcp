@@ -19,11 +19,21 @@ class TestSanitizeExtraArgs:
 
     def test_dangerous_flag_blocked(self):
         with pytest.raises(ValueError, match="Blocked dangerous flag"):
-            sanitize_extra_args(["-e", "malicious"])
+            sanitize_extra_args(["--exec", "malicious"])
 
     def test_encoded_command_blocked(self):
         with pytest.raises(ValueError, match="Blocked dangerous flag"):
             sanitize_extra_args(["-enc", "base64payload"])
+
+    def test_e_flag_blocked_for_powershell(self):
+        """The -e flag is dangerous for PowerShell but not for other tools."""
+        with pytest.raises(ValueError, match="Blocked dangerous flag"):
+            sanitize_extra_args(["-e", "payload"], tool_name="powershell.exe")
+
+    def test_e_flag_allowed_for_sigcheck(self):
+        """Sigcheck uses -e to mean 'scan executables only' — must not be blocked."""
+        result = sanitize_extra_args(["-e", "C:\\Windows"], tool_name="sigcheck.exe")
+        assert result == ["-e", "C:\\Windows"]
 
     def test_shell_metachar_blocked(self):
         with pytest.raises(ValueError, match="metacharacter"):
@@ -67,7 +77,7 @@ class TestSanitizeExtraArgs:
     def test_tool_specific_blocked_flags(self):
         """Per-tool blocked flags are enforced."""
         with pytest.raises(ValueError, match="Blocked dangerous flag"):
-            sanitize_extra_args(["-command", "evil"], tool_name="powershell")
+            sanitize_extra_args(["-command", "evil"], tool_name="powershell.exe")
 
     def test_non_string_arg_rejected(self):
         with pytest.raises(ValueError, match="Non-string"):

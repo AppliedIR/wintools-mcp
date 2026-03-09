@@ -6,9 +6,10 @@ from pathlib import Path
 
 from wintools_mcp.catalog import is_in_catalog
 
-# Flags that could be abused for code execution
+# Flags that could be abused for code execution.
+# NOTE: -e is NOT here — it means "execute" for PowerShell but "scan
+# executables only" for sigcheck. Per-tool blocking handles it below.
 _DANGEROUS_FLAGS = {
-    "-e",
     "--exec",
     "--command",
     "-enc",
@@ -17,25 +18,12 @@ _DANGEROUS_FLAGS = {
     "--invoke",
 }
 
-# Output flags are NOT dangerous — they control output format/path.
-# sift-mcp validates the output path; wintools-mcp runs shell=False so
-# these cannot be chained into exfiltration.  Blocking them broke every
-# Zimmerman tool (--csv), Hayabusa (--csv/--json/-o), and winpmem (-o).
-_OUTPUT_FLAGS = {
-    "-o",
-    "--output",
-    "-O",
-    "--output-file",
-    "/out",
-    "--csv",
-    "--json",
-}
-
 _DANGEROUS_PATTERNS = [";", "&&", "||", "`", "$(", "${", "@"]
 
-# Per-tool blocked flags: flags that are dangerous for specific tools
+# Per-tool blocked flags: flags that are dangerous for specific tools.
+# Keys must match binary_name as returned by Path(command[0]).name.
 _TOOL_BLOCKED_FLAGS: dict[str, set[str]] = {
-    "powershell": {"-command", "-c", "-encodedcommand", "-enc"},
+    "powershell.exe": {"-command", "-c", "-e", "-encodedcommand", "-enc"},
 }
 
 # Windows system directories that should never be used as input paths

@@ -72,4 +72,4 @@ class TestRunCommand:
             return_value="/resolved/testtool.exe",
         ):
             with pytest.raises(ValueError, match="Blocked"):
-                run_command(["testtool.exe", "-e", "malicious"])
+                run_command(["testtool.exe", "--exec", "malicious"])

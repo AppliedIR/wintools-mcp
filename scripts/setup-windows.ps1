@@ -237,7 +237,7 @@ if ($Uninstall) {
     try {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
-            if (Read-YesNo "Remove scheduled task '$taskName'?" "y") {
+            if (Read-YesNo "Remove scheduled task '$taskName'?" $true) {
                 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
                 Write-Ok "Scheduled task removed"
             }
@@ -253,7 +253,7 @@ if ($Uninstall) {
     try {
         $rule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if ($rule) {
-            if (Read-YesNo "Remove firewall rule '$ruleName'?" "y") {
+            if (Read-YesNo "Remove firewall rule '$ruleName'?" $true) {
                 Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop
                 Write-Ok "Firewall rule removed"
             }
@@ -265,11 +265,11 @@ if ($Uninstall) {
     }
 
     # 3. Remove environment variables
-    foreach ($varName in @("AIIR_EXAMINER", "AIIR_CASE_DIR", "AIIR_ACTIVE_CASE", "AIIR_SHARE_ROOT", "AIIR_AUDIT_DIR")) {
+    foreach ($varName in @("AIIR_EXAMINER", "AIIR_CASE_DIR", "AIIR_ACTIVE_CASE", "AIIR_SHARE_ROOT", "AIIR_AUDIT_DIR", "WINTOOLS_CASE_ROOT")) {
         $userVal = [Environment]::GetEnvironmentVariable($varName, "User")
         $machVal = [Environment]::GetEnvironmentVariable($varName, "Machine")
         if ($userVal -or $machVal) {
-            if (Read-YesNo "Remove environment variable $varName?" "y") {
+            if (Read-YesNo "Remove environment variable $varName?" $true) {
                 if ($userVal) { [Environment]::SetEnvironmentVariable($varName, $null, "User") }
                 if ($machVal) {
                     try { [Environment]::SetEnvironmentVariable($varName, $null, "Machine") }
@@ -283,7 +283,7 @@ if ($Uninstall) {
     # 4. Remove install directory (venv, source, config)
     if (Test-Path $InstallDir) {
         $dirSize = "{0:N1} MB" -f ((Get-ChildItem -Recurse -File $InstallDir -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB)
-        if (Read-YesNo "Remove install directory $InstallDir ($dirSize)?" "n") {
+        if (Read-YesNo "Remove install directory $InstallDir ($dirSize)?" $false) {
             try {
                 Remove-Item -Recurse -Force $InstallDir
                 Write-Ok "Install directory removed"
@@ -342,7 +342,7 @@ if ($Update) {
         if ($status) {
             Write-Warn "Working tree has uncommitted changes:"
             $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
-            if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" "n")) {
+            if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
                 Pop-Location
                 exit 1
             }
