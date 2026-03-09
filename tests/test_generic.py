@@ -36,7 +36,7 @@ class TestRunCommand:
 
         with (
             patch(
-                "wintools_mcp.tools.generic.find_binary",
+                "wintools_mcp.tools.generic.find_tool",
                 return_value="/resolved/testtool.exe",
             ),
             patch("wintools_mcp.executor.subprocess.Popen", return_value=proc),
@@ -45,8 +45,8 @@ class TestRunCommand:
         assert result["exit_code"] == 0
 
     def test_unresolved_binary_raises(self, test_catalog):
-        """CRIT-03: When find_binary returns None, ToolNotInCatalogError is raised."""
-        with patch("wintools_mcp.tools.generic.find_binary", return_value=None):
+        """CRIT-03: When find_tool returns None, ToolNotInCatalogError is raised."""
+        with patch("wintools_mcp.tools.generic.find_tool", return_value=None):
             with pytest.raises(ToolNotInCatalogError, match="not installed"):
                 run_command(["testtool.exe", "-f", "input.hve"])
 
@@ -68,7 +68,7 @@ class TestRunCommand:
 
     def test_dangerous_args_blocked(self, test_catalog):
         with patch(
-            "wintools_mcp.tools.generic.find_binary",
+            "wintools_mcp.tools.generic.find_tool",
             return_value="/resolved/testtool.exe",
         ):
             with pytest.raises(ValueError, match="Blocked"):

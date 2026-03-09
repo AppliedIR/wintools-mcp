@@ -68,7 +68,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         """Scan for all cataloged forensic tools. Reports availability and install guidance."""
         from wintools_mcp.inventory import scan_tools as _scan
 
-        result = _scan(extra_paths=config.tool_paths or None)
+        result = _scan()
         audit.log(tool="scan_tools", params={}, result_summary=result["summary"])
         return result
 

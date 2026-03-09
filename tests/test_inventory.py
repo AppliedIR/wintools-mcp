@@ -40,7 +40,7 @@ tools:
 
 class TestScanTools:
     def test_all_missing(self, test_catalog):
-        with patch("wintools_mcp.inventory.find_binary", return_value=None):
+        with patch("wintools_mcp.inventory.find_tool", return_value=None):
             result = scan_tools()
         assert result["summary"]["total"] == 2
         assert result["summary"]["available"] == 0
@@ -53,14 +53,14 @@ class TestScanTools:
                 return "C:\\Tools\\AmcacheParser.exe"
             return None
 
-        with patch("wintools_mcp.inventory.find_binary", side_effect=mock_find):
+        with patch("wintools_mcp.inventory.find_tool", side_effect=mock_find):
             result = scan_tools()
         assert result["summary"]["available"] == 1
         assert result["summary"]["missing"] == 1
         assert result["available_tools"][0]["name"] == "AmcacheParser"
 
     def test_missing_includes_install_methods(self, test_catalog):
-        with patch("wintools_mcp.inventory.find_binary", return_value=None):
+        with patch("wintools_mcp.inventory.find_tool", return_value=None):
             result = scan_tools()
         amcache = next(
             t for t in result["missing_tools"] if t["name"] == "AmcacheParser"
@@ -69,7 +69,7 @@ class TestScanTools:
         assert amcache["install_methods"][0]["method"] == "dotnet"
 
     def test_missing_includes_alternatives(self, test_catalog):
-        with patch("wintools_mcp.inventory.find_binary", return_value=None):
+        with patch("wintools_mcp.inventory.find_tool", return_value=None):
             result = scan_tools()
         amcache = next(
             t for t in result["missing_tools"] if t["name"] == "AmcacheParser"
@@ -77,7 +77,7 @@ class TestScanTools:
         assert "alternatives" in amcache
 
     def test_by_category(self, test_catalog):
-        with patch("wintools_mcp.inventory.find_binary", return_value=None):
+        with patch("wintools_mcp.inventory.find_tool", return_value=None):
             result = scan_tools()
         assert "zimmerman" in result["by_category"]
         assert result["by_category"]["zimmerman"]["total"] == 2
@@ -85,7 +85,7 @@ class TestScanTools:
 
 class TestInstallGuidance:
     def test_known_tool(self, test_catalog):
-        with patch("wintools_mcp.inventory.find_binary", return_value=None):
+        with patch("wintools_mcp.inventory.find_tool", return_value=None):
             result = get_install_guidance("AmcacheParser")
         assert result["name"] == "AmcacheParser"
         assert result["installed"] is False
@@ -93,7 +93,7 @@ class TestInstallGuidance:
 
     def test_installed_tool(self, test_catalog):
         with patch(
-            "wintools_mcp.inventory.find_binary",
+            "wintools_mcp.inventory.find_tool",
             return_value="C:\\Tools\\AmcacheParser.exe",
         ):
             result = get_install_guidance("AmcacheParser")
@@ -107,7 +107,7 @@ class TestInstallGuidance:
 
 class TestScanReport:
     def test_report_format(self, test_catalog):
-        with patch("wintools_mcp.inventory.find_binary", return_value=None):
+        with patch("wintools_mcp.inventory.find_tool", return_value=None):
             report = print_scan_report()
         assert "wintools-mcp Tool Inventory" in report
         assert "MISSING" in report
@@ -119,7 +119,7 @@ class TestScanReport:
                 return "C:\\Tools\\AmcacheParser.exe"
             return None
 
-        with patch("wintools_mcp.inventory.find_binary", side_effect=mock_find):
+        with patch("wintools_mcp.inventory.find_tool", side_effect=mock_find):
             report = print_scan_report()
         assert "[OK]" in report
         assert "[MISSING]" in report

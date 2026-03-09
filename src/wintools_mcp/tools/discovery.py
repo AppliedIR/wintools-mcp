@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from wintools_mcp.catalog import get_tool_def, load_catalog
-from wintools_mcp.environment import find_binary
+from wintools_mcp.environment import find_tool
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ def list_available_tools(category: str | None = None) -> list[dict]:
     for td in catalog.values():
         if category and td.category != category:
             continue
-        path = find_binary(td.binary)
+        path = find_tool(td.binary)
         results.append(
             {
                 "name": td.name,
@@ -69,7 +69,7 @@ def list_missing_tools() -> list[dict]:
     catalog = load_catalog()
     missing = []
     for td in catalog.values():
-        if find_binary(td.binary):
+        if find_tool(td.binary):
             continue
         entry: dict[str, Any] = {
             "name": td.name,
@@ -100,7 +100,7 @@ def check_tools(tool_names: list[str] | None = None) -> dict:
 
     results = {}
     for name, td in tools.items():
-        path = find_binary(td.binary)
+        path = find_tool(td.binary)
         results[name] = {
             "binary": td.binary,
             "available": path is not None,
@@ -126,7 +126,7 @@ def get_tool_help(tool_name: str) -> dict:
         "common_flags": td.common_flags,
     }
 
-    path = find_binary(td.binary)
+    path = find_tool(td.binary)
     result["available"] = path is not None
     if path:
         result["path"] = path
@@ -196,7 +196,7 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
 
             entry: dict[str, Any] = {"tool": tool_name, "artifact": art_name}
             if td:
-                path = find_binary(td.binary)
+                path = find_tool(td.binary)
                 entry["binary"] = td.binary
                 entry["available"] = path is not None
                 if not path and td.install_methods:

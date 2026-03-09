@@ -2,29 +2,22 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from wintools_mcp.catalog import load_catalog
-from wintools_mcp.environment import find_binary
+from wintools_mcp.environment import find_tool
 
 
-def scan_tools(extra_paths: list[Path] | None = None) -> dict[str, Any]:
+def scan_tools() -> dict[str, Any]:
     """Scan for all cataloged tools. Returns availability summary."""
     catalog = load_catalog()
     available = []
     missing = []
 
-    # Single pass: find each binary once, using catalog install_paths
+    # Single pass: find each binary once
     binary_cache: dict[str, str | None] = {}
     for td in catalog.values():
-        # Merge catalog install_paths with caller-supplied extra_paths
-        tool_paths = list(extra_paths) if extra_paths else []
-        for ip in td.install_paths:
-            p = Path(ip)
-            if p not in tool_paths:
-                tool_paths.append(p)
-        path = find_binary(td.binary, tool_paths or None)
+        path = find_tool(td.binary)
         binary_cache[td.name] = path
 
         if path:
@@ -85,7 +78,7 @@ def get_install_guidance(tool_name: str) -> dict[str, Any]:
     if not td:
         return {"error": f"Tool '{tool_name}' not found in catalog"}
 
-    path = find_binary(td.binary)
+    path = find_tool(td.binary)
     result: dict[str, Any] = {
         "name": td.name,
         "binary": td.binary,
@@ -108,9 +101,9 @@ def get_install_guidance(tool_name: str) -> dict[str, Any]:
     return result
 
 
-def print_scan_report(extra_paths: list[Path] | None = None) -> str:
+def print_scan_report() -> str:
     """Generate a human-readable scan report for --scan flag."""
-    result = scan_tools(extra_paths)
+    result = scan_tools()
     lines = ["wintools-mcp Tool Inventory", "=" * 40, ""]
 
     # Group by category

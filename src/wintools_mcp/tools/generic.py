@@ -5,7 +5,7 @@ from pathlib import Path
 
 from wintools_mcp.catalog import get_tool_def, validate_command
 from wintools_mcp.config import get_config
-from wintools_mcp.environment import find_binary
+from wintools_mcp.environment import find_tool
 from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
 from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args, validate_input_path
@@ -35,7 +35,7 @@ def run_command(
 
     # Resolve binary path — refuse to proceed if binary is not found
     binary_name = Path(command[0]).name
-    resolved = find_binary(binary_name)
+    resolved = find_tool(binary_name)
     if not resolved:
         raise ToolNotInCatalogError(
             f"Tool '{binary_name}' is in the catalog but not installed on this system. "

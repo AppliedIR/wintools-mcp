@@ -2,7 +2,7 @@
 
 import argparse
 
-from wintools_mcp.config import WintoolsConfig
+from wintools_mcp.config import get_config
 from wintools_mcp.oplog import setup_logging
 from wintools_mcp.server import create_server
 
@@ -23,12 +23,12 @@ def main():
     )
     args = parser.parse_args()
 
-    config = WintoolsConfig.from_env(config_file=args.config)
+    config = get_config(config_file=args.config)
 
     if args.scan:
         from wintools_mcp.inventory import print_scan_report
 
-        print(print_scan_report(config.tool_paths or None))
+        print(print_scan_report())
         return
 
     config.http_host = args.host

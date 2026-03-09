@@ -86,6 +86,34 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
     return None
 
 
+def find_tool(binary_name: str) -> str | None:
+    """Find a cataloged tool binary, merging config and catalog paths.
+
+    Combines config.tool_paths with the tool's catalog install_paths
+    so every call site searches the same locations. Looks up catalog
+    entries by binary name (not tool name).
+    """
+    from wintools_mcp.catalog import load_catalog
+    from wintools_mcp.config import get_config
+
+    extra: list[Path] = []
+    cfg = get_config()
+    if cfg.tool_paths:
+        extra.extend(cfg.tool_paths)
+
+    # Look up by binary name — catalog keys are tool names, not binaries
+    catalog = load_catalog()
+    bn = binary_name.lower()
+    td = next((t for t in catalog.values() if t.binary.lower() == bn), None)
+    if td:
+        for ip in td.install_paths:
+            p = Path(ip)
+            if p not in extra:
+                extra.append(p)
+
+    return find_binary(binary_name, extra or None)
+
+
 def get_windows_version() -> dict:
     """Get Windows version info."""
     info = {
