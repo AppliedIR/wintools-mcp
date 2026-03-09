@@ -16,7 +16,7 @@ The installer requires you to type `security_hole` before proceeding, or pass `-
 
 ## Prerequisites
 
-- **Python 3.11+** — [python.org/downloads](https://www.python.org/downloads/)
+- **Python 3.10+** — [python.org/downloads](https://www.python.org/downloads/)
 - **Git** — [git-scm.com](https://git-scm.com/)
 - **.NET Runtime** — Required for Zimmerman tools. [dotnet.microsoft.com](https://dotnet.microsoft.com/download)
 

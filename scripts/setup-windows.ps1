@@ -515,7 +515,7 @@ if (-not $AcknowledgeSecurityHole) {
 
 Write-Header "Phase 1: Prerequisites"
 
-# Python 3.11+
+# Python 3.10+
 $pythonCmd = $null
 foreach ($cmd in @("python", "python3", "py -3")) {
     try {
@@ -524,7 +524,7 @@ foreach ($cmd in @("python", "python3", "py -3")) {
             $parts = $ver.Split(".")
             $major = [int]$parts[0]
             $minor = [int]$parts[1]
-            if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) {
+            if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 10)) {
                 $pythonCmd = $cmd
                 Write-Ok "Python $ver"
                 break
@@ -534,7 +534,7 @@ foreach ($cmd in @("python", "python3", "py -3")) {
 }
 
 if (-not $pythonCmd) {
-    Write-Err "Python 3.11+ not found"
+    Write-Err "Python 3.10+ not found"
     Write-Host "  Install from: https://www.python.org/downloads/"
     Write-Host "  Or via winget: winget install Python.Python.3.12"
     exit 1
