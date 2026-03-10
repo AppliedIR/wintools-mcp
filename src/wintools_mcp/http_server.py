@@ -98,6 +98,36 @@ def _extract_bearer_token(scope: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# SMB session establishment
+# ---------------------------------------------------------------------------
+
+
+def _establish_smb_session(config: WintoolsConfig) -> None:
+    """Connect to the SIFT Samba share using stored credentials."""
+    import subprocess
+
+    if not config.smb_user or not config.smb_password:
+        logger.warning("SMB credentials not configured, skipping share mount")
+        return
+    result = subprocess.run(
+        [
+            "net",
+            "use",
+            config.share_root,
+            f"/user:{config.smb_user}",
+            config.smb_password,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        logger.warning("SMB session failed: %s", result.stderr.strip())
+    else:
+        logger.info("SMB session established: %s", config.share_root)
+
+
+# ---------------------------------------------------------------------------
 # Health endpoint
 # ---------------------------------------------------------------------------
 
@@ -134,6 +164,9 @@ async def activate_case(request: Request) -> JSONResponse:
     except (json.JSONDecodeError, ValueError):
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
     case_id = body.get("case_id", "")
 
     if not case_id or not _CASE_ID_RE.match(case_id):
@@ -145,7 +178,7 @@ async def activate_case(request: Request) -> JSONResponse:
             status_code=503,
         )
 
-    windows_case_dir = os.path.join(cfg.share_root, case_id)
+    windows_case_dir = cfg.share_root  # Per-case share — UNC path IS the case dir
     cfg.case_dir = windows_case_dir
     cfg.active_case = case_id
     os.environ["AIIR_CASE_DIR"] = windows_case_dir
@@ -160,6 +193,31 @@ async def activate_case(request: Request) -> JSONResponse:
     )
 
 
+async def deactivate_case(request: Request) -> JSONResponse:
+    """Deactivate current case — clear config and env vars."""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    cfg = get_config()
+    if cfg.api_keys:
+        if not token:
+            return JSONResponse(
+                {"error": "Missing or invalid Authorization header"}, status_code=401
+            )
+        if len(token) > _MAX_TOKEN_LENGTH:
+            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+        matched = False
+        for candidate in cfg.api_keys:
+            if hmac.compare_digest(token, candidate):
+                matched = True
+        if not matched:
+            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+
+    cfg.case_dir = ""
+    cfg.active_case = ""
+    os.environ.pop("AIIR_CASE_DIR", None)
+    os.environ.pop("AIIR_ACTIVE_CASE", None)
+    return JSONResponse({"status": "deactivated"})
+
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -167,6 +225,10 @@ async def activate_case(request: Request) -> JSONResponse:
 
 def create_http_app(config: WintoolsConfig) -> Starlette:
     """Build a Starlette app with /mcp (Streamable HTTP MCP) + /health + auth."""
+    # Establish SMB session if share_root is a UNC path
+    if config.share_root.startswith("\\\\"):
+        _establish_smb_session(config)
+
     server = create_server(config)
 
     # Add the configured host to allowed_hosts for DNS rebinding protection.
@@ -200,6 +262,7 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
     routes = [
         Route("/health", health, methods=["GET"]),
         Route("/cases/activate", activate_case, methods=["POST"]),
+        Route("/cases/deactivate", deactivate_case, methods=["POST"]),
         Route("/mcp", endpoint=auth_wrapped),
     ]
 

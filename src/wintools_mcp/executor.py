@@ -194,7 +194,7 @@ def execute(
                 cmd_list,
                 stdout,
                 stderr,
-                save_dir or os.path.join(case_dir, "extractions"),
+                save_dir or os.path.join(case_dir, "extractions", "wintools"),
                 response,
             )
         elif save_output and (stdout or stderr):

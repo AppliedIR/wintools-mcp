@@ -36,6 +36,8 @@ class WintoolsConfig:
     share_root: str = (
         ""  # SMB mount root (e.g., E:\cases\SRL2\) for share-relative paths
     )
+    smb_user: str = ""
+    smb_password: str = ""
     audit_dir: str = ""  # Local audit directory (default: AIIR_CASE_DIR/audit/)
 
     # HTTP mode
@@ -156,6 +158,8 @@ class WintoolsConfig:
         )
         self.working_dir = doc.get("working_dir", self.working_dir)
         self.share_root = doc.get("share_root", self.share_root)
+        self.smb_user = doc.get("smb_user", self.smb_user)
+        self.smb_password = doc.get("smb_password", self.smb_password)
         self.audit_dir = doc.get("audit_dir", self.audit_dir)
         self.max_upload_bytes = doc.get("max_upload_bytes", self.max_upload_bytes)
         hayabusa = doc.get("hayabusa_dir")

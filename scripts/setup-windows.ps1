@@ -1468,23 +1468,16 @@ $toolPathsYaml
                 $netResult = net use "${driveLetter}:" $uncPath /user:$smbUser $derivedPw /persistent:yes 2>&1
                 if ($LASTEXITCODE -ne 0) { throw $netResult }
 
-                # Store credential for reboot persistence
-                cmdkey /add:$smbHost /user:$smbUser /pass:$derivedPw | Out-Null
+                # Store SMB credentials in config.yaml (read by HTTP server at startup)
+                if (Test-Path $wintoolsConfigPath) {
+                    $configContent = Get-Content $wintoolsConfigPath -Raw
+                    if ($configContent -notmatch "smb_user:") {
+                        Add-Content -Path $wintoolsConfigPath -Value "`nsmb_user: $smbUser"
+                        Add-Content -Path $wintoolsConfigPath -Value "smb_password: $derivedPw"
+                    }
+                }
 
                 Write-Ok "Mapped ${driveLetter}: to $uncPath"
-
-                # Write smb.yaml
-                $aiirDir = Join-Path $env:USERPROFILE ".aiir"
-                if (-not (Test-Path $aiirDir)) {
-                    New-Item -ItemType Directory -Path $aiirDir -Force | Out-Null
-                }
-                @"
-drive_letter: "$driveLetter"
-smb_host: "$smbHost"
-smb_share: "$smbShare"
-smb_user: "$smbUser"
-configured_at: $([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
-"@ | Set-Content -Path (Join-Path $aiirDir "smb.yaml") -Encoding UTF8
 
                 # Write share_root to existing config.yaml
                 # $wintoolsConfigPath is defined at line 639 of the original script
@@ -1492,7 +1485,7 @@ configured_at: $([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
                 if (Test-Path $wintoolsConfigPath) {
                     $configContent = Get-Content $wintoolsConfigPath -Raw
                     if ($configContent -notmatch "share_root:") {
-                        Add-Content -Path $wintoolsConfigPath -Value "`nshare_root: ${driveLetter}:\"
+                        Add-Content -Path $wintoolsConfigPath -Value "`nshare_root: $uncPath"
                     }
                 }
             } catch {
@@ -1501,6 +1494,8 @@ configured_at: $([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
             }
         }
     }
+
+    $derivedPw = $null
 
     # Token generation (gated on join result)
     if (-not $joinSucceeded) {
