@@ -7,6 +7,11 @@ Catalog-gated Windows forensic tool execution with knowledge-enriched response e
 **[Platform Documentation](https://appliedir.github.io/aiir/)** ·
 [Deployment Guide](https://appliedir.github.io/aiir/deployment/)
 
+> **Public Beta** — This project is undergoing active feature development.
+> Backward compatibility with future releases is not guaranteed. Consider
+> this a public beta for feature testing and evaluation rather than a
+> production-ready tool for real case data.
+
 ## Architecture
 
 wintools-mcp runs independently on a Windows forensic workstation, exposing a Streamable HTTP endpoint on port 4624. The LLM client and aiir CLI are the two human-facing tools. The aiir CLI always runs on the SIFT workstation — it requires direct filesystem access to the case directory. When the LLM client runs on a separate machine, the examiner must have SSH access to SIFT for all CLI operations. The LLM client connects to wintools-mcp over the network.
@@ -274,9 +279,13 @@ Evidence integrity is verified by SHA-256 hashes recorded at registration. Exami
 
 Case directories can reside on external or removable media. ext4 is preferred for full permission support. NTFS and exFAT are acceptable but file permission controls (read-only protection) will be silently ineffective. FAT32 is discouraged due to the 4 GB file size limit.
 
-## Responsible Use
+## Responsible Use and Legal
 
-This project demonstrates the capabilities of AI-assisted incident response. While steps have been taken to enforce human-in-the-loop controls, it is ultimately the responsibility of each examiner to ensure that their findings are accurate and complete. Ultimate responsibility rests with the human. The AI, like a hex editor, is a tool to be used by properly trained incident response professionals. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies.
+While steps have been taken to enforce human-in-the-loop controls, it is ultimately the responsibility of each examiner to ensure that their findings are accurate and complete. The AI, like a hex editor, is a tool to be used by properly trained incident response professionals. Users are responsible for ensuring their use complies with applicable laws, regulations, and organizational policies. Use only on systems and data you are authorized to analyze.
+
+This software is provided "as is" without warranty of any kind. See [LICENSE](LICENSE) for full terms.
+
+MITRE ATT&CK is a registered trademark of The MITRE Corporation. SIFT Workstation is a product of the SANS Institute.
 
 ## Acknowledgments
 
