@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import hmac
+import json
 import logging
+import os
+import re
 from typing import Any
 
 from starlette.applications import Starlette
@@ -12,13 +15,16 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from wintools_mcp.config import WintoolsConfig
+from wintools_mcp.config import WintoolsConfig, get_config
 from wintools_mcp.server import create_server
 
 logger = logging.getLogger(__name__)
 
 # Maximum length for bearer tokens (DoS protection)
 _MAX_TOKEN_LENGTH = 1024
+
+# Allowed characters in case_id (path traversal prevention)
+_CASE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +107,60 @@ async def health(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Case activation endpoint
+# ---------------------------------------------------------------------------
+
+
+async def activate_case(request: Request) -> JSONResponse:
+    """Activate a case — update config singleton and env vars."""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    cfg = get_config()
+    if cfg.api_keys:
+        if not token:
+            return JSONResponse(
+                {"error": "Missing or invalid Authorization header"}, status_code=401
+            )
+        if len(token) > _MAX_TOKEN_LENGTH:
+            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+        matched = False
+        for candidate in cfg.api_keys:
+            if hmac.compare_digest(token, candidate):
+                matched = True
+        if not matched:
+            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+
+    try:
+        body = json.loads(await request.body())
+    except (json.JSONDecodeError, ValueError):
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    case_id = body.get("case_id", "")
+
+    if not case_id or not _CASE_ID_RE.match(case_id):
+        return JSONResponse({"error": "Invalid case_id"}, status_code=400)
+
+    if not cfg.share_root:
+        return JSONResponse(
+            {"error": "share_root not configured. Complete wintools setup first."},
+            status_code=503,
+        )
+
+    windows_case_dir = os.path.join(cfg.share_root, case_id)
+    cfg.case_dir = windows_case_dir
+    cfg.active_case = case_id
+    os.environ["AIIR_CASE_DIR"] = windows_case_dir
+    os.environ["AIIR_ACTIVE_CASE"] = case_id
+
+    return JSONResponse(
+        {
+            "status": "activated",
+            "case_id": case_id,
+            "case_dir": windows_case_dir,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 
@@ -139,6 +199,7 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
 
     routes = [
         Route("/health", health, methods=["GET"]),
+        Route("/cases/activate", activate_case, methods=["POST"]),
         Route("/mcp", endpoint=auth_wrapped),
     ]
 

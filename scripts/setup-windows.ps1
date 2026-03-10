@@ -55,6 +55,10 @@
 .PARAMETER BindAddress
     HTTP server bind address. Default: 0.0.0.0 (all interfaces).
 
+.PARAMETER StaticIP
+    Static IP address for this Windows machine. If provided, configures the
+    network adapter without prompting. Must be a private address (RFC1918).
+
 .PARAMETER NoAuth
     Skip API key generation. The wintools-mcp server will accept
     unauthenticated requests. Use only for development on isolated networks.
@@ -138,6 +142,7 @@ param(
     [string]$Examiner = "",
     [int]$Port = 4624,
     [string]$BindAddress = "0.0.0.0",
+    [string]$StaticIP = "",
     [switch]$NoAuth,
     [string]$GatewayHost = "",
     [int]$GatewayPort = 4508,
@@ -200,6 +205,75 @@ function Read-YesNo {
     $answer = Read-Host "$Message $suffix"
     if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
     return $answer.ToLower().StartsWith("y")
+}
+
+function Derive-SMBPassword {
+    param([Parameter(Mandatory)][string]$JoinCode)
+
+    $enc = [System.Text.Encoding]::UTF8
+    $deriv = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
+        $enc.GetBytes($JoinCode),
+        $enc.GetBytes("aiir-smb-v1"),
+        600000,
+        [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+    $dk = $deriv.GetBytes(32)
+    $deriv.Dispose()
+    return [BitConverter]::ToString($dk).Replace("-", "").ToLower().Substring(0, 32)
+}
+
+function Set-StaticIP {
+    param([string]$IP)
+
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+    if (-not $adapter) {
+        Write-Err "No active network adapter found"
+        return $null
+    }
+    $idx = $adapter.InterfaceIndex
+    $currentIP = (Get-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                  Select-Object -First 1)
+
+    if (-not $IP) {
+        if ($currentIP) { $defaultIP = $currentIP.IPAddress } else { $defaultIP = "" }
+        $IP = Read-Host "Enter static IP for this machine [$defaultIP]"
+        if (-not $IP) { $IP = $defaultIP }
+    }
+
+    # Validate RFC1918
+    if ($IP -notmatch '^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)') {
+        Write-Err "IP must be a private address (10.x, 172.16-31.x, 192.168.x)"
+        return $null
+    }
+
+    if ($currentIP) { $prefix = $currentIP.PrefixLength } else { $prefix = 24 }
+    $gw = (Get-NetRoute -InterfaceIndex $idx -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+           Select-Object -First 1).NextHop
+    $dns = (Get-DnsClientServerAddress -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses
+
+    try {
+        Remove-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -Confirm:$false -ErrorAction Stop
+        New-NetIPAddress -InterfaceIndex $idx -IPAddress $IP -PrefixLength $prefix -DefaultGateway $gw -ErrorAction Stop
+        if ($dns) { Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $dns }
+    } catch {
+        Write-Err "Failed to set static IP (requires Administrator): $_"
+        Write-Host "  Run this installer as Administrator, or set the IP manually:" -ForegroundColor Yellow
+        Write-Host "  netsh interface ipv4 set address `"$($adapter.InterfaceAlias)`" static $IP $prefix $gw" -ForegroundColor Gray
+        return $null
+    }
+
+    # Write network.yaml
+    $aiirDir = Join-Path $env:USERPROFILE ".aiir"
+    if (-not (Test-Path $aiirDir)) {
+        New-Item -ItemType Directory -Path $aiirDir -Force | Out-Null
+    }
+    @"
+static_ip: $IP
+interface: $($adapter.InterfaceAlias)
+configured_at: $([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
+"@ | Set-Content -Path (Join-Path $aiirDir "network.yaml") -Encoding UTF8
+
+    Write-Ok "Static IP set to $IP"
+    return $IP
 }
 
 function Validate-Port {
@@ -588,6 +662,20 @@ if (-not $hasDotnet) {
     Write-Warn ".NET Runtime not found (needed for Zimmerman tools)"
     Write-Host "  Install from: https://dotnet.microsoft.com/download"
     Write-Host "  Or via winget: winget install Microsoft.DotNet.Runtime.9"
+}
+
+# .NET Framework 4.7.2+ (required for PBKDF2-SHA256 credential derivation)
+try {
+    $null = [System.Security.Cryptography.HashAlgorithmName]::SHA256
+    $test = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
+        [byte[]]@(1), [byte[]]@(1), 1,
+        [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+    $test.Dispose()
+    Write-Ok ".NET Framework supports PBKDF2-SHA256"
+} catch {
+    Write-Err "PBKDF2-SHA256 not available. Requires .NET Framework 4.7.2+ (Windows 10 1803+)"
+    Write-Host "  Check your Windows version: winver" -ForegroundColor Yellow
+    exit 1
 }
 
 # Network (test with a public endpoint -- AppliedIR repos may be private)
@@ -1351,6 +1439,65 @@ $toolPathsYaml
                     Write-Host "  If the gateway did not receive it, re-register manually." -ForegroundColor Yellow
                 }
                 Write-Host "  Falling back to manual configuration"
+            }
+        }
+    }
+
+    # Drive mapping — only if join succeeded and SMB fields present
+    if ($joinSucceeded -and $joinData.smb_share) {
+        $derivedPw = Derive-SMBPassword -JoinCode $joinCodeValue
+        $smbHost = $joinData.smb_host
+        $smbShare = $joinData.smb_share
+        $smbUser = $joinData.smb_user
+        $uncPath = "\\$smbHost\$smbShare"
+
+        # Find available drive letter (S: preferred, fall back to T:-Z:)
+        $driveLetter = $null
+        foreach ($letter in @("S","T","U","V","W","X","Y","Z")) {
+            if (-not (Test-Path "${letter}:\")) {
+                $driveLetter = $letter
+                break
+            }
+        }
+        if (-not $driveLetter) {
+            Write-Warn "No available drive letter (S-Z). Map the share manually:"
+            Write-Host "  net use <LETTER>: $uncPath /user:$smbUser <password> /persistent:yes"
+        } else {
+            try {
+                # net use is more reliable than New-PSDrive -Persist on PS 5.1
+                $netResult = net use "${driveLetter}:" $uncPath /user:$smbUser $derivedPw /persistent:yes 2>&1
+                if ($LASTEXITCODE -ne 0) { throw $netResult }
+
+                # Store credential for reboot persistence
+                cmdkey /add:$smbHost /user:$smbUser /pass:$derivedPw | Out-Null
+
+                Write-Ok "Mapped ${driveLetter}: to $uncPath"
+
+                # Write smb.yaml
+                $aiirDir = Join-Path $env:USERPROFILE ".aiir"
+                if (-not (Test-Path $aiirDir)) {
+                    New-Item -ItemType Directory -Path $aiirDir -Force | Out-Null
+                }
+                @"
+drive_letter: "$driveLetter"
+smb_host: "$smbHost"
+smb_share: "$smbShare"
+smb_user: "$smbUser"
+configured_at: $([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
+"@ | Set-Content -Path (Join-Path $aiirDir "smb.yaml") -Encoding UTF8
+
+                # Write share_root to existing config.yaml
+                # $wintoolsConfigPath is defined at line 639 of the original script
+                # Use unquoted YAML — backslash only special in double-quoted YAML strings
+                if (Test-Path $wintoolsConfigPath) {
+                    $configContent = Get-Content $wintoolsConfigPath -Raw
+                    if ($configContent -notmatch "share_root:") {
+                        Add-Content -Path $wintoolsConfigPath -Value "`nshare_root: ${driveLetter}:\"
+                    }
+                }
+            } catch {
+                Write-Warn "Drive mapping failed: $_"
+                Write-Host "  Map manually: net use ${driveLetter}: $uncPath /user:$smbUser <password> /persistent:yes"
             }
         }
     }

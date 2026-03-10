@@ -56,6 +56,7 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 | `-Examiner NAME` | Examiner slug (default: Windows username) |
 | `-Port PORT` | HTTP server port (default: 4624) |
 | `-BindAddress ADDR` | HTTP bind address (default: 0.0.0.0) |
+| `-StaticIP ADDR` | Static IP for this machine (skips prompt) |
 | `-NoAuth` | Skip API key generation (development only) |
 
 ### Scripted Examples
