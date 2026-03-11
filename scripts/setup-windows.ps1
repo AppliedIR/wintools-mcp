@@ -1216,6 +1216,33 @@ $toolPathsYaml
     Write-Host "  automatically during the join process." -ForegroundColor White
     Write-Host ""
 
+    # --- Static IP configuration ---
+    Write-Host "--- Network Configuration ---" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  The SIFT gateway connects to this machine by IP address." -ForegroundColor White
+    Write-Host "  A static IP prevents the address from changing after reboot." -ForegroundColor White
+    Write-Host ""
+
+    $configureStaticIp = $true
+    if ($NonInteractive -and -not $StaticIP) {
+        $configureStaticIp = $false
+    } elseif (-not $NonInteractive) {
+        $configureStaticIp = [bool](Read-YesNo "Configure a static IP for this machine?" $true)
+    }
+
+    if ($configureStaticIp) {
+        $staticResult = Set-StaticIP -IP $StaticIP
+        if ($staticResult) {
+            $localIp = $staticResult
+            Write-Ok "Using static IP: $localIp"
+        } else {
+            Write-Warn "Static IP not configured. Using detected IP: $localIp"
+        }
+    } else {
+        Write-Info "Skipping static IP configuration. Using detected IP: $localIp"
+    }
+    Write-Host ""
+
     # --- Gateway connectivity ---
     Write-Host "--- SIFT Gateway Integration ---" -ForegroundColor White
     Write-Host ""
