@@ -73,18 +73,20 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return result
 
     @server.tool()
-    def list_available_tools(category: str = "") -> list[dict]:
+    def list_available_tools(category: str = "") -> dict:
         """List forensic tools available on this Windows system."""
         from wintools_mcp.tools.discovery import list_available_tools as _list
 
-        return _list(category=category or None)
+        tools = _list(category=category or None)
+        return {"tools": tools, "count": len(tools)}
 
     @server.tool()
-    def list_missing_tools() -> list[dict]:
+    def list_missing_tools() -> dict:
         """List tools that are not installed, with installation guidance."""
         from wintools_mcp.tools.discovery import list_missing_tools as _list
 
-        return _list()
+        missing = _list()
+        return {"tools": missing, "count": len(missing)}
 
     @server.tool()
     def check_tools(tool_names: list[str] | None = None) -> dict:
