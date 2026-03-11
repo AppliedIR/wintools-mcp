@@ -115,11 +115,10 @@
 
 .EXAMPLE
     # Deployment: SIFT + Windows (typical team setup)
-    #   1. Install AIIR on SIFT:  ./sift-install.sh
-    #   2. Install on Windows:    .\setup-windows.ps1
-    #   3. Map SMB share:         net use Z: \\SIFT_IP\cases
-    #   4. Set case dir:          set AIIR_CASE_DIR=Z:\INC-2026-0001
-    #   5. Configure client:      aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
+    #   1. Install AIIR on SIFT:  ./sift-install.sh  (with wintools support)
+    #   2. Get join code on SIFT: aiir setup join-code
+    #   3. Install on Windows:    .\setup-windows.ps1  (enter join code when prompted)
+    #   4. Configure client:      aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
     .\setup-windows.ps1
 
 .EXAMPLE
@@ -1210,37 +1209,10 @@ $toolPathsYaml
         Write-Info "Existing config found -- preserving: $wintoolsConfigPath"
     }
 } else {
-    # --- AIIR mode: SMB to SIFT ---
-    Write-Host "  In AIIR mode, the case directory lives on the SIFT" -ForegroundColor White
-    Write-Host "  workstation and is accessed via SMB share." -ForegroundColor White
-    Write-Host ""
-    Write-Host "  Setup steps:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  1. On the SIFT workstation, share the cases directory:" -ForegroundColor White
-    Write-Host "     sudo mkdir -p /cases" -ForegroundColor Gray
-    Write-Host "     sudo chown \$USER:forensics /cases" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "     # Option A: Samba (recommended for Windows clients)" -ForegroundColor Gray
-    Write-Host "     # Add to /etc/samba/smb.conf:" -ForegroundColor Gray
-    Write-Host "     [cases]" -ForegroundColor Gray
-    Write-Host "         path = /cases" -ForegroundColor Gray
-    Write-Host "         browsable = yes" -ForegroundColor Gray
-    Write-Host "         writable = yes" -ForegroundColor Gray
-    Write-Host "         valid users = @forensics" -ForegroundColor Gray
-    Write-Host "     # Then: sudo systemctl restart smbd" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "     # Option B: net usershare (simpler, single user)" -ForegroundColor Gray
-    Write-Host "     sudo net usershare add cases /cases" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  2. On this Windows machine, map the share:" -ForegroundColor White
-    Write-Host "     net use Z: \\SIFT_IP\cases /persistent:yes" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  3. Set AIIR_CASE_DIR when starting a case:" -ForegroundColor White
-    Write-Host "     set AIIR_CASE_DIR=Z:\INC-2026-0001" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  This ensures that audit trail entries from wintools-mcp" -ForegroundColor White
-    Write-Host "  are written to the same case directory as the SIFT MCPs," -ForegroundColor White
-    Write-Host "  maintaining a unified evidence record." -ForegroundColor White
+    # --- AIIR mode: join gateway + SMB to SIFT ---
+    Write-Host "  In AIIR mode, wintools-mcp joins the SIFT gateway." -ForegroundColor White
+    Write-Host "  The case directory is shared via SMB and mapped" -ForegroundColor White
+    Write-Host "  automatically during the join process." -ForegroundColor White
     Write-Host ""
 
     # --- Gateway connectivity ---
@@ -1887,23 +1859,30 @@ if ($Standalone) {
     Write-Host "  4. Configure your LLM client:" -ForegroundColor White
     Write-Host "     aiir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
     Write-Host "  5. Start investigating" -ForegroundColor White
+} elseif ($joinSucceeded) {
+    Write-Host "  1. Install forensic tools (Zimmerman, Hayabusa, Sysinternals)" -ForegroundColor White
+    Write-Host "     See: $overviewPath" -ForegroundColor Gray
+    Write-Host "  2. Configure your LLM client (on SIFT or analyst machine):" -ForegroundColor White
+    Write-Host "     aiir setup client --sift=${siftIp}:${siftPort} --windows=${localIp}:${Port}" -ForegroundColor Gray
+    Write-Host "  3. Start investigating" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  SMB share mapped and gateway registered. Case activation" -ForegroundColor Gray
+    Write-Host "  is handled automatically when you init/activate a case." -ForegroundColor Gray
 } else {
     Write-Host "  1. Install forensic tools (Zimmerman, Hayabusa, Sysinternals)" -ForegroundColor White
     Write-Host "     See: $overviewPath" -ForegroundColor Gray
-    Write-Host "  2. Map the SIFT case share:" -ForegroundColor White
-    Write-Host "     net use Z: \\SIFT_IP\cases /persistent:yes" -ForegroundColor Gray
-    Write-Host "  3. Set the active case:" -ForegroundColor White
-    Write-Host "     set AIIR_CASE_DIR=Z:\INC-2026-0001" -ForegroundColor Gray
-    Write-Host "  4. Configure your LLM client (on SIFT or analyst machine):" -ForegroundColor White
+    Write-Host "  2. Complete SIFT gateway registration:" -ForegroundColor White
+    Write-Host "     Re-run this installer with a valid join code, or register manually" -ForegroundColor Gray
+    Write-Host "  3. Configure your LLM client (on SIFT or analyst machine):" -ForegroundColor White
     Write-Host "     aiir setup client --sift=SIFT_IP:4508 --windows=${localIp}:${Port}" -ForegroundColor Gray
-    Write-Host "  5. Start investigating" -ForegroundColor White
+    Write-Host "  4. Start investigating" -ForegroundColor White
 }
 Write-Host ""
-if ($startChoice -eq "1" -and $serverHealthy -and -not $skipServerStart) {
+if ($Standalone -and $startChoice -eq "1" -and $serverHealthy -and -not $skipServerStart) {
     Write-Host "  Note: AIIR_CASE_DIR is set per case and must be updated when" -ForegroundColor Yellow
     Write-Host "  switching cases. If using auto-start (scheduled task), set it" -ForegroundColor Yellow
     Write-Host "  as a Machine-level environment variable:" -ForegroundColor Yellow
-    Write-Host "    [Environment]::SetEnvironmentVariable(`"AIIR_CASE_DIR`", `"Z:\INC-2026-0001`", `"Machine`")" -ForegroundColor Gray
+    Write-Host "    [Environment]::SetEnvironmentVariable(`"AIIR_CASE_DIR`", `"$caseDir\INC-2026-0001`", `"Machine`")" -ForegroundColor Gray
     Write-Host "  Or restart wintools-mcp manually after changing cases." -ForegroundColor Yellow
     Write-Host ""
 }
