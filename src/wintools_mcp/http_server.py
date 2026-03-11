@@ -169,7 +169,7 @@ async def activate_case(request: Request) -> JSONResponse:
 
     case_id = body.get("case_id", "")
 
-    if not case_id or not _CASE_ID_RE.match(case_id):
+    if not isinstance(case_id, str) or not case_id or not _CASE_ID_RE.match(case_id):
         return JSONResponse({"error": "Invalid case_id"}, status_code=400)
 
     if not cfg.share_root:
