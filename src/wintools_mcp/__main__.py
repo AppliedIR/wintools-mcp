@@ -40,7 +40,11 @@ def main():
         from wintools_mcp.http_server import create_http_app
 
         app = create_http_app(config)
-        uvicorn.run(app, host=config.http_host, port=config.http_port)
+        ssl_kwargs = {}
+        if config.tls_certfile and config.tls_keyfile:
+            ssl_kwargs["ssl_certfile"] = config.tls_certfile
+            ssl_kwargs["ssl_keyfile"] = config.tls_keyfile
+        uvicorn.run(app, host=config.http_host, port=config.http_port, **ssl_kwargs)
     else:
         server = create_server(config)
         server.run()

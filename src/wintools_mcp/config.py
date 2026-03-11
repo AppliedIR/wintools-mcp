@@ -45,6 +45,10 @@ class WintoolsConfig:
     http_port: int = 4624
     api_keys: dict = field(default_factory=dict)
 
+    # TLS
+    tls_certfile: str = ""
+    tls_keyfile: str = ""
+
     # File transfer
     file_transfer_enabled: bool = True
     working_dir: str = ""  # Defaults to case_dir or C:\Cases
@@ -174,6 +178,10 @@ class WintoolsConfig:
         paths = doc.get("tool_paths", [])
         for p in paths:
             self.tool_paths.append(Path(p))
+        tls = doc.get("tls", {})
+        if isinstance(tls, dict):
+            self.tls_certfile = tls.get("certfile", self.tls_certfile)
+            self.tls_keyfile = tls.get("keyfile", self.tls_keyfile)
 
 
 # Module-level singleton — initialized once, immutable after that

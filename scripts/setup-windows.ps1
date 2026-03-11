@@ -1118,6 +1118,7 @@ if (-not $localIp) { $localIp = "THIS_MACHINE_IP" }
 Write-Header "Phase 5: Case Directory"
 
 $wintoolsApiKey = ""
+$wintoolsScheme = "http"
 
 if ($Standalone) {
     # --- Standalone mode: local case directory ---
@@ -1354,6 +1355,55 @@ $toolPathsYaml
         }
     }
 
+    # --- TLS Certificate Generation ---
+    # Generate self-signed cert for HTTPS. Cert is pinned on SIFT during join.
+    # Must happen BEFORE the join call (cert PEM is sent in the join body).
+    $tlsDir = Join-Path $InstallDir "tls"
+    New-Item -ItemType Directory -Path $tlsDir -Force | Out-Null
+    $keyPath = Join-Path $tlsDir "key.pem"
+    $certPath = Join-Path $tlsDir "cert.pem"
+
+    if (-not (Test-Path $certPath)) {
+        Write-Info "Generating TLS certificate..."
+        try {
+            $cert = New-SelfSignedCertificate `
+                -DnsName "wintools-mcp" `
+                -TextExtension @("2.5.29.17={text}IPAddress=$localIp") `
+                -CertStoreLocation Cert:\CurrentUser\My `
+                -NotAfter (Get-Date).AddYears(10) `
+                -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable
+            $thumbprint = $cert.Thumbprint
+
+            # Export PFX then convert to PEM via Python cryptography library
+            $pfxPath = Join-Path $tlsDir "temp.pfx"
+            Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$thumbprint" `
+                -FilePath $pfxPath -Password (New-Object SecureString) | Out-Null
+
+            & $venvPython -c @"
+from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, PrivateFormat, NoEncryption
+from pathlib import Path
+pfx = Path(r'$pfxPath').read_bytes()
+key, cert, _ = pkcs12.load_key_and_certificates(pfx, b'')
+Path(r'$keyPath').write_bytes(key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()))
+Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
+"@
+
+            Remove-Item $pfxPath -ErrorAction SilentlyContinue
+            # Clean up cert store entry (PEM files are the source of truth now)
+            Remove-Item "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
+            Write-Ok "TLS certificate generated: $certPath"
+        } catch {
+            Write-Warn "TLS certificate generation failed: $_"
+            Write-Host "  wintools-mcp will start without TLS (HTTP mode)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Info "TLS certificate exists: $certPath"
+    }
+
+    # URL scheme depends on whether TLS cert was generated
+    $wintoolsScheme = "http"
+    if (Test-Path $certPath) { $wintoolsScheme = "https" }
+
     # Join API call
     if ($joinCodeValue -and $gatewayReachable) {
         # Generate API key first (needed for request body)
@@ -1372,9 +1422,16 @@ $toolPathsYaml
                 code = $joinCodeValue
                 machine_type = "wintools"
                 hostname = $env:COMPUTERNAME
-                wintools_url = "http://${localIp}:${Port}/mcp"
+                wintools_url = "${wintoolsScheme}://${localIp}:${Port}/mcp"
                 wintools_token = $wintoolsApiKey
-            } | ConvertTo-Json
+            }
+
+            # Send public cert PEM so SIFT can pin it for verification
+            if (Test-Path $certPath) {
+                $joinBody.wintools_cert = Get-Content $certPath -Raw
+            }
+
+            $joinBody = $joinBody | ConvertTo-Json
 
             try {
                 $joinResponse = Invoke-WebRequest `
@@ -1492,6 +1549,19 @@ $toolPathsYaml
         }
     }
 
+    # Build TLS config section (empty string if no cert)
+    # No YAML double-quotes around paths: \a in C:\aiir is a YAML escape
+    # in double-quoted strings. Unquoted YAML treats backslash as literal.
+    $tlsYaml = ""
+    if (Test-Path $certPath) {
+        $tlsYaml = @"
+
+tls:
+  certfile: $certPath
+  keyfile: $keyPath
+"@
+    }
+
     # Write wintools-mcp config.yaml with API key if provided
     # Preserve existing config on re-run (delete config.yaml to regenerate)
     if (Test-Path $wintoolsConfigPath) {
@@ -1509,7 +1579,7 @@ api_keys:
   ${wintoolsApiKey}:
     examiner: "gateway"
     role: "examiner"
-$toolPathsYaml
+$toolPathsYaml$tlsYaml
 "@ | Set-Content -Path $wintoolsConfigPath -Encoding UTF8
         Write-Ok "Wrote config with API key: $wintoolsConfigPath"
 
@@ -1520,10 +1590,18 @@ $toolPathsYaml
             Write-Host ""
             Write-Host "    wintools-mcp:" -ForegroundColor Gray
             Write-Host "      type: http" -ForegroundColor Gray
-            Write-Host "      url: `"http://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
+            Write-Host "      url: `"${wintoolsScheme}://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
             Write-Host "      bearer_token: `"$wintoolsApiKey`"" -ForegroundColor Gray
             Write-Host "      enabled: true" -ForegroundColor Gray
+            if (Test-Path $certPath) {
+                Write-Host "      tls_cert: `"~/.aiir/tls/wintools-cert.pem`"" -ForegroundColor Gray
+            }
             Write-Host ""
+            if (Test-Path $certPath) {
+                Write-Host "  Copy the cert to SIFT first:" -ForegroundColor White
+                Write-Host "    scp $certPath sift:~/.aiir/tls/wintools-cert.pem" -ForegroundColor Gray
+                Write-Host ""
+            }
             Write-Host "  After pasting, restart the gateway:" -ForegroundColor White
             Write-Host "    aiir service restart" -ForegroundColor Gray
             Write-Host ""
@@ -1533,6 +1611,10 @@ $toolPathsYaml
 
             # Save snippet to file for reference
             $snippetPath = Join-Path $InstallDir "gateway-snippet.yaml"
+            $snippetTlsCert = ""
+            if (Test-Path $certPath) {
+                $snippetTlsCert = "`n  tls_cert: ~/.aiir/tls/wintools-cert.pem"
+            }
             try {
                 @"
 # Gateway backend snippet for wintools-mcp
@@ -1540,9 +1622,9 @@ $toolPathsYaml
 # Paste into ~/.aiir/gateway.yaml under the 'backends:' key on SIFT
 wintools-mcp:
   type: http
-  url: "http://${localIp}:${Port}/mcp"
+  url: "${wintoolsScheme}://${localIp}:${Port}/mcp"
   bearer_token: "$wintoolsApiKey"
-  enabled: true
+  enabled: true$snippetTlsCert
 "@ | Set-Content -Path $snippetPath -Encoding UTF8
                 Write-Ok "Saved gateway snippet: $snippetPath"
             } catch {
@@ -1554,7 +1636,7 @@ wintools-mcp:
 # wintools-mcp configuration (generated by setup-windows.ps1)
 http_host: "$BindAddress"
 http_port: $Port
-$toolPathsYaml
+$toolPathsYaml$tlsYaml
 "@ | Set-Content -Path $wintoolsConfigPath -Encoding UTF8
         Write-Ok "Wrote config (no API key): $wintoolsConfigPath"
     }
@@ -1605,12 +1687,22 @@ if (-not $skipServerStart) {
 
         # Check if it's running
         if (-not $process.HasExited) {
+            $healthUrl = "${wintoolsScheme}://localhost:${Port}/health"
+            if ($wintoolsScheme -eq "https") {
+                # PS 5.1: skip cert validation for self-signed localhost check
+                # -SkipCertificateCheck is PS 7+ only
+                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+            }
             try {
-                $response = Invoke-WebRequest -Uri "http://localhost:$Port/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-                Write-Ok "wintools-mcp running on port $Port"
+                $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                Write-Ok "wintools-mcp running on port $Port ($wintoolsScheme)"
                 $serverHealthy = $true
             } catch {
                 Write-Warn "wintools-mcp started but health check failed"
+            } finally {
+                if ($wintoolsScheme -eq "https") {
+                    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+                }
             }
         } else {
             Write-Warn "wintools-mcp exited immediately - check configuration"
@@ -1753,9 +1845,9 @@ if ($skipServerStart) {
 Write-Host ""
 Write-Host "  Examiner:       $Examiner"
 Write-Host "  Install dir:    $InstallDir"
-Write-Host "  HTTP server:    http://localhost:$Port"
-Write-Host "  Health check:   http://localhost:$Port/health"
-Write-Host "  MCP endpoint:   http://localhost:$Port/mcp"
+Write-Host "  Server:         ${wintoolsScheme}://localhost:$Port"
+Write-Host "  Health check:   ${wintoolsScheme}://localhost:$Port/health"
+Write-Host "  MCP endpoint:   ${wintoolsScheme}://localhost:$Port/mcp"
 if (Test-Path $overviewPath) {
     Write-Host "  Tool inventory: $overviewPath"
 }
@@ -1786,9 +1878,12 @@ if (-not $Standalone) {
         Write-Host "    backends:"
         Write-Host "      wintools-mcp:"
         Write-Host "        type: http"
-        Write-Host "        url: `"http://${localIp}:${Port}/mcp`""
+        Write-Host "        url: `"${wintoolsScheme}://${localIp}:${Port}/mcp`""
         Write-Host "        bearer_token: `"$wintoolsApiKey`""
         Write-Host "        enabled: true"
+        if (Test-Path $certPath) {
+            Write-Host "        tls_cert: `"~/.aiir/tls/wintools-cert.pem`""
+        }
         Write-Host ""
         if (Test-Path $snippetPath) {
             Write-Host "  Snippet saved to: $snippetPath" -ForegroundColor White
@@ -1798,8 +1893,11 @@ if (-not $Standalone) {
         Write-Host "    backends:"
         Write-Host "      wintools-mcp:"
         Write-Host "        type: http"
-        Write-Host "        url: `"http://${localIp}:${Port}/mcp`""
+        Write-Host "        url: `"${wintoolsScheme}://${localIp}:${Port}/mcp`""
         Write-Host "        enabled: true"
+        if (Test-Path $certPath) {
+            Write-Host "        tls_cert: `"~/.aiir/tls/wintools-cert.pem`""
+        }
     }
     Write-Host ""
     Write-Host "  Once configured, clients access wintools via the gateway at:" -ForegroundColor White
@@ -1824,12 +1922,12 @@ Write-Host "      `"mcpServers`": {" -ForegroundColor Gray
 Write-Host "        `"wintools-mcp`": {" -ForegroundColor Gray
 Write-Host "          `"type`": `"http`"," -ForegroundColor Gray
 if ($wintoolsApiKey) {
-    Write-Host "          `"url`": `"http://${localIp}:${Port}/mcp`"," -ForegroundColor Gray
+    Write-Host "          `"url`": `"${wintoolsScheme}://${localIp}:${Port}/mcp`"," -ForegroundColor Gray
     Write-Host "          `"headers`": {" -ForegroundColor Gray
     Write-Host "            `"Authorization`": `"Bearer $wintoolsApiKey`"" -ForegroundColor Gray
     Write-Host "          }" -ForegroundColor Gray
 } else {
-    Write-Host "          `"url`": `"http://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
+    Write-Host "          `"url`": `"${wintoolsScheme}://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
 }
 Write-Host "        }" -ForegroundColor Gray
 Write-Host "      }" -ForegroundColor Gray
