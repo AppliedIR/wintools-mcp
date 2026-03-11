@@ -975,7 +975,11 @@ if ($scanOutput) {
         $missingCount = if ($missingLine -match "(\d+) missing") { [int]$Matches[1] } else { 0 }
         if ($missingCount -gt 0) {
             Write-Host ""
-            Write-Host "  $missingCount tool(s) not found in default search paths." -ForegroundColor Yellow
+            Write-Host "  $missingCount tool(s) not found in default search paths:" -ForegroundColor Yellow
+            $scanOutput | Where-Object { $_ -match "\[MISSING\]\s+(\S+)" } | ForEach-Object {
+                if ($_ -match "\[MISSING\]\s+(\S+)") { Write-Host "    - $($Matches[1])" -ForegroundColor Yellow }
+            }
+            Write-Host ""
             Write-Host "  If your tools are in non-standard locations (e.g., D:\Forensics, E:\Tools),"
             Write-Host "  enter those directories now so wintools-mcp can find them at runtime."
             Write-Host ""
