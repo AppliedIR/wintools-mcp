@@ -668,7 +668,7 @@ if (-not $hasDotnet) {
 try {
     $null = [System.Security.Cryptography.HashAlgorithmName]::SHA256
     $test = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
-        [byte[]]@(1), [byte[]]@(1), 1,
+        [byte[]]@(1), [byte[]]@(1,2,3,4,5,6,7,8), 1,
         [System.Security.Cryptography.HashAlgorithmName]::SHA256)
     $test.Dispose()
     Write-Ok ".NET Framework supports PBKDF2-SHA256"
