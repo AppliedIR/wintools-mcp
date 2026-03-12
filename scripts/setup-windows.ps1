@@ -539,6 +539,10 @@ if ($Update) {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            # Kill the actual Python process — Stop-ScheduledTask may not terminate it
+            Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -and $_.Path -like "*wintools*" } |
+                Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
             Start-ScheduledTask -TaskName $taskName
             Write-Ok "Scheduled task restarted"
