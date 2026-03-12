@@ -12,9 +12,9 @@ def main():
     parser = argparse.ArgumentParser(description="Windows Forensic MCP Server")
     parser.add_argument("--http", action="store_true", help="Enable REST HTTP server")
     parser.add_argument(
-        "--port", type=int, default=4624, help="HTTP port (default: 4624)"
+        "--port", type=int, default=None, help="HTTP port (default: 4624)"
     )
-    parser.add_argument("--host", default="127.0.0.1", help="HTTP bind address")
+    parser.add_argument("--host", default=None, help="HTTP bind address")
     parser.add_argument("--config", help="Path to YAML config file")
     parser.add_argument(
         "--scan",
@@ -31,8 +31,10 @@ def main():
         print(print_scan_report())
         return
 
-    config.http_host = args.host
-    config.http_port = args.port
+    if args.host is not None:
+        config.http_host = args.host
+    if args.port is not None:
+        config.http_port = args.port
 
     if args.http:
         import uvicorn

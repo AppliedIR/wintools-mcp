@@ -48,9 +48,16 @@ def run_command(
 
     # Validate file path arguments against blocked system directories
     for arg in command[1:]:
-        if arg.startswith(("-", "/")) and "=" in arg:
-            continue  # Skip flags
-        if len(arg) >= 3 and arg[1] == ":" and arg[2] in ("/", "\\"):
+        if arg.startswith("-"):
+            continue  # Skip flags (e.g. -o, --format=csv)
+        if arg.startswith("/") and "=" in arg:
+            continue  # Skip Windows-style flags (e.g. /format:csv)
+        # Validate anything that looks like a path: drive-letter, relative, or UNC
+        if (
+            (len(arg) >= 3 and arg[1] == ":" and arg[2] in ("/", "\\"))
+            or arg.startswith("\\\\")
+            or ".." in arg
+        ):
             validate_input_path(arg)
     if cwd:
         validate_input_path(cwd)
