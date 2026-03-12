@@ -416,25 +416,25 @@ if ($Update) {
 
     # 1. Update source
     $hasGit = Get-Command git -ErrorAction SilentlyContinue
-    # Check for a working git repo (not just .git from a failed conversion)
-    $isGitRepo = $false
-    if (Test-Path (Join-Path $wintoolsDir ".git")) {
-        Push-Location $wintoolsDir
-        $null = git rev-parse HEAD 2>&1
-        $isGitRepo = ($LASTEXITCODE -eq 0)
-        Pop-Location
-    }
-
     if (-not $hasGit) {
         Write-Err "Git is required for updates. Install it with: winget install Git.Git"
         Write-Info "After installing, close and reopen PowerShell, then re-run -Update."
         exit 1
     }
 
+    # Git writes progress/info to stderr. With $ErrorActionPreference = "Stop",
+    # PowerShell converts stderr lines to terminating ErrorRecords. Suspend that
+    # for the git section and check $LASTEXITCODE explicitly instead.
+    $ErrorActionPreference = "Continue"
+
     Push-Location $wintoolsDir
 
-    # All git output captured in variables — PowerShell converts stderr to
-    # ErrorRecord objects which break try/catch and can trigger false failures.
+    # Check for a working git repo (not just .git from a failed conversion)
+    $isGitRepo = $false
+    if (Test-Path ".git") {
+        $null = git rev-parse HEAD 2>&1
+        $isGitRepo = ($LASTEXITCODE -eq 0)
+    }
 
     if (-not $isGitRepo) {
         # ZIP-based install or partial conversion. Set up git from scratch.
@@ -447,6 +447,7 @@ if ($Update) {
         if ($LASTEXITCODE -ne 0) {
             Write-Err "Could not reach GitHub. Check your network connection."
             Pop-Location
+            $ErrorActionPreference = "Stop"
             exit 1
         }
         # Reset to latest main. .venv/ is gitignored so it stays intact.
@@ -463,6 +464,7 @@ if ($Update) {
             $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
             if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
                 Pop-Location
+                $ErrorActionPreference = "Stop"
                 exit 1
             }
         }
@@ -474,6 +476,7 @@ if ($Update) {
         if ($LASTEXITCODE -ne 0) {
             Write-Err "Could not reach GitHub. Check your network connection."
             Pop-Location
+            $ErrorActionPreference = "Stop"
             exit 1
         }
         $behind = git rev-list "HEAD..origin/$branch" --count 2>&1
@@ -485,6 +488,7 @@ if ($Update) {
             if ($LASTEXITCODE -ne 0) {
                 Write-Err "git pull failed (merge conflict or non-fast-forward). Resolve manually."
                 Pop-Location
+                $ErrorActionPreference = "Stop"
                 exit 1
             }
             Write-Ok "Source updated"
@@ -492,6 +496,7 @@ if ($Update) {
     }
 
     Pop-Location
+    $ErrorActionPreference = "Stop"
 
     # 2. Reinstall package
     Write-Info "Reinstalling wintools-mcp..."
