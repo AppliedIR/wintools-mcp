@@ -382,28 +382,25 @@ if ($Uninstall) {
 if ($Update) {
     Write-Header "wintools-mcp Update"
 
-    # Resolve install dir and wintools source dir
-    $wintoolsDir = $null
+    # Resolve install dir. Standard paths first, PSScriptRoot as last resort.
     if (-not $InstallDir) {
-        # Check if running from within an installed repo (scripts/ subdirectory with .venv)
-        $scriptParent = Split-Path $PSScriptRoot -Parent
-        if ((Split-Path $PSScriptRoot -Leaf) -eq "scripts" -and
-            (Test-Path (Join-Path $scriptParent "pyproject.toml")) -and
-            (Test-Path (Join-Path $scriptParent ".venv"))) {
-            $wintoolsDir = $scriptParent
-            $InstallDir = Split-Path $scriptParent -Parent
-        }
-        elseif (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
+        if (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
         elseif (Test-Path "$env:USERPROFILE\aiir") { $InstallDir = "$env:USERPROFILE\aiir" }
         else {
-            Write-Err "Could not find wintools-mcp installation directory"
-            exit 1
+            # Last resort: check if running from within an installed repo
+            $scriptParent = Split-Path $PSScriptRoot -Parent
+            if ((Split-Path $PSScriptRoot -Leaf) -eq "scripts" -and
+                (Test-Path (Join-Path $scriptParent "pyproject.toml")) -and
+                (Test-Path (Join-Path $scriptParent ".venv"))) {
+                $InstallDir = Split-Path $scriptParent -Parent
+            } else {
+                Write-Err "Could not find wintools-mcp installation. Use -InstallDir to specify."
+                exit 1
+            }
         }
     }
 
-    if (-not $wintoolsDir) {
-        $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
-    }
+    $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
     # Install creates .venv inside $wintoolsDir, not $InstallDir/venv
     $venvDir = Join-Path $wintoolsDir ".venv"
     $venvPython = Join-Path $venvDir "Scripts\python.exe"
@@ -429,64 +426,61 @@ if ($Update) {
 
     Push-Location $wintoolsDir
 
+    # All git output captured in variables — PowerShell converts stderr to
+    # ErrorRecord objects which break try/catch and can trigger false failures.
+
     if (-not $isGitRepo) {
-        # ZIP-based install detected. Convert to git repo so future updates work.
-        Write-Info "This installation was set up from a ZIP download."
-        Write-Info "Converting to git clone for future updates..."
-        try {
-            git init 2>&1 | Out-Null
-            git remote add origin "https://github.com/AppliedIR/wintools-mcp.git" 2>&1 | Out-Null
-            git fetch origin main 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-Err "Could not reach GitHub. Check your network connection."
-                Pop-Location
-                exit 1
-            }
-            # Reset to latest main. .venv/ is gitignored so it stays intact.
-            git reset --hard origin/main 2>&1 | Out-Null
-            git branch -M main 2>&1 | Out-Null
-            git branch --set-upstream-to=origin/main main 2>&1 | Out-Null
-            Write-Ok "Converted to git repo and updated to latest"
-        } catch {
-            Write-Err "Git conversion failed: $_"
+        # ZIP-based install or partial conversion. Set up git from scratch.
+        Write-Info "No git repo found. Converting to git clone for future updates..."
+        $null = git init 2>&1
+        # Add remote idempotently (may exist from a failed previous attempt)
+        $null = git remote remove origin 2>&1
+        $null = git remote add origin "https://github.com/AppliedIR/wintools-mcp.git" 2>&1
+        $null = git fetch origin main 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "Could not reach GitHub. Check your network connection."
             Pop-Location
             exit 1
         }
+        # Reset to latest main. .venv/ is gitignored so it stays intact.
+        $null = git reset --hard origin/main 2>&1
+        $null = git branch -M main 2>&1
+        $null = git branch --set-upstream-to=origin/main main 2>&1
+        Write-Ok "Converted to git repo and updated to latest"
     } else {
         # Normal git update
         Write-Info "Pulling latest changes..."
-        try {
-            $status = git status --porcelain 2>&1
-            if ($status) {
-                Write-Warn "Working tree has uncommitted changes:"
-                $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
-                if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
-                    Pop-Location
-                    exit 1
-                }
+        $status = git status --porcelain 2>&1
+        if ($status) {
+            Write-Warn "Working tree has uncommitted changes:"
+            $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+            if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
+                Pop-Location
+                exit 1
             }
+        }
 
-            $branch = git rev-parse --abbrev-ref HEAD 2>&1
-            Write-Info "Current branch: $branch"
+        $branch = git rev-parse --abbrev-ref HEAD 2>&1
+        Write-Info "Current branch: $branch"
 
-            git fetch origin 2>&1 | Out-Null
-            $behind = git rev-list "HEAD..origin/$branch" --count 2>&1
-            if ($behind -eq "0") {
-                Write-Ok "Already up to date"
-            } else {
-                Write-Info "$behind commit(s) behind origin/$branch"
-                git pull --ff-only 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Err "git pull failed (merge conflict or non-fast-forward). Resolve manually."
-                    Pop-Location
-                    exit 1
-                }
-                Write-Ok "Source updated"
-            }
-        } catch {
-            Write-Err "Git update failed: $_"
+        $null = git fetch origin 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "Could not reach GitHub. Check your network connection."
             Pop-Location
             exit 1
+        }
+        $behind = git rev-list "HEAD..origin/$branch" --count 2>&1
+        if ($behind -eq "0") {
+            Write-Ok "Already up to date"
+        } else {
+            Write-Info "$behind commit(s) behind origin/$branch"
+            $null = git pull --ff-only 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "git pull failed (merge conflict or non-fast-forward). Resolve manually."
+                Pop-Location
+                exit 1
+            }
+            Write-Ok "Source updated"
         }
     }
 
