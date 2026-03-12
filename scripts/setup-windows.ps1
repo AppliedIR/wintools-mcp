@@ -385,10 +385,11 @@ if ($Update) {
     # Resolve install dir and wintools source dir
     $wintoolsDir = $null
     if (-not $InstallDir) {
-        # Check if running from within the repo (scripts/ subdirectory)
+        # Check if running from within an installed repo (scripts/ subdirectory with .venv)
         $scriptParent = Split-Path $PSScriptRoot -Parent
         if ((Split-Path $PSScriptRoot -Leaf) -eq "scripts" -and
-            (Test-Path (Join-Path $scriptParent "pyproject.toml"))) {
+            (Test-Path (Join-Path $scriptParent "pyproject.toml")) -and
+            (Test-Path (Join-Path $scriptParent ".venv"))) {
             $wintoolsDir = $scriptParent
             $InstallDir = Split-Path $scriptParent -Parent
         }
