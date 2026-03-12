@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 MAX_CSV_BYTES = 50_000_000  # 50 MB — refuse to read larger files into memory
 
 
+def _clean_row(row: dict) -> dict[str, str]:
+    """Normalize a csv.DictReader row: drop restkey lists, stringify values."""
+    cleaned: dict[str, str] = {}
+    for k, v in row.items():
+        if k is None:
+            continue
+        if isinstance(v, list):
+            cleaned[k] = ", ".join(str(i) for i in v)
+        elif v is None:
+            cleaned[k] = ""
+        else:
+            cleaned[k] = str(v)
+    return cleaned
+
+
 def parse_csv(
     text: str, *, max_rows: int = 10000, byte_budget: int = 0
 ) -> dict[str, Any]:
@@ -52,11 +67,12 @@ def parse_csv(
     rows = []
     used_bytes = 0
     budget_hit = False
+    parse_error = None
     try:
         for row in reader:
             if max_rows and len(rows) >= max_rows:
                 break
-            row_dict = dict(row)
+            row_dict = _clean_row(dict(row))
             if byte_budget:
                 row_bytes = (
                     sum(len(v.encode("utf-8")) for v in row_dict.values())
@@ -69,16 +85,7 @@ def parse_csv(
             rows.append(row_dict)
     except csv.Error as e:
         logger.warning("CSV parsing error after %d rows: %s", len(rows), e)
-        if not rows:
-            return {
-                "rows": [],
-                "total_rows": 0,
-                "truncated": False,
-                "columns": list(reader.fieldnames or []),
-                "preview_rows": 0,
-                "preview_bytes": used_bytes,
-                "parse_error": str(e),
-            }
+        parse_error = str(e)
 
     total = len(rows)
     if budget_hit or len(rows) == max_rows:
@@ -89,7 +96,7 @@ def parse_csv(
             logger.warning("CSV error while counting remaining rows: %s", e)
 
     columns = list(rows[0].keys()) if rows else list(reader.fieldnames or [])
-    return {
+    result: dict[str, Any] = {
         "rows": rows,
         "total_rows": total,
         "preview_rows": len(rows),
@@ -97,6 +104,9 @@ def parse_csv(
         "truncated": total > len(rows),
         "columns": list(columns),
     }
+    if parse_error:
+        result["parse_error"] = parse_error
+    return result
 
 
 def parse_csv_file(
