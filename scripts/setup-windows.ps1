@@ -533,27 +533,31 @@ if ($Update) {
         }
     }
 
-    # 4. Restart scheduled task
+    # 4. Kill running wintools process so new code takes effect
+    $wintoolsProcs = Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -like "*wintools*" }
+    if ($wintoolsProcs) {
+        $wintoolsProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+
+    # 5. Restart via scheduled task, or tell user to start manually
     $taskName = "AIIR wintools-mcp"
     try {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-            # Kill the actual Python process — Stop-ScheduledTask may not terminate it
-            Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -and $_.Path -like "*wintools*" } |
-                Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
             Start-ScheduledTask -TaskName $taskName
             Write-Ok "Scheduled task restarted"
-        } else {
-            Write-Info "No scheduled task found -- restart manually if needed"
+        } elseif ($wintoolsProcs) {
+            Write-Warn "Stopped running wintools process but no scheduled task found to restart it"
+            Write-Info "Start manually: & $venvPython -m wintools_mcp --host 0.0.0.0 --port $Port"
         }
     } catch {
         Write-Warn "Could not restart scheduled task: $_"
     }
 
-    # 5. Version check
+    # 6. Version check
     try {
         $ver = & $venvPython -c "from wintools_mcp import __version__; print(__version__)" 2>&1
         Write-Ok "wintools-mcp $ver"
