@@ -382,25 +382,28 @@ if ($Uninstall) {
 if ($Update) {
     Write-Header "wintools-mcp Update"
 
-    # Resolve install dir. Standard paths first, PSScriptRoot as last resort.
+    # Resolve install dir. Running from inside an installed repo takes priority
+    # (user explicitly invoked THIS copy). Standard paths are fallback.
+    $wintoolsDir = $null
     if (-not $InstallDir) {
-        if (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
+        $scriptParent = Split-Path $PSScriptRoot -Parent
+        if ((Split-Path $PSScriptRoot -Leaf) -eq "scripts" -and
+            (Test-Path (Join-Path $scriptParent "pyproject.toml")) -and
+            (Test-Path (Join-Path $scriptParent ".venv"))) {
+            $wintoolsDir = $scriptParent
+            $InstallDir = Split-Path $scriptParent -Parent
+        }
+        elseif (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
         elseif (Test-Path "$env:USERPROFILE\aiir") { $InstallDir = "$env:USERPROFILE\aiir" }
         else {
-            # Last resort: check if running from within an installed repo
-            $scriptParent = Split-Path $PSScriptRoot -Parent
-            if ((Split-Path $PSScriptRoot -Leaf) -eq "scripts" -and
-                (Test-Path (Join-Path $scriptParent "pyproject.toml")) -and
-                (Test-Path (Join-Path $scriptParent ".venv"))) {
-                $InstallDir = Split-Path $scriptParent -Parent
-            } else {
-                Write-Err "Could not find wintools-mcp installation. Use -InstallDir to specify."
-                exit 1
-            }
+            Write-Err "Could not find wintools-mcp installation. Use -InstallDir to specify."
+            exit 1
         }
     }
 
-    $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
+    if (-not $wintoolsDir) {
+        $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
+    }
     # Install creates .venv inside $wintoolsDir, not $InstallDir/venv
     $venvDir = Join-Path $wintoolsDir ".venv"
     $venvPython = Join-Path $venvDir "Scripts\python.exe"
