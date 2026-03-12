@@ -231,19 +231,18 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
 
     server = create_server(config)
 
-    # Add the configured host to allowed_hosts for DNS rebinding protection.
-    # Default FastMCP only allows 127.0.0.1/localhost; if the user binds to
-    # 0.0.0.0 or a specific IP, that host must be allowed too.
+    # DNS rebinding protection: FastMCP defaults to allowing only
+    # 127.0.0.1/localhost Host headers. When binding to 0.0.0.0 the service
+    # is intentionally network-accessible (isolated forensic network + bearer
+    # auth), so disable the check. For a specific non-localhost IP, add it.
     host = config.http_host
     port = config.http_port
-    extra_hosts = []
-    if host not in ("127.0.0.1", "localhost", "::1", "[::1]"):
-        extra_hosts.append(f"{host}:{port}")
     if host == "0.0.0.0":
-        extra_hosts.append(f"*:{port}")
-    if extra_hosts:
+        server.settings.transport_security.enable_dns_rebinding_protection = False
+    elif host not in ("127.0.0.1", "localhost", "::1", "[::1]"):
         existing = list(server.settings.transport_security.allowed_hosts)
-        server.settings.transport_security.allowed_hosts = existing + extra_hosts
+        existing.append(f"{host}:{port}")
+        server.settings.transport_security.allowed_hosts = existing
 
     mcp_starlette_app = server.streamable_http_app()
 

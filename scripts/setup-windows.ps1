@@ -1395,8 +1395,8 @@ $toolPathsYaml
         Write-Info "Generating TLS certificate..."
         try {
             $cert = New-SelfSignedCertificate `
-                -DnsName "wintools-mcp" `
-                -TextExtension @("2.5.29.17={text}IPAddress=$localIp") `
+                -Subject "CN=wintools-mcp" `
+                -TextExtension @("2.5.29.17={text}DNS=wintools-mcp&IPAddress=$localIp") `
                 -CertStoreLocation Cert:\CurrentUser\My `
                 -NotAfter (Get-Date).AddYears(10) `
                 -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable
