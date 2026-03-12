@@ -119,6 +119,10 @@ tools:
     output_format: csv
     timeout_seconds: 300
     fk_tool_name: sigcheck
+    success_exit_codes: [0, 1]
+    exit_code_meanings:
+      0: "all files signed"
+      1: "unsigned files found"
     common_flags:
       - flag: "-c"
         description: "Output as CSV"

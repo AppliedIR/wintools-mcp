@@ -122,6 +122,8 @@ class ToolDefinition:
     common_flags: list[dict] = field(default_factory=list)
     fk_tool_name: str = ""
     version_flag: str = "--version"
+    success_exit_codes: list[int] = field(default_factory=lambda: [0])
+    exit_code_meanings: dict[int, str] = field(default_factory=dict)
     install_methods: list[InstallMethod] = field(default_factory=list)
     install_paths: list[str] = field(default_factory=list)
     alternatives: list[str] = field(default_factory=list)
@@ -129,6 +131,9 @@ class ToolDefinition:
     @property
     def knowledge_name(self) -> str:
         return self.fk_tool_name or self.name
+
+    def is_success(self, exit_code: int) -> bool:
+        return exit_code in self.success_exit_codes
 
 
 def load_catalog() -> dict[str, ToolDefinition]:
@@ -176,6 +181,11 @@ def load_catalog() -> dict[str, ToolDefinition]:
                     )
                 )
 
+            raw_codes = tool_entry.get("success_exit_codes", [0])
+            success_exit_codes = [int(c) for c in raw_codes]
+            raw_meanings = tool_entry.get("exit_code_meanings", {})
+            exit_code_meanings = {int(k): str(v) for k, v in raw_meanings.items()}
+
             td = ToolDefinition(
                 name=name,
                 binary=tool_entry.get("binary", name),
@@ -189,6 +199,8 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 common_flags=tool_entry.get("common_flags", []),
                 fk_tool_name=tool_entry.get("fk_tool_name", ""),
                 version_flag=tool_entry.get("version_flag", "--version"),
+                success_exit_codes=success_exit_codes,
+                exit_code_meanings=exit_code_meanings,
                 install_methods=install_methods,
                 install_paths=tool_entry.get("install_paths", []),
                 alternatives=tool_entry.get("alternatives", []),

@@ -47,6 +47,7 @@ def build_response(
     command: list[str] | None = None,
     error: str | None = None,
     fk_tool_name: str | None = None,
+    exit_code_meaning: str | None = None,
     output_files: list[dict] | None = None,
     extractions: list[str] | None = None,
 ) -> dict:
@@ -114,18 +115,20 @@ def build_response(
         metadata["elapsed_seconds"] = round(elapsed_seconds, 2)
     if exit_code is not None:
         metadata["exit_code"] = exit_code
-        if fk_loader:
+        # Catalog exit_code_meanings override FK hints
+        meaning = exit_code_meaning
+        if not meaning and fk_loader:
             try:
                 tool_info = fk_loader.get_tool(fk_name)
                 if tool_info:
                     hints = tool_info.get("exit_code_hints") or {}
                     meaning = hints.get(exit_code)
-                    if meaning:
-                        metadata["exit_code_meaning"] = meaning
             except Exception as e:
                 logger.warning(
                     "FK exit_code_hints lookup failed for %s: %s", fk_name, e
                 )
+        if meaning:
+            metadata["exit_code_meaning"] = meaning
     if command:
         metadata["command"] = command
     if metadata:

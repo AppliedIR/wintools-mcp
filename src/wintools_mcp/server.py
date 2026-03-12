@@ -162,14 +162,19 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 resp_data = exec_result
                 resp_format = exec_result.get("_output_format", "text")
 
+            exit_code = exec_result["exit_code"]
+            success = td.is_success(exit_code) if td else exit_code == 0
+            exit_code_meaning = td.exit_code_meanings.get(exit_code) if td else None
+
             response = build_response(
                 tool_name="run_command",
-                success=exec_result["exit_code"] == 0,
+                success=success,
                 data=resp_data,
                 evidence_id=evidence_id,
                 output_format=resp_format,
                 elapsed_seconds=elapsed,
-                exit_code=exec_result["exit_code"],
+                exit_code=exit_code,
+                exit_code_meaning=exit_code_meaning,
                 command=command,
                 fk_tool_name=fk_name,
                 extractions=exec_result.get("extractions"),
