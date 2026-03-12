@@ -221,8 +221,8 @@ def list_tools_in_catalog(category: str | None = None) -> list[dict]:
 
 def is_in_catalog(binary_name: str) -> bool:
     catalog = load_catalog()
-    bn = binary_name.lower()
-    return any(td.binary.lower() == bn for td in catalog.values())
+    bn = binary_name.lower().removesuffix(".exe")
+    return any(td.binary.lower().removesuffix(".exe") == bn for td in catalog.values())
 
 
 def validate_command(cmd: list[str]) -> str | None:
