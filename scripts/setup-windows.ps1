@@ -416,7 +416,14 @@ if ($Update) {
 
     # 1. Update source
     $hasGit = Get-Command git -ErrorAction SilentlyContinue
-    $isGitRepo = Test-Path (Join-Path $wintoolsDir ".git")
+    # Check for a working git repo (not just .git from a failed conversion)
+    $isGitRepo = $false
+    if (Test-Path (Join-Path $wintoolsDir ".git")) {
+        Push-Location $wintoolsDir
+        $null = git rev-parse HEAD 2>&1
+        $isGitRepo = ($LASTEXITCODE -eq 0)
+        Pop-Location
+    }
 
     if (-not $hasGit) {
         Write-Err "Git is required for updates. Install it with: winget install Git.Git"
