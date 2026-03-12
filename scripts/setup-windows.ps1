@@ -250,9 +250,9 @@ function Set-StaticIP {
     $dns = (Get-DnsClientServerAddress -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses
 
     try {
-        Remove-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -Confirm:$false -ErrorAction Stop
-        New-NetIPAddress -InterfaceIndex $idx -IPAddress $IP -PrefixLength $prefix -DefaultGateway $gw -ErrorAction Stop
-        if ($dns) { Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $dns }
+        $null = Remove-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -Confirm:$false -ErrorAction Stop
+        $null = New-NetIPAddress -InterfaceIndex $idx -IPAddress $IP -PrefixLength $prefix -DefaultGateway $gw -ErrorAction Stop
+        if ($dns) { $null = Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $dns }
     } catch {
         Write-Err "Failed to set static IP (requires Administrator): $_"
         Write-Host "  Run this installer as Administrator, or set the IP manually:" -ForegroundColor Yellow

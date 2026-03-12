@@ -91,7 +91,7 @@ Or if git is not installed, download and extract the ZIP:
 
 ```powershell
 Invoke-WebRequest https://github.com/AppliedIR/wintools-mcp/archive/refs/heads/main.zip -OutFile wintools.zip
-Expand-Archive wintools.zip -DestinationPath .; cd wintools-mcp-main
+Expand-Archive wintools.zip -DestinationPath . -Force; cd wintools-mcp-main
 ```
 
 Then run the installer:
