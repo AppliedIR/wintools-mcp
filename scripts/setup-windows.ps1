@@ -691,6 +691,14 @@ try {
 
 # git (optional -- ZIP fallback available)
 $hasGit = $null -ne (Get-Command git -ErrorAction SilentlyContinue)
+if (-not $hasGit) {
+    # winget/installer may have added git but PATH isn't refreshed in this session
+    $gitFallback = "C:\Program Files\Git\cmd\git.exe"
+    if (Test-Path $gitFallback) {
+        $env:PATH = "$env:PATH;C:\Program Files\Git\cmd"
+        $hasGit = $true
+    }
+}
 if ($hasGit) {
     try { $gitVer = (git --version 2>&1) -replace "git version ", "" } catch { $gitVer = "unknown" }
     Write-Ok "git $gitVer"
@@ -1775,8 +1783,10 @@ if (-not $skipServerStart) {
             $healthUrl = "${wintoolsScheme}://localhost:${Port}/health"
             if ($wintoolsScheme -eq "https") {
                 # PS 5.1: skip cert validation for self-signed localhost check
-                # -SkipCertificateCheck is PS 7+ only
-                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+                # -SkipCertificateCheck is PS 7+ only; callback needs full signature
+                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {
+                    param($sender, $certificate, $chain, $sslPolicyErrors) $true
+                }
             }
             try {
                 $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
