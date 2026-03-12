@@ -406,45 +406,79 @@ if ($Update) {
         exit 1
     }
 
-    # 1. Git pull
-    Write-Info "Pulling latest changes..."
-    Push-Location $wintoolsDir
-    try {
-        # Check for dirty working tree
-        $status = git status --porcelain 2>&1
-        if ($status) {
-            Write-Warn "Working tree has uncommitted changes:"
-            $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
-            if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
-                Pop-Location
-                exit 1
-            }
-        }
+    # 1. Update source
+    $hasGit = Get-Command git -ErrorAction SilentlyContinue
+    $isGitRepo = Test-Path (Join-Path $wintoolsDir ".git")
 
-        # Check current branch
-        $branch = git rev-parse --abbrev-ref HEAD 2>&1
-        Write-Info "Current branch: $branch"
-
-        # Fetch and show what's available
-        git fetch origin 2>&1 | Out-Null
-        $behind = git rev-list "HEAD..origin/$branch" --count 2>&1
-        if ($behind -eq "0") {
-            Write-Ok "Already up to date"
-        } else {
-            Write-Info "$behind commit(s) behind origin/$branch"
-            git pull --ff-only 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-Err "git pull failed (merge conflict or non-fast-forward). Resolve manually."
-                Pop-Location
-                exit 1
-            }
-            Write-Ok "Source updated"
-        }
-    } catch {
-        Write-Err "Git update failed: $_"
-        Pop-Location
+    if (-not $hasGit) {
+        Write-Err "Git is required for updates. Install it with: winget install Git.Git"
+        Write-Info "After installing, close and reopen PowerShell, then re-run -Update."
         exit 1
     }
+
+    Push-Location $wintoolsDir
+
+    if (-not $isGitRepo) {
+        # ZIP-based install detected. Convert to git repo so future updates work.
+        Write-Info "This installation was set up from a ZIP download."
+        Write-Info "Converting to git clone for future updates..."
+        try {
+            git init 2>&1 | Out-Null
+            git remote add origin "https://github.com/AppliedIR/wintools-mcp.git" 2>&1 | Out-Null
+            git fetch origin main 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Err "Could not reach GitHub. Check your network connection."
+                Pop-Location
+                exit 1
+            }
+            # Reset to latest main. .venv/ is gitignored so it stays intact.
+            git reset --hard origin/main 2>&1 | Out-Null
+            git branch -M main 2>&1 | Out-Null
+            git branch --set-upstream-to=origin/main main 2>&1 | Out-Null
+            Write-Ok "Converted to git repo and updated to latest"
+        } catch {
+            Write-Err "Git conversion failed: $_"
+            Pop-Location
+            exit 1
+        }
+    } else {
+        # Normal git update
+        Write-Info "Pulling latest changes..."
+        try {
+            $status = git status --porcelain 2>&1
+            if ($status) {
+                Write-Warn "Working tree has uncommitted changes:"
+                $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+                if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
+                    Pop-Location
+                    exit 1
+                }
+            }
+
+            $branch = git rev-parse --abbrev-ref HEAD 2>&1
+            Write-Info "Current branch: $branch"
+
+            git fetch origin 2>&1 | Out-Null
+            $behind = git rev-list "HEAD..origin/$branch" --count 2>&1
+            if ($behind -eq "0") {
+                Write-Ok "Already up to date"
+            } else {
+                Write-Info "$behind commit(s) behind origin/$branch"
+                git pull --ff-only 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Err "git pull failed (merge conflict or non-fast-forward). Resolve manually."
+                    Pop-Location
+                    exit 1
+                }
+                Write-Ok "Source updated"
+            }
+        } catch {
+            Write-Err "Git update failed: $_"
+            Pop-Location
+            exit 1
+        }
+    }
+
     Pop-Location
 
     # 2. Reinstall package
