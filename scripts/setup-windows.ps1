@@ -462,9 +462,11 @@ if ($Update) {
         # Normal git update
         Write-Info "Pulling latest changes..."
         $status = git status --porcelain 2>&1
-        if ($status) {
+        # Filter untracked files (??) — they never conflict with git pull
+        $modified = $status | Where-Object { $_ -notmatch '^\?\?' }
+        if ($modified) {
             Write-Warn "Working tree has uncommitted changes:"
-            $status | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+            $modified | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
             if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
                 Pop-Location
                 $ErrorActionPreference = "Stop"
