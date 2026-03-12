@@ -567,9 +567,15 @@ if (-not $AcknowledgeSecurityHole) {
 
     Write-Host "  To proceed, type: security_hole" -ForegroundColor Red
     Write-Host ""
-    $ack = Read-Host "  Acknowledgment"
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $ack = Read-Host "  Acknowledgment"
+        if ($ack -eq "security_hole") { break }
+        if ($attempt -lt 2) {
+            Write-Host "  Please type 'security_hole' exactly to proceed." -ForegroundColor Yellow
+        }
+    }
     if ($ack -ne "security_hole") {
-        Write-Err "Installation cancelled. You must type 'security_hole' exactly to proceed."
+        Write-Err "Installation cancelled."
         Write-Host ""
         Write-Host "  If you want to bypass this prompt in scripts, use:"
         Write-Host "  .\setup-windows.ps1 -AcknowledgeSecurityHole"
@@ -1266,41 +1272,33 @@ $toolPathsYaml
         $siftPort = "$GatewayPort"
         $joinCodeValue = $JoinCode
     } else {
-        $siftIp = Read-Prompt "SIFT workstation IP or hostname (blank to skip)" ""
-        if ($siftIp) {
-            # Resolve hostname to IP for firewall rules
-            if ($siftIp -and $siftIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
-                try {
-                    $resolved = [System.Net.Dns]::GetHostAddresses($siftIp) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
-                    if ($resolved) {
-                        Write-Ok "Resolved '$siftIp' to $($resolved.IPAddressToString)"
-                        $siftIp = $resolved.IPAddressToString
-                    } else {
-                        Write-Warn "Could not resolve '$siftIp' to an IPv4 address"
+        # Join code first — by the time the user has it, SIFT IP is known
+        Write-Host "  On the SIFT workstation, run: aiir setup join-code" -ForegroundColor Cyan
+        Write-Host ""
+        $joinCodeValue = Read-Prompt "Join code from SIFT workstation (blank to skip)" ""
+
+        if ($joinCodeValue) {
+            $siftIp = Read-Prompt "SIFT workstation IP" ""
+            if ($siftIp) {
+                # Resolve hostname to IP for firewall rules
+                if ($siftIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
+                    try {
+                        $resolved = [System.Net.Dns]::GetHostAddresses($siftIp) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+                        if ($resolved) {
+                            Write-Ok "Resolved '$siftIp' to $($resolved.IPAddressToString)"
+                            $siftIp = $resolved.IPAddressToString
+                        } else {
+                            Write-Warn "Could not resolve '$siftIp' to an IPv4 address"
+                            $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
+                        }
+                    } catch {
+                        Write-Warn "DNS resolution failed for '$siftIp': $_"
                         $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
                     }
-                } catch {
-                    Write-Warn "DNS resolution failed for '$siftIp': $_"
-                    $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
                 }
+                $siftPort = Read-Prompt "SIFT gateway port" "4508"
             }
-            $siftPort = Read-Prompt "SIFT gateway port" "4508"
         }
-    }
-
-    # Prompt for join code BEFORE connectivity check
-    # The user needs to run 'aiir setup join-code' on SIFT first,
-    # which should configure the gateway for remote access.
-    if ($siftIp -and -not $NonInteractive -and -not $joinCodeValue) {
-        Write-Host ""
-        Write-Host "  On the SIFT workstation, run:" -ForegroundColor White
-        Write-Host ""
-        Write-Host "    aiir setup join-code" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "  This prepares the gateway for remote connections" -ForegroundColor Gray
-        Write-Host "  and displays a one-time join code." -ForegroundColor Gray
-        Write-Host ""
-        $joinCodeValue = Read-Prompt "Enter the join code (blank to skip)" ""
     }
 
     # Reachability check with diagnostics and retry
