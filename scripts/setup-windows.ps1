@@ -382,9 +382,17 @@ if ($Uninstall) {
 if ($Update) {
     Write-Header "wintools-mcp Update"
 
-    # Resolve install dir
+    # Resolve install dir and wintools source dir
+    $wintoolsDir = $null
     if (-not $InstallDir) {
-        if (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
+        # Check if running from within the repo (scripts/ subdirectory)
+        $scriptParent = Split-Path $PSScriptRoot -Parent
+        if ((Split-Path $PSScriptRoot -Leaf) -eq "scripts" -and
+            (Test-Path (Join-Path $scriptParent "pyproject.toml"))) {
+            $wintoolsDir = $scriptParent
+            $InstallDir = Split-Path $scriptParent -Parent
+        }
+        elseif (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
         elseif (Test-Path "$env:USERPROFILE\aiir") { $InstallDir = "$env:USERPROFILE\aiir" }
         else {
             Write-Err "Could not find wintools-mcp installation directory"
@@ -392,7 +400,9 @@ if ($Update) {
         }
     }
 
-    $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
+    if (-not $wintoolsDir) {
+        $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
+    }
     # Install creates .venv inside $wintoolsDir, not $InstallDir/venv
     $venvDir = Join-Path $wintoolsDir ".venv"
     $venvPython = Join-Path $venvDir "Scripts\python.exe"
