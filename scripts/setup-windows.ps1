@@ -2033,8 +2033,10 @@ Write-Host ""
 Write-Host "--- Next Steps ---" -ForegroundColor White
 Write-Host ""
 if ($Standalone) {
-    Write-Host "  1. Install forensic tools (Zimmerman, Hayabusa, Sysinternals)" -ForegroundColor White
-    Write-Host "     See: $overviewPath" -ForegroundColor Gray
+    if ($missingCount -gt 0) {
+        Write-Host "  1. Install $missingCount missing forensic tool(s)" -ForegroundColor White
+        Write-Host "     See: $overviewPath" -ForegroundColor Gray
+    }
     Write-Host "  2. Create a case directory:" -ForegroundColor White
     Write-Host "     mkdir $caseDir\INC-2026-0001" -ForegroundColor Gray
     Write-Host "  3. Set the active case:" -ForegroundColor White
@@ -2043,8 +2045,10 @@ if ($Standalone) {
     Write-Host "     aiir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
     Write-Host "  5. Start investigating" -ForegroundColor White
 } elseif ($joinSucceeded) {
-    Write-Host "  1. Install forensic tools (Zimmerman, Hayabusa, Sysinternals)" -ForegroundColor White
-    Write-Host "     See: $overviewPath" -ForegroundColor Gray
+    if ($missingCount -gt 0) {
+        Write-Host "  1. Install $missingCount missing forensic tool(s)" -ForegroundColor White
+        Write-Host "     See: $overviewPath" -ForegroundColor Gray
+    }
     Write-Host "  2. Configure your LLM client (on SIFT or analyst machine):" -ForegroundColor White
     Write-Host "     aiir setup client --sift=${siftIp}:${siftPort} --windows=${localIp}:${Port}" -ForegroundColor Gray
     Write-Host "  3. Start investigating" -ForegroundColor White
@@ -2052,8 +2056,10 @@ if ($Standalone) {
     Write-Host "  SMB share mapped and gateway registered. Case activation" -ForegroundColor Gray
     Write-Host "  is handled automatically when you init/activate a case." -ForegroundColor Gray
 } else {
-    Write-Host "  1. Install forensic tools (Zimmerman, Hayabusa, Sysinternals)" -ForegroundColor White
-    Write-Host "     See: $overviewPath" -ForegroundColor Gray
+    if ($missingCount -gt 0) {
+        Write-Host "  1. Install $missingCount missing forensic tool(s)" -ForegroundColor White
+        Write-Host "     See: $overviewPath" -ForegroundColor Gray
+    }
     Write-Host "  2. Complete SIFT gateway registration:" -ForegroundColor White
     Write-Host "     Re-run this installer with a valid join code, or register manually" -ForegroundColor Gray
     Write-Host "  3. Configure your LLM client (on SIFT or analyst machine):" -ForegroundColor White
