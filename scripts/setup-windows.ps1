@@ -1491,6 +1491,9 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
             Remove-Item $pfxPath -ErrorAction SilentlyContinue
             # Clean up cert store entry (PEM files are the source of truth now)
             Remove-Item "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $certPath) -or (Get-Item $certPath).Length -eq 0) {
+                throw "PEM conversion failed (exit code $LASTEXITCODE)"
+            }
             Write-Ok "TLS certificate generated: $certPath"
         } catch {
             Write-Warn "TLS certificate generation failed: $_"
@@ -1528,7 +1531,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
 
             # Send public cert PEM so SIFT can pin it for verification
             if (Test-Path $certPath) {
-                $joinBody.wintools_cert = Get-Content $certPath -Raw
+                $joinBody.wintools_cert = (Get-Content $certPath -Raw).TrimStart([char]0xFEFF)
             }
 
             $joinBody = $joinBody | ConvertTo-Json
@@ -1786,21 +1789,30 @@ if (-not $skipServerStart) {
         if (-not $process.HasExited) {
             $healthUrl = "${wintoolsScheme}://localhost:${Port}/health"
             if ($wintoolsScheme -eq "https") {
-                # PS 5.1: skip cert validation for self-signed localhost check
-                # -SkipCertificateCheck is PS 7+ only; callback needs full signature
-                [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {
-                    param($sender, $certificate, $chain, $sslPolicyErrors) $true
+                # PS 5.1: scriptblock-to-delegate for ServerCertificateValidationCallback
+                # is unreliable. Use ICertificatePolicy which PS 5.1 respects consistently.
+                if (-not ([System.Management.Automation.PSTypeName]'AiirTrustLocalCert').Type) {
+                    Add-Type @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class AiirTrustLocalCert : ICertificatePolicy {
+    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert,
+        WebRequest req, int problem) { return true; }
+}
+"@
                 }
+                $previousPolicy = [System.Net.ServicePointManager]::CertificatePolicy
+                [System.Net.ServicePointManager]::CertificatePolicy = New-Object AiirTrustLocalCert
             }
             try {
                 $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
                 Write-Ok "wintools-mcp running on port $Port ($wintoolsScheme)"
                 $serverHealthy = $true
             } catch {
-                Write-Warn "wintools-mcp started but health check failed"
+                Write-Warn "wintools-mcp started but health check failed: $_"
             } finally {
                 if ($wintoolsScheme -eq "https") {
-                    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+                    [System.Net.ServicePointManager]::CertificatePolicy = $previousPolicy
                 }
             }
         } else {
