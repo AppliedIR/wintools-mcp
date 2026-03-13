@@ -2053,32 +2053,35 @@ if (-not $Standalone) {
     Write-Host ""
 }
 
-Write-Host "--- LLM Client Configuration ---" -ForegroundColor White
-Write-Host ""
-Write-Host "  On the analyst machine, run:" -ForegroundColor White
-if ($Standalone) {
-    Write-Host "    aiir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
-} else {
-    Write-Host "    aiir setup client --sift=SIFT_IP:4508 --windows=${localIp}:${Port}" -ForegroundColor Gray
+if ($Standalone -or -not $joinSucceeded) {
+    # Only show manual LLM config when join didn't handle it automatically
+    Write-Host "--- LLM Client Configuration ---" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  On the analyst machine, run:" -ForegroundColor White
+    if ($Standalone) {
+        Write-Host "    aiir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
+    } else {
+        Write-Host "    aiir setup client --sift=SIFT_IP:4508 --windows=${localIp}:${Port}" -ForegroundColor Gray
+    }
+    Write-Host ""
+    Write-Host "  Or add to .mcp.json manually:" -ForegroundColor White
+    Write-Host "    {" -ForegroundColor Gray
+    Write-Host "      `"mcpServers`": {" -ForegroundColor Gray
+    Write-Host "        `"wintools-mcp`": {" -ForegroundColor Gray
+    Write-Host "          `"type`": `"http`"," -ForegroundColor Gray
+    if ($wintoolsApiKey) {
+        Write-Host "          `"url`": `"${wintoolsScheme}://${localIp}:${Port}/mcp`"," -ForegroundColor Gray
+        Write-Host "          `"headers`": {" -ForegroundColor Gray
+        Write-Host "            `"Authorization`": `"Bearer $wintoolsApiKey`"" -ForegroundColor Gray
+        Write-Host "          }" -ForegroundColor Gray
+    } else {
+        Write-Host "          `"url`": `"${wintoolsScheme}://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
+    }
+    Write-Host "        }" -ForegroundColor Gray
+    Write-Host "      }" -ForegroundColor Gray
+    Write-Host "    }" -ForegroundColor Gray
+    Write-Host ""
 }
-Write-Host ""
-Write-Host "  Or add to .mcp.json manually:" -ForegroundColor White
-Write-Host "    {" -ForegroundColor Gray
-Write-Host "      `"mcpServers`": {" -ForegroundColor Gray
-Write-Host "        `"wintools-mcp`": {" -ForegroundColor Gray
-Write-Host "          `"type`": `"http`"," -ForegroundColor Gray
-if ($wintoolsApiKey) {
-    Write-Host "          `"url`": `"${wintoolsScheme}://${localIp}:${Port}/mcp`"," -ForegroundColor Gray
-    Write-Host "          `"headers`": {" -ForegroundColor Gray
-    Write-Host "            `"Authorization`": `"Bearer $wintoolsApiKey`"" -ForegroundColor Gray
-    Write-Host "          }" -ForegroundColor Gray
-} else {
-    Write-Host "          `"url`": `"${wintoolsScheme}://${localIp}:${Port}/mcp`"" -ForegroundColor Gray
-}
-Write-Host "        }" -ForegroundColor Gray
-Write-Host "      }" -ForegroundColor Gray
-Write-Host "    }" -ForegroundColor Gray
-Write-Host ""
 
 if ($skipServerStart) {
     Write-Host "  Auto-start: not configured (server not started)" -ForegroundColor Yellow
