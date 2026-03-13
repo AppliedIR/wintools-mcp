@@ -1581,6 +1581,11 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                 if ($joinData.gateway_token) {
                     Write-Ok "Gateway token received: $(Mask-ApiKey $joinData.gateway_token)"
                 }
+                if ($joinData.sift_examiner -and $joinData.sift_examiner -ne $Examiner) {
+                    Write-Warn "Examiner mismatch: SIFT is '$($joinData.sift_examiner)', this machine is '$Examiner'"
+                    Write-Host "  Audit trails work best when both sides use the same examiner name." -ForegroundColor Yellow
+                    Write-Host "  To fix: re-run with -Examiner $($joinData.sift_examiner)" -ForegroundColor Yellow
+                }
                 if ($joinData.restart_required) {
                     Write-Info "Gateway restart required. Run 'aiir service restart' on SIFT."
                 }
@@ -2113,12 +2118,13 @@ if ($Standalone) {
         Write-Host "  1. Install $missingCount missing forensic tool(s)" -ForegroundColor White
         Write-Host "     See: $overviewPath" -ForegroundColor Gray
     }
-    Write-Host "  2. Configure your LLM client (on SIFT or analyst machine):" -ForegroundColor White
-    Write-Host "     aiir setup client --sift=${siftIp}:${siftPort} --windows=${localIp}:${Port}" -ForegroundColor Gray
-    Write-Host "  3. Start investigating" -ForegroundColor White
+    Write-Host "  2. Start investigating (from SIFT or any configured LLM client)" -ForegroundColor White
     Write-Host ""
     Write-Host "  SMB share mapped and gateway registered. Case activation" -ForegroundColor Gray
     Write-Host "  is handled automatically when you init/activate a case." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  If you need an LLM client on this Windows machine:" -ForegroundColor Gray
+    Write-Host "     aiir setup client --sift=${siftIp}:${siftPort} --windows=${localIp}:${Port}" -ForegroundColor Gray
 } else {
     if ($missingCount -gt 0) {
         Write-Host "  1. Install $missingCount missing forensic tool(s)" -ForegroundColor White
