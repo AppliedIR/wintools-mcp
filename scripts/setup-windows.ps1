@@ -1050,6 +1050,7 @@ Write-Header "Phase 4: Scanning for Forensic Tools"
 # Run scan and capture output
 try { $scanOutput = & $venvPython -m wintools_mcp --scan 2>&1 } catch { $scanOutput = $null }
 
+$missingCount = 0
 $extraToolPaths = @()
 if ($scanOutput) {
     Write-Host $($scanOutput -join "`n")
@@ -1845,7 +1846,12 @@ Write-Host "  1. Auto-start at boot (scheduled task)"
 Write-Host "  2. Manual start (generates start-wintools.ps1)"
 Write-Host ""
 
-$startChoice = Read-Prompt "Choose" "1"
+do {
+    $startChoice = Read-Prompt "Choose" "1"
+    if ($startChoice -ne "1" -and $startChoice -ne "2") {
+        Write-Host "  Please enter 1 or 2" -ForegroundColor Yellow
+    }
+} while ($startChoice -ne "1" -and $startChoice -ne "2")
 
 # Always generate the startup script (useful either way)
 $startupPath = Join-Path $InstallDir "start-wintools.ps1"
