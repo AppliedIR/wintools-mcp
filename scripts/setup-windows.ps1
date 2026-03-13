@@ -1004,9 +1004,17 @@ Write-Host ""
 
 if ([string]::IsNullOrWhiteSpace($Examiner)) {
     $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
-    $Examiner = Read-Prompt "Examiner name" $defaultExaminer
+    do {
+        $Examiner = Read-Prompt "Examiner name" $defaultExaminer
+        $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
+        if ([string]::IsNullOrWhiteSpace($Examiner)) { $Examiner = $defaultExaminer }
+        Write-Host ""
+        Write-Host "  Examiner: $Examiner" -ForegroundColor White
+        $confirmed = Read-YesNo "Correct?" $true
+    } while (-not $confirmed)
+} else {
+    $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
 }
-$Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
 if ([string]::IsNullOrWhiteSpace($Examiner)) {
     $Examiner = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
 }
