@@ -234,11 +234,24 @@ function Set-StaticIP {
 
     if (-not $IP) {
         if ($currentIP) { $defaultIP = $currentIP.IPAddress } else { $defaultIP = "" }
-        $IP = Read-Host "Enter static IP for this machine [$defaultIP]"
-        if (-not $IP) { $IP = $defaultIP }
+        do {
+            $IP = Read-Host "Enter static IP for this machine [$defaultIP]"
+            if (-not $IP) { $IP = $defaultIP }
+            if ($IP -and $IP -notmatch '^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)') {
+                Write-Err "IP must be a private address (10.x, 172.16-31.x, 192.168.x)"
+                $IP = ""
+                continue
+            }
+            if ($IP) {
+                Write-Host ""
+                Write-Host "  Static IP: $IP" -ForegroundColor White
+                $confirmed = Read-YesNo "Correct?" $true
+                if (-not $confirmed) { $IP = "" }
+            }
+        } while (-not $IP)
     }
 
-    # Validate RFC1918
+    # Validate RFC1918 (for -IP parameter path)
     if ($IP -notmatch '^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)') {
         Write-Err "IP must be a private address (10.x, 172.16-31.x, 192.168.x)"
         return $null
@@ -1359,26 +1372,33 @@ $toolPathsYaml
         $joinCodeValue = Read-Prompt "Join code from SIFT workstation (blank to skip)" ""
 
         if ($joinCodeValue) {
-            $siftIp = Read-Prompt "SIFT workstation IP" ""
-            if ($siftIp) {
-                # Resolve hostname to IP for firewall rules
-                if ($siftIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
-                    try {
-                        $resolved = [System.Net.Dns]::GetHostAddresses($siftIp) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
-                        if ($resolved) {
-                            Write-Ok "Resolved '$siftIp' to $($resolved.IPAddressToString)"
-                            $siftIp = $resolved.IPAddressToString
-                        } else {
-                            Write-Warn "Could not resolve '$siftIp' to an IPv4 address"
+            do {
+                $siftIp = Read-Prompt "SIFT workstation IP" ""
+                if ($siftIp) {
+                    # Resolve hostname to IP for firewall rules
+                    if ($siftIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
+                        try {
+                            $resolved = [System.Net.Dns]::GetHostAddresses($siftIp) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+                            if ($resolved) {
+                                Write-Ok "Resolved '$siftIp' to $($resolved.IPAddressToString)"
+                                $siftIp = $resolved.IPAddressToString
+                            } else {
+                                Write-Warn "Could not resolve '$siftIp' to an IPv4 address"
+                                $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
+                            }
+                        } catch {
+                            Write-Warn "DNS resolution failed for '$siftIp': $_"
                             $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
                         }
-                    } catch {
-                        Write-Warn "DNS resolution failed for '$siftIp': $_"
-                        $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
                     }
+                    $siftPort = Read-Prompt "SIFT gateway port" "4508"
+
+                    Write-Host ""
+                    Write-Host "  SIFT gateway: ${siftIp}:${siftPort}" -ForegroundColor White
+                    $confirmed = Read-YesNo "Correct?" $true
+                    if (-not $confirmed) { $siftIp = "" }
                 }
-                $siftPort = Read-Prompt "SIFT gateway port" "4508"
-            }
+            } while ($joinCodeValue -and -not $siftIp)
         }
     }
 
@@ -1479,6 +1499,7 @@ $toolPathsYaml
                 -Subject "CN=wintools-mcp" `
                 -TextExtension @("2.5.29.17={text}DNS=wintools-mcp&IPAddress=$localIp") `
                 -CertStoreLocation Cert:\CurrentUser\My `
+                -NotBefore (Get-Date).AddDays(-1) `
                 -NotAfter (Get-Date).AddYears(10) `
                 -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable
             $thumbprint = $cert.Thumbprint
