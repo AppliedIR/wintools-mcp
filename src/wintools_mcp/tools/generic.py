@@ -88,8 +88,16 @@ def run_command(
 
     if output_format == "csv":
         parsed = csv_parser.parse_csv(stdout, byte_budget=cfg.response_byte_budget)
-        exec_result["_parsed"] = parsed
-        exec_result["_output_format"] = "parsed_csv"
+        if parsed.get("parse_error"):
+            # CSV parse failed — fall back to text instead of losing data
+            parsed = text_parser.parse_text(
+                stdout, byte_budget=cfg.response_byte_budget
+            )
+            exec_result["_parsed"] = parsed
+            exec_result["_output_format"] = "parsed_text"
+        else:
+            exec_result["_parsed"] = parsed
+            exec_result["_output_format"] = "parsed_csv"
     elif output_format == "json":
         parsed = json_parser.parse_json(stdout, byte_budget=cfg.response_byte_budget)
         if parsed.get("parse_error"):
