@@ -1009,49 +1009,57 @@ try {
 # Examiner Identity
 # =============================================================================
 
-Write-Header "Phase 3: Examiner Identity"
+$examinerDeferred = $false
 
-Write-Host "Your examiner name identifies your work in audit trails."
-Write-Host "Use a short slug (e.g., steve, jane, analyst1)."
-Write-Host ""
-
-if ([string]::IsNullOrWhiteSpace($Examiner)) {
-    $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
-    do {
-        $Examiner = Read-Prompt "Examiner name" $defaultExaminer
-        $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
-        if ([string]::IsNullOrWhiteSpace($Examiner)) { $Examiner = $defaultExaminer }
-        Write-Host ""
-        Write-Host "  Examiner: $Examiner" -ForegroundColor White
-        $confirmed = Read-YesNo "Correct?" $true
-    } while (-not $confirmed)
+if (-not $Standalone -and [string]::IsNullOrWhiteSpace($Examiner)) {
+    # AIIR mode without -Examiner flag: defer prompt to after join so we can
+    # default to the SIFT examiner name from the join response.
+    $examinerDeferred = $true
 } else {
-    $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
-}
-if ([string]::IsNullOrWhiteSpace($Examiner)) {
-    $Examiner = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
-}
+    Write-Header "Phase 3: Examiner Identity"
 
-# Save config
-try {
-    $aiirConfigDir = Join-Path $env:USERPROFILE ".aiir"
-    if (-not (Test-Path $aiirConfigDir)) {
-        New-Item -ItemType Directory -Path $aiirConfigDir -Force | Out-Null
+    Write-Host "Your examiner name identifies your work in audit trails."
+    Write-Host "Use a short slug (e.g., steve, jane, analyst1)."
+    Write-Host ""
+
+    if ([string]::IsNullOrWhiteSpace($Examiner)) {
+        $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
+        do {
+            $Examiner = Read-Prompt "Examiner name" $defaultExaminer
+            $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
+            if ([string]::IsNullOrWhiteSpace($Examiner)) { $Examiner = $defaultExaminer }
+            Write-Host ""
+            Write-Host "  Examiner: $Examiner" -ForegroundColor White
+            $confirmed = Read-YesNo "Correct?" $true
+        } while (-not $confirmed)
+    } else {
+        $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
     }
-    "examiner: $Examiner" | Set-Content -Path (Join-Path $aiirConfigDir "config.yaml") -Encoding UTF8
-    Write-Ok "Saved examiner identity: $Examiner"
-} catch {
-    Write-Warn "Could not save examiner config to ~/.aiir/config.yaml"
-}
+    if ([string]::IsNullOrWhiteSpace($Examiner)) {
+        $Examiner = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
+    }
 
-# Set env var persistently
-try {
-    [Environment]::SetEnvironmentVariable("AIIR_EXAMINER", $Examiner, "User")
-    $env:AIIR_EXAMINER = $Examiner
-    Write-Ok "Set AIIR_EXAMINER=$Examiner"
-} catch {
-    Write-Warn "Could not set AIIR_EXAMINER environment variable"
-    $env:AIIR_EXAMINER = $Examiner
+    # Save config
+    try {
+        $aiirConfigDir = Join-Path $env:USERPROFILE ".aiir"
+        if (-not (Test-Path $aiirConfigDir)) {
+            New-Item -ItemType Directory -Path $aiirConfigDir -Force | Out-Null
+        }
+        "examiner: $Examiner" | Set-Content -Path (Join-Path $aiirConfigDir "config.yaml") -Encoding UTF8
+        Write-Ok "Saved examiner identity: $Examiner"
+    } catch {
+        Write-Warn "Could not save examiner config to ~/.aiir/config.yaml"
+    }
+
+    # Set env var persistently
+    try {
+        [Environment]::SetEnvironmentVariable("AIIR_EXAMINER", $Examiner, "User")
+        $env:AIIR_EXAMINER = $Examiner
+        Write-Ok "Set AIIR_EXAMINER=$Examiner"
+    } catch {
+        Write-Warn "Could not set AIIR_EXAMINER environment variable"
+        $env:AIIR_EXAMINER = $Examiner
+    }
 }
 
 # =============================================================================
@@ -1581,11 +1589,6 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                 if ($joinData.gateway_token) {
                     Write-Ok "Gateway token received: $(Mask-ApiKey $joinData.gateway_token)"
                 }
-                if ($joinData.sift_examiner -and $joinData.sift_examiner -ne $Examiner) {
-                    Write-Warn "Examiner mismatch: SIFT is '$($joinData.sift_examiner)', this machine is '$Examiner'"
-                    Write-Host "  Audit trails work best when both sides use the same examiner name." -ForegroundColor Yellow
-                    Write-Host "  To fix: re-run with -Examiner $($joinData.sift_examiner)" -ForegroundColor Yellow
-                }
                 if ($joinData.restart_required) {
                     Write-Info "Gateway restart required. Run 'aiir service restart' on SIFT."
                 }
@@ -1653,6 +1656,62 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
     }
 
     $derivedPw = $null
+
+    # Deferred examiner prompt — now that join is complete, we know the SIFT examiner
+    if ($examinerDeferred) {
+        Write-Host ""
+        Write-Host "--- Examiner Identity ---" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Your examiner name identifies your work in audit trails."
+        Write-Host "Use a short slug (e.g., steve, jane, analyst1)."
+        Write-Host ""
+
+        # Default to SIFT examiner if available, otherwise OS username
+        $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
+        $siftExaminer = ""
+        if ($joinSucceeded -and $joinData.sift_examiner) {
+            $siftExaminer = $joinData.sift_examiner
+            $defaultExaminer = $siftExaminer
+        }
+
+        do {
+            $Examiner = Read-Prompt "Examiner name" $defaultExaminer
+            $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
+            if ([string]::IsNullOrWhiteSpace($Examiner)) { $Examiner = $defaultExaminer }
+            Write-Host ""
+            Write-Host "  Examiner: $Examiner" -ForegroundColor White
+            $confirmed = Read-YesNo "Correct?" $true
+        } while (-not $confirmed)
+
+        # Mismatch warning if user overrode the SIFT default
+        if ($siftExaminer -and $Examiner -ne $siftExaminer) {
+            Write-Warn "Audit entries on this Windows workstation will be stamped as '$Examiner'"
+            Write-Host "  while SIFT uses '$siftExaminer'. This creates separate identity" -ForegroundColor Yellow
+            Write-Host "  attribution in the shared case directory." -ForegroundColor Yellow
+        }
+
+        # Save config
+        try {
+            $aiirConfigDir = Join-Path $env:USERPROFILE ".aiir"
+            if (-not (Test-Path $aiirConfigDir)) {
+                New-Item -ItemType Directory -Path $aiirConfigDir -Force | Out-Null
+            }
+            "examiner: $Examiner" | Set-Content -Path (Join-Path $aiirConfigDir "config.yaml") -Encoding UTF8
+            Write-Ok "Saved examiner identity: $Examiner"
+        } catch {
+            Write-Warn "Could not save examiner config to ~/.aiir/config.yaml"
+        }
+
+        # Set env var persistently
+        try {
+            [Environment]::SetEnvironmentVariable("AIIR_EXAMINER", $Examiner, "User")
+            $env:AIIR_EXAMINER = $Examiner
+            Write-Ok "Set AIIR_EXAMINER=$Examiner"
+        } catch {
+            Write-Warn "Could not set AIIR_EXAMINER environment variable"
+            $env:AIIR_EXAMINER = $Examiner
+        }
+    }
 
     # Token generation (gated on join result)
     if (-not $joinSucceeded) {

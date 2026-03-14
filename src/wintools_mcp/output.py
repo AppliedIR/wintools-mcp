@@ -78,7 +78,10 @@ def build_manifest(output_dir: Path, base_url: str = "") -> list[dict[str, Any]]
         except OSError as e:
             logger.warning("Failed to hash file %s: %s", f, e)
             continue
-        rel_path = f.relative_to(output_dir.parent.parent)  # relative to working_dir
+        try:
+            rel_path = f.relative_to(output_dir.parent.parent)
+        except ValueError:
+            rel_path = f.name
         entry: dict[str, Any] = {
             "path": str(rel_path).replace("\\", "/"),
             "size_bytes": file_size,

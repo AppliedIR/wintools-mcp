@@ -85,27 +85,49 @@ class TestSanitizeExtraArgs:
 
 
 class TestValidateInputPath:
-    """HIGH-11: Windows-appropriate input path validation."""
+    """Input path validation — blocks ~/.aiir, allows system dirs for forensics."""
 
-    def test_blocked_system32(self, tmp_path):
-        """Paths inside System32 should be blocked."""
+    def test_system32_allowed(self, tmp_path):
+        """System32 paths must be allowed — primary forensic use case."""
         from pathlib import Path
         from unittest.mock import patch
 
-        fake_resolved = Path(r"C:\Windows\System32\config\SAM")
+        fake_resolved = Path(r"C:\Windows\System32\svchost.exe")
         with patch("wintools_mcp.security.Path.resolve", return_value=fake_resolved):
-            with pytest.raises(ValueError, match="blocked system directory"):
-                validate_input_path(r"C:\Windows\System32\config\SAM")
+            result = validate_input_path(r"C:\Windows\System32\svchost.exe")
+            assert "svchost.exe" in result
 
-    def test_blocked_syswow64(self, tmp_path):
-        """Paths inside SysWOW64 should be blocked."""
+    def test_syswow64_allowed(self, tmp_path):
+        """SysWOW64 paths must be allowed for forensic tool analysis."""
         from pathlib import Path
         from unittest.mock import patch
 
-        fake_resolved = Path(r"C:\Windows\SysWOW64\evil.dll")
+        fake_resolved = Path(r"C:\Windows\SysWOW64\cmd.exe")
         with patch("wintools_mcp.security.Path.resolve", return_value=fake_resolved):
-            with pytest.raises(ValueError, match="blocked system directory"):
-                validate_input_path(r"C:\Windows\SysWOW64\evil.dll")
+            result = validate_input_path(r"C:\Windows\SysWOW64\cmd.exe")
+            assert "cmd.exe" in result
+
+    def test_blocked_aiir_config(self, tmp_path):
+        """Paths inside ~/.aiir should be blocked (tokens, credentials)."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        aiir_dir = Path.home() / ".aiir"
+        fake_resolved = aiir_dir / "config.yaml"
+        with patch("wintools_mcp.security.Path.resolve", return_value=fake_resolved):
+            with pytest.raises(ValueError, match="blocked"):
+                validate_input_path(str(fake_resolved))
+
+    def test_blocked_aiir_subdir(self, tmp_path):
+        """Subdirectories of ~/.aiir should also be blocked."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        aiir_dir = Path.home() / ".aiir"
+        fake_resolved = aiir_dir / "tls" / "wintools-key.pem"
+        with patch("wintools_mcp.security.Path.resolve", return_value=fake_resolved):
+            with pytest.raises(ValueError, match="blocked"):
+                validate_input_path(str(fake_resolved))
 
     def test_allowed_path(self, tmp_path):
         """Normal evidence paths should pass validation."""

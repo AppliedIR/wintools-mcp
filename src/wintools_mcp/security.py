@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from wintools_mcp.catalog import is_in_catalog
@@ -26,13 +27,12 @@ _TOOL_BLOCKED_FLAGS: dict[str, set[str]] = {
     "powershell.exe": {"-command", "-c", "-e", "-encodedcommand", "-enc"},
 }
 
-# Windows system directories that should never be used as input paths
-_BLOCKED_DIRECTORIES = (
-    r"C:\Windows\System32",
-    r"C:\Windows\SysWOW64",
-    r"C:\Windows\security",
-    r"C:\Windows\servicing",
-)
+# Protect AIIR config directory (tokens, credentials) from being read as
+# input to forensic tools. System directories are NOT blocked — the catalog
+# allowlist controls what binaries can run, making input path blocking
+# redundant for system dirs and harmful for forensic use cases like
+# sigcheck C:\Windows\System32\svchost.exe.
+_BLOCKED_DIRECTORIES = (os.path.join(os.path.expanduser("~"), ".aiir"),)
 
 
 def sanitize_extra_args(extra_args: list[str], tool_name: str = "") -> list[str]:

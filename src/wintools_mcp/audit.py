@@ -145,7 +145,7 @@ class AuditWriter:
         pattern = f"{prefix}-{self.examiner}-{date_str}-"
         max_seq = 0
         try:
-            text = log_file.read_text(encoding="utf-8")
+            text = log_file.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
             logger.warning(
                 "Failed to read audit log for sequence resume %s: %s", log_file, e

@@ -159,8 +159,11 @@ async def activate_case(request: Request) -> JSONResponse:
         if not matched:
             return JSONResponse({"error": "Invalid API key"}, status_code=403)
 
+    raw_body = await request.body()
+    if len(raw_body) > 1_000_000:  # 1 MB limit for control endpoint
+        return JSONResponse({"error": "Request body too large"}, status_code=413)
     try:
-        body = json.loads(await request.body())
+        body = json.loads(raw_body)
     except (json.JSONDecodeError, ValueError):
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 

@@ -145,12 +145,18 @@ def execute(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 proc.kill()
-                proc.wait(timeout=5)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
                 raise subprocess.TimeoutExpired(cmd_list, timeout)
             if total[0] >= max_bytes:
                 truncated = True
                 proc.kill()
-                proc.wait(timeout=5)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
                 break
             try:
                 proc.wait(timeout=min(0.1, remaining))

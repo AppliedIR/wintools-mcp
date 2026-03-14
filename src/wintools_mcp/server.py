@@ -157,7 +157,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             # Use parsed preview for large output, raw result for small
             if exec_result.get("_parsed"):
                 resp_data = exec_result["_parsed"]
-                resp_format = exec_result["_output_format"]
+                resp_format = exec_result.get("_output_format", "text")
             else:
                 resp_data = exec_result
                 resp_format = exec_result.get("_output_format", "text")

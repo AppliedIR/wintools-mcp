@@ -51,9 +51,22 @@ def parse_csv(
     if max_rows < 1:
         max_rows = 1
 
-    reader = csv.DictReader(io.StringIO(text))
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        fieldnames = reader.fieldnames
+    except csv.Error as e:
+        logger.warning("CSV header parsing error: %s", e)
+        return {
+            "rows": [],
+            "total_rows": 0,
+            "truncated": False,
+            "columns": [],
+            "preview_rows": 0,
+            "preview_bytes": 0,
+            "parse_error": str(e),
+        }
 
-    if reader.fieldnames is None:
+    if fieldnames is None:
         logger.warning("CSV has no header row; returning empty result")
         return {
             "rows": [],
@@ -75,7 +88,10 @@ def parse_csv(
             row_dict = _clean_row(dict(row))
             if byte_budget:
                 row_bytes = (
-                    sum(len(v.encode("utf-8")) for v in row_dict.values())
+                    sum(
+                        len(v.encode("utf-8", errors="replace"))
+                        for v in row_dict.values()
+                    )
                     + len(row_dict) * 4
                 )
                 if used_bytes + row_bytes > byte_budget and rows:
@@ -95,7 +111,7 @@ def parse_csv(
         except csv.Error as e:
             logger.warning("CSV error while counting remaining rows: %s", e)
 
-    columns = list(rows[0].keys()) if rows else list(reader.fieldnames or [])
+    columns = list(rows[0].keys()) if rows else list(fieldnames or [])
     result: dict[str, Any] = {
         "rows": rows,
         "total_rows": total,
