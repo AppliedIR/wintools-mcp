@@ -1023,20 +1023,20 @@ if (-not $Standalone -and [string]::IsNullOrWhiteSpace($Examiner)) {
     Write-Host ""
 
     if ([string]::IsNullOrWhiteSpace($Examiner)) {
-        $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
+        $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", "-"
         do {
             $Examiner = Read-Prompt "Examiner name" $defaultExaminer
-            $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
+            $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", "-"
             if ([string]::IsNullOrWhiteSpace($Examiner)) { $Examiner = $defaultExaminer }
             Write-Host ""
             Write-Host "  Examiner: $Examiner" -ForegroundColor White
             $confirmed = Read-YesNo "Correct?" $true
         } while (-not $confirmed)
     } else {
-        $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
+        $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", "-"
     }
     if ([string]::IsNullOrWhiteSpace($Examiner)) {
-        $Examiner = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
+        $Examiner = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", "-"
     }
 
     # Save config
@@ -1667,7 +1667,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
         Write-Host ""
 
         # Default to SIFT examiner if available, otherwise OS username
-        $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", ""
+        $defaultExaminer = $env:USERNAME.ToLower() -replace "[^a-z0-9-]", "-"
         $siftExaminer = ""
         if ($joinSucceeded -and $joinData.sift_examiner) {
             $siftExaminer = $joinData.sift_examiner
@@ -1676,7 +1676,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
 
         do {
             $Examiner = Read-Prompt "Examiner name" $defaultExaminer
-            $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", ""
+            $Examiner = $Examiner.ToLower() -replace "[^a-z0-9-]", "-"
             if ([string]::IsNullOrWhiteSpace($Examiner)) { $Examiner = $defaultExaminer }
             Write-Host ""
             Write-Host "  Examiner: $Examiner" -ForegroundColor White
