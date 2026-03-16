@@ -168,7 +168,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
   "data": {"output": {"rows": ["..."], "total_rows": 42}},
   "data_provenance": "tool_output_may_contain_untrusted_evidence",
   "output_format": "parsed_csv",
-  "evidence_id": "wintools-steve-20260220-001",
+  "audit_id": "wintools-steve-20260220-001",
   "examiner": "steve",
   "caveats": [
     "Amcache entries indicate installation, not necessarily execution",
@@ -186,7 +186,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 
 | Field | Source | Description |
 |-------|--------|-------------|
-| `evidence_id` | Audit | Unique identifier (`wintools-{examiner}-{YYYYMMDD}-{NNN}`) |
+| `audit_id` | Audit | Unique identifier (`wintools-{examiner}-{YYYYMMDD}-{NNN}`) |
 | `caveats` | forensic-knowledge | Artifact-specific limitations and interpretation warnings |
 | `advisories` | forensic-knowledge | Usage guidance and common misinterpretation corrections |
 | `corroboration` | forensic-knowledge | Suggested cross-reference artifacts and tools |

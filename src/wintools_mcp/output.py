@@ -43,9 +43,9 @@ def to_share_relative(absolute_path: str, share_root: str) -> str:
     return absolute_path.replace("\\", "/")
 
 
-def get_output_dir(working_dir: str, evidence_id: str) -> Path:
-    """Get the per-evidence-ID output directory, creating it if needed."""
-    out_dir = Path(working_dir) / "output" / evidence_id
+def get_output_dir(working_dir: str, audit_id: str) -> Path:
+    """Get the per-audit-ID output directory, creating it if needed."""
+    out_dir = Path(working_dir) / "output" / audit_id
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:

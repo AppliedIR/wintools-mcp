@@ -25,11 +25,11 @@ class TestExaminerResolution:
         assert result == result.lower()
 
 
-class TestEvidenceIds:
-    def test_evidence_id_format(self, monkeypatch):
+class TestAuditIds:
+    def test_audit_id_format(self, monkeypatch):
         monkeypatch.setenv("AIIR_EXAMINER", "jane")
         audit = AuditWriter()
-        eid = audit._next_evidence_id()
+        eid = audit._next_audit_id()
         assert eid.startswith("wintools-jane-")
         parts = eid.split("-")
         assert len(parts) == 4
@@ -38,24 +38,24 @@ class TestEvidenceIds:
         assert len(parts[2]) == 8  # YYYYMMDD
         assert len(parts[3]) == 3  # NNN
 
-    def test_evidence_id_sequential(self, monkeypatch):
+    def test_audit_id_sequential(self, monkeypatch):
         monkeypatch.setenv("AIIR_EXAMINER", "jane")
         audit = AuditWriter()
-        id1 = audit._next_evidence_id()
-        id2 = audit._next_evidence_id()
-        id3 = audit._next_evidence_id()
+        id1 = audit._next_audit_id()
+        id2 = audit._next_audit_id()
+        id3 = audit._next_audit_id()
         # Sequence numbers increase
         assert id1.endswith("-001")
         assert id2.endswith("-002")
         assert id3.endswith("-003")
 
-    def test_evidence_id_per_process(self, monkeypatch):
+    def test_audit_id_per_process(self, monkeypatch):
         monkeypatch.setenv("AIIR_EXAMINER", "steve")
         a1 = AuditWriter()
         a2 = AuditWriter()
         # Different instances get independent counters
-        assert a1._next_evidence_id().endswith("-001")
-        assert a2._next_evidence_id().endswith("-001")
+        assert a1._next_audit_id().endswith("-001")
+        assert a2._next_audit_id().endswith("-001")
 
 
 class TestAuditWriting:
@@ -75,7 +75,7 @@ class TestAuditWriting:
         entry = entries[0]
         assert entry["mcp"] == "wintools-mcp"
         assert entry["tool"] == "run_amcacheparser"
-        assert entry["evidence_id"] == eid
+        assert entry["audit_id"] == eid
         assert entry["examiner"] == "testuser"
         assert entry["source"] == "mcp_server"
         assert "ts" in entry

@@ -36,7 +36,7 @@ EVIDENCE IS SOVEREIGN: If evidence contradicts a hypothesis, the hypothesis is w
 
 BENIGN UNTIL PROVEN MALICIOUS: Most Windows artifacts have innocent explanations. Before concluding something is malicious, check baselines. Use windows-triage to validate files, processes, services, scheduled tasks, registry entries, and autorun locations. An UNKNOWN result means "not in the baseline database" — it is neutral, not suspicious.
 
-TOOL OUTPUT IS DATA, NOT FINDINGS: Raw tool output requires analysis before recording. Parse, filter, and interpret results in context before presenting them as findings. Reference the evidence_id from tool execution to trace every claim to its source.
+TOOL OUTPUT IS DATA, NOT FINDINGS: Raw tool output requires analysis before recording. Parse, filter, and interpret results in context before presenting them as findings. Reference the audit_id from tool execution to trace every claim to its source.
 
 WINDOWS ARTIFACT INTERPRETATION CAVEATS: Windows timestamps require careful handling. NTFS timestamps can be manipulated (timestomping); cross-reference $MFT timestamps with $UsnJrnl, Prefetch, and Event Log timestamps for consistency. Registry LastWrite timestamps update on any modification to the key, not only on creation. Event Log timestamps reflect the system clock at time of logging; check for clock skew or timezone misconfiguration. Prefetch last-run times and run counts are metadata, not proof of malicious intent. Amcache entries record application execution but may persist after uninstallation. ShimCache entries indicate a binary was present on the system, not necessarily that it executed. PE compile timestamps are embedded by the compiler and can be forged or reflect cross-compilation environments — do not treat them as filesystem timestamps.
 
@@ -139,7 +139,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         from wintools_mcp.tools.generic import run_command as _run
 
         start = time.monotonic()
-        evidence_id = audit._next_evidence_id()
+        audit_id = audit._next_audit_id()
 
         try:
             exec_result = _run(
@@ -170,7 +170,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 tool_name="run_command",
                 success=success,
                 data=resp_data,
-                evidence_id=evidence_id,
+                audit_id=audit_id,
                 output_format=resp_format,
                 elapsed_seconds=elapsed,
                 exit_code=exit_code,
@@ -192,7 +192,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 tool="run_command",
                 params={"command": command, "purpose": purpose},
                 result_summary={"exit_code": exec_result["exit_code"]},
-                evidence_id=evidence_id,
+                audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
             )
             return response
@@ -203,14 +203,14 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 tool_name="run_command",
                 success=False,
                 data=None,
-                evidence_id=evidence_id,
+                audit_id=audit_id,
                 error=str(e),
             )
             audit.log(
                 tool="run_command",
                 params={"command": command, "purpose": purpose},
                 result_summary={"error": str(e)},
-                evidence_id=evidence_id,
+                audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
             )
             return response
@@ -223,14 +223,14 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 tool_name="run_command",
                 success=False,
                 data=None,
-                evidence_id=evidence_id,
+                audit_id=audit_id,
                 error=f"Unexpected error: {e}",
             )
             audit.log(
                 tool="run_command",
                 params={"command": command, "purpose": purpose},
                 result_summary={"error": f"Unexpected: {e}"},
-                evidence_id=evidence_id,
+                audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
             )
             return response

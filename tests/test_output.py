@@ -4,7 +4,7 @@ from wintools_mcp.output import build_manifest, get_output_dir, to_share_relativ
 
 
 class TestOutputDir:
-    def test_creates_evidence_dir(self, tmp_path):
+    def test_creates_output_dir(self, tmp_path):
         out = get_output_dir(str(tmp_path), "win-jane-20260220-001")
         assert out.exists()
         assert out.name == "win-jane-20260220-001"

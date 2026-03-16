@@ -9,12 +9,12 @@ class TestBuildResponse:
             tool_name="run_test",
             success=True,
             data={"key": "value"},
-            evidence_id="win-testuser-20260220-001",
+            audit_id="win-testuser-20260220-001",
         )
         assert resp["success"] is True
         assert resp["tool"] == "run_test"
         assert resp["data"] == {"key": "value"}
-        assert resp["evidence_id"] == "win-testuser-20260220-001"
+        assert resp["audit_id"] == "win-testuser-20260220-001"
         assert resp["examiner"] == "testuser"
         assert "discipline_reminder" in resp
 
@@ -23,7 +23,7 @@ class TestBuildResponse:
             tool_name="run_test",
             success=False,
             data=None,
-            evidence_id="win-testuser-20260220-001",
+            audit_id="win-testuser-20260220-001",
             error="Tool not found",
         )
         assert resp["success"] is False
@@ -34,7 +34,7 @@ class TestBuildResponse:
             tool_name="run_test",
             success=True,
             data={},
-            evidence_id="win-testuser-20260220-001",
+            audit_id="win-testuser-20260220-001",
             elapsed_seconds=1.5,
             exit_code=0,
             command=["test.exe", "-f", "input"],
@@ -49,7 +49,7 @@ class TestBuildResponse:
             tool_name="run_test",
             success=True,
             data={},
-            evidence_id="win-testuser-20260220-001",
+            audit_id="win-testuser-20260220-001",
             output_files=files,
         )
         assert resp["output_files"] == files
@@ -61,7 +61,7 @@ class TestBuildResponse:
                 tool_name="run_test",
                 success=True,
                 data={},
-                evidence_id=f"win-testuser-20260220-{i + 1:03d}",
+                audit_id=f"win-testuser-20260220-{i + 1:03d}",
             )
             reminders.add(resp["discipline_reminder"])
         assert len(reminders) == len(DISCIPLINE_REMINDERS)
@@ -72,7 +72,7 @@ class TestBuildResponse:
             tool_name="run_pecmd",
             success=True,
             data={},
-            evidence_id="win-testuser-20260220-030",
+            audit_id="win-testuser-20260220-030",
             fk_tool_name="PECmd",
         )
         # PECmd parses prefetch, which should have cross_mcp_checks
@@ -90,7 +90,7 @@ class TestBuildResponse:
             tool_name="run_command",
             success=True,
             data={},
-            evidence_id="win-testuser-20260220-001",
+            audit_id="win-testuser-20260220-001",
             extractions=extractions,
         )
         assert resp["extractions"] == extractions
@@ -100,7 +100,7 @@ class TestBuildResponse:
             tool_name="run_command",
             success=True,
             data={},
-            evidence_id="win-testuser-20260220-001",
+            audit_id="win-testuser-20260220-001",
         )
         assert "extractions" not in resp
 
@@ -109,7 +109,7 @@ class TestBuildResponse:
             tool_name="run_command",
             success=True,
             data={},
-            evidence_id="win-testuser-20260220-001",
+            audit_id="win-testuser-20260220-001",
             extractions=[],
         )
         assert "extractions" not in resp
@@ -120,6 +120,6 @@ class TestBuildResponse:
             tool_name="run_test",
             success=True,
             data={},
-            evidence_id="win-steve-20260220-001",
+            audit_id="win-steve-20260220-001",
         )
         assert resp["examiner"] == "steve"

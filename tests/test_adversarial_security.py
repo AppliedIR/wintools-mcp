@@ -197,7 +197,7 @@ class TestOutputDirValidation:
 class TestAuditWriterConcurrency:
     """Stress test audit writer under concurrent load."""
 
-    def test_no_duplicate_evidence_ids_under_contention(self, tmp_path, monkeypatch):
+    def test_no_duplicate_audit_ids_under_contention(self, tmp_path, monkeypatch):
         """50 threads generating evidence IDs simultaneously — all must be unique."""
         monkeypatch.setenv("AIIR_EXAMINER", "tester")
         (tmp_path / "CASE.yaml").write_text("case_id: test\n")
@@ -268,7 +268,7 @@ class TestAuditWriterConcurrency:
         for i, line in enumerate(lines):
             try:
                 entry = json.loads(line)
-                assert "evidence_id" in entry
+                assert "audit_id" in entry
                 assert "tool" in entry
             except json.JSONDecodeError:
                 pytest.fail(f"Corrupt JSONL at line {i}: {line[:100]}")

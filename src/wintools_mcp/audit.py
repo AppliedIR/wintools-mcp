@@ -117,8 +117,8 @@ class AuditWriter:
             return None
         return audit_dir
 
-    def _next_evidence_id(self) -> str:
-        """Generate next evidence ID: {prefix}-{examiner}-{date}-{seq}."""
+    def _next_audit_id(self) -> str:
+        """Generate next audit ID: {prefix}-{examiner}-{date}-{seq}."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
         with self._lock:
             if today != self._date_str:
@@ -156,7 +156,7 @@ class AuditWriter:
                 continue
             try:
                 entry = json.loads(line)
-                eid = entry.get("evidence_id", "")
+                eid = entry.get("audit_id", "")
                 if eid.startswith(pattern):
                     try:
                         seq = int(eid[len(pattern) :])
@@ -173,19 +173,19 @@ class AuditWriter:
         params: dict[str, Any],
         result_summary: Any,
         source: str = "mcp_server",
-        evidence_id: str | None = None,
+        audit_id: str | None = None,
         case_id: str | None = None,
         elapsed_ms: float | None = None,
     ) -> str:
-        """Write an audit entry. Returns the evidence_id."""
-        if evidence_id is None:
-            evidence_id = self._next_evidence_id()
+        """Write an audit entry. Returns the audit_id."""
+        if audit_id is None:
+            audit_id = self._next_audit_id()
 
         entry = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "mcp": self.mcp_name,
             "tool": tool,
-            "evidence_id": evidence_id,
+            "audit_id": audit_id,
             "examiner": self.examiner,
             "case_id": case_id or os.environ.get("AIIR_ACTIVE_CASE", ""),
             "source": source,
@@ -196,7 +196,7 @@ class AuditWriter:
             entry["elapsed_ms"] = round(elapsed_ms, 1)
 
         self._write_entry(entry)
-        return evidence_id
+        return audit_id
 
     def _write_entry(self, entry: dict) -> bool:
         """Write a single audit entry to the JSONL file with fsync.
@@ -221,9 +221,9 @@ class AuditWriter:
             return True
         except OSError as e:
             logger.warning(
-                "Failed to write audit entry for evidence_id=%s tool=%s: %s "
-                "(this evidence_id was NOT recorded to the audit trail)",
-                entry.get("evidence_id"),
+                "Failed to write audit entry for audit_id=%s tool=%s: %s "
+                "(this audit_id was NOT recorded to the audit trail)",
+                entry.get("audit_id"),
                 entry.get("tool"),
                 e,
             )
