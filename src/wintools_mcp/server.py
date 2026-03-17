@@ -249,7 +249,13 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             audit.log(
                 tool="run_command",
                 params={"command": command, "purpose": purpose},
-                result_summary={"exit_code": exec_result["exit_code"]},
+                result_summary={
+                    "exit_code": exec_result["exit_code"],
+                    "output_file": exec_result.get("output_file", ""),
+                    "output_sha256": exec_result.get("output_sha256", ""),
+                    "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
+                    "stdout_head": (exec_result.get("stdout") or "")[:500],
+                },
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
                 input_files=list(input_hashes.keys()) if input_hashes else None,

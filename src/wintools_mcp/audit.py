@@ -179,8 +179,11 @@ class AuditWriter:
         input_files: list[str] | None = None,
         input_sha256s: list[str] | None = None,
         input_detection_method: str = "",
-    ) -> str:
-        """Write an audit entry. Returns the audit_id."""
+        source_evidence: str = "",
+    ) -> str | None:
+        """Write an audit entry. Returns the audit_id, or None on failure."""
+        if not self._get_audit_dir():
+            return None
         if audit_id is None:
             audit_id = self._next_audit_id()
 
@@ -202,8 +205,15 @@ class AuditWriter:
             entry["input_sha256s"] = input_sha256s or []
         if input_detection_method:
             entry["input_detection_method"] = input_detection_method
+        if source_evidence:
+            entry["source_evidence"] = source_evidence
 
-        self._write_entry(entry)
+        if not self._write_entry(entry):
+            logger.warning(
+                "Audit write failed for audit_id=%s — returning None",
+                audit_id,
+            )
+            return None
         return audit_id
 
     def _write_entry(self, entry: dict) -> bool:
