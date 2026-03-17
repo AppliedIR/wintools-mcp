@@ -176,6 +176,9 @@ class AuditWriter:
         audit_id: str | None = None,
         case_id: str | None = None,
         elapsed_ms: float | None = None,
+        input_files: list[str] | None = None,
+        input_sha256s: list[str] | None = None,
+        input_detection_method: str = "",
     ) -> str:
         """Write an audit entry. Returns the audit_id."""
         if audit_id is None:
@@ -194,6 +197,11 @@ class AuditWriter:
         }
         if elapsed_ms is not None:
             entry["elapsed_ms"] = round(elapsed_ms, 1)
+        if input_files:
+            entry["input_files"] = input_files
+            entry["input_sha256s"] = input_sha256s or []
+        if input_detection_method:
+            entry["input_detection_method"] = input_detection_method
 
         self._write_entry(entry)
         return audit_id

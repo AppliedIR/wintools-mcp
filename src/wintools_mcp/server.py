@@ -128,8 +128,20 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         purpose: str,
         timeout: int = 0,
         save_output: bool = False,
+        input_files: list[str] | None = None,
     ) -> dict:
-        """Execute a catalog-approved forensic tool. Rejects unknown and denylisted binaries."""
+        """Execute a catalog-approved forensic tool. Rejects unknown and denylisted binaries.
+
+        Args:
+            command: Command as list of strings.
+            purpose: Why this command is being run (audit trail).
+            timeout: Override timeout in seconds (0 = default).
+            save_output: Save stdout/stderr to files with SHA-256 hashes.
+            input_files: Files this command reads. Server auto-detects
+                as backup for cataloged tools.
+        """
+        import hashlib
+
         _validate_str_length(purpose, "purpose", _MAX_TEXT)
         if command:
             for i, arg in enumerate(command):
@@ -141,6 +153,54 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         start = time.monotonic()
         audit_id = audit._next_audit_id()
 
+        # Detect input files: LLM-first, catalog-backup, parsed-fallback
+        binary = Path(command[0]).name if command else ""
+        td = get_tool_def(binary)
+        detection_method = ""
+        detected_inputs: list[str] = []
+
+        if input_files:
+            detected_inputs = input_files
+            detection_method = "llm"
+        elif td and td.input_flag:
+            try:
+                idx = command.index(td.input_flag)
+                if idx + 1 < len(command):
+                    detected_inputs = [command[idx + 1]]
+                    detection_method = "catalog"
+            except ValueError:
+                pass
+        if not detected_inputs and not detection_method:
+            for token in command[1:]:
+                if token.startswith("-"):
+                    continue
+                p = Path(token)
+                if p.is_file():
+                    detected_inputs.append(str(p))
+            if detected_inputs:
+                detection_method = "parsed"
+            elif td and not td.input_flag:
+                detection_method = ""
+            else:
+                detection_method = "none"
+
+        # Hash input files (chunked, 1GB cap)
+        input_hashes: dict[str, str] = {}
+        for fpath in detected_inputs:
+            try:
+                p = Path(fpath).resolve()
+                if p.is_file():
+                    if p.stat().st_size > 1_000_000_000:
+                        input_hashes[str(p)] = "skipped:too_large"
+                    else:
+                        h = hashlib.sha256()
+                        with open(p, "rb") as hf:
+                            for chunk in iter(lambda: hf.read(65536), b""):
+                                h.update(chunk)
+                        input_hashes[str(p)] = h.hexdigest()
+            except OSError:
+                continue
+
         try:
             exec_result = _run(
                 command,
@@ -150,8 +210,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             )
             elapsed = time.monotonic() - start
 
-            binary = Path(command[0]).name
-            td = get_tool_def(binary)
             fk_name = td.knowledge_name if td else binary
 
             # Use parsed preview for large output, raw result for small
@@ -194,7 +252,15 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 result_summary={"exit_code": exec_result["exit_code"]},
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
+                input_files=list(input_hashes.keys()) if input_hashes else None,
+                input_sha256s=list(input_hashes.values()) if input_hashes else None,
+                input_detection_method=detection_method,
             )
+            if detection_method == "none":
+                response["input_files_warning"] = (
+                    "Could not detect input files — pass input_files parameter "
+                    "for provenance chain linking."
+                )
             return response
 
         except (WintoolsError, ValueError) as e:
