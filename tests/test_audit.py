@@ -103,9 +103,12 @@ class TestAuditWriting:
 
     def test_no_write_without_case_dir(self, monkeypatch, tmp_path, examiner):
         monkeypatch.delenv("AIIR_CASE_DIR", raising=False)
+        monkeypatch.delenv("AIIR_AUDIT_DIR", raising=False)
+        # Ensure active_case fallback also fails
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "nohome")
         audit = AuditWriter()
         eid = audit.log(tool="test", params={}, result_summary={})
-        assert eid  # Still returns an evidence ID
+        assert eid is None  # Returns None when no case dir available
         # No file written
         audit_dir = tmp_path / "audit"
         assert not audit_dir.exists()
