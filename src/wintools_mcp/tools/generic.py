@@ -39,7 +39,7 @@ def run_command(
     if not resolved:
         raise ToolNotInCatalogError(
             f"Tool '{binary_name}' is in the catalog but not installed on this system. "
-            f"Use list_missing_tools() for installation guidance."
+            f"Use list_missing_windows_tools() for installation guidance."
         )
     command = [resolved] + command[1:]
 

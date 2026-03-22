@@ -54,17 +54,17 @@ class TestCreateServer:
         server = create_server(config)
         tool_names = [t.name for t in server._tool_manager._tools.values()]
         assert "scan_tools" in tool_names
-        assert "list_available_tools" in tool_names
-        assert "list_missing_tools" in tool_names
-        assert "check_tools" in tool_names
-        assert "get_tool_help" in tool_names
-        assert "suggest_tools" in tool_names
+        assert "list_windows_tools" in tool_names
+        assert "list_missing_windows_tools" in tool_names
+        assert "check_windows_tools" in tool_names
+        assert "get_windows_tool_help" in tool_names
+        assert "suggest_windows_tools" in tool_names
 
     def test_server_has_generic_run(self, test_catalog):
         config = WintoolsConfig()
         server = create_server(config)
         tool_names = [t.name for t in server._tool_manager._tools.values()]
-        assert "run_command" in tool_names
+        assert "run_windows_command" in tool_names
 
     def test_no_per_tool_wrappers(self, test_catalog):
         """Per-tool wrappers removed in FU-3 consolidation."""

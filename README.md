@@ -109,19 +109,19 @@ See [SETUP.md](SETUP.md) for detailed deployment options and SMB configuration.
 | Tool | Description |
 |------|-------------|
 | `scan_tools` | Scan for all cataloged forensic tools, report availability and install guidance |
-| `list_available_tools` | List all cataloged tools with installation status, filterable by category |
-| `list_missing_tools` | List tools not installed, with installation guidance and alternatives |
-| `check_tools` | Check specific tools by name for availability |
-| `get_tool_help` | Get tool-specific help, flags, caveats, and interpretation guidance |
-| `suggest_tools` | Given an artifact type, suggest relevant tools and check availability |
+| `list_windows_tools` | List all cataloged tools with installation status, filterable by category |
+| `list_missing_windows_tools` | List tools not installed, with installation guidance and alternatives |
+| `check_windows_tools` | Check specific tools by name for availability |
+| `get_windows_tool_help` | Get tool-specific help, flags, caveats, and interpretation guidance |
+| `suggest_windows_tools` | Given an artifact type, suggest relevant tools and check availability |
 
 ### Generic Execution (1 tool)
 
 | Tool | Description |
 |------|-------------|
-| `run_command` | Execute any cataloged tool with arguments (catalog-gated) |
+| `run_windows_command` | Execute any cataloged tool with arguments (catalog-gated) |
 
-All per-tool wrappers (Zimmerman suite, Hayabusa, mactime) are consolidated into `run_command`. The tool catalog still defines each binary's input flags, output format, and FK knowledge mapping.
+All per-tool wrappers (Zimmerman suite, Hayabusa, mactime) are consolidated into `run_windows_command`. The tool catalog still defines each binary's input flags, output format, and FK knowledge mapping.
 
 ## Tool Catalog
 
@@ -164,7 +164,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 ```json
 {
   "success": true,
-  "tool": "run_command",
+  "tool": "run_windows_command",
   "data": {"output": {"rows": ["..."], "total_rows": 42}},
   "data_provenance": "tool_output_may_contain_untrusted_evidence",
   "output_format": "parsed_csv",

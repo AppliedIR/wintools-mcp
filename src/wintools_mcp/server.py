@@ -73,7 +73,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return result
 
     @server.tool()
-    def list_available_tools(category: str = "") -> dict:
+    def list_windows_tools(category: str = "") -> dict:
         """List forensic tools available on this Windows system."""
         from wintools_mcp.tools.discovery import list_available_tools as _list
 
@@ -81,41 +81,41 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return {"tools": tools, "count": len(tools)}
 
     @server.tool()
-    def list_missing_tools() -> dict:
-        """List tools that are not installed, with installation guidance."""
+    def list_missing_windows_tools() -> dict:
+        """List Windows tools that are not installed, with installation guidance."""
         from wintools_mcp.tools.discovery import list_missing_tools as _list
 
         missing = _list()
         return {"tools": missing, "count": len(missing)}
 
     @server.tool()
-    def check_tools(tool_names: list[str] | None = None) -> dict:
-        """Check which tools are installed and available."""
+    def check_windows_tools(tool_names: list[str] | None = None) -> dict:
+        """Check which Windows tools are installed and available."""
         from wintools_mcp.tools.discovery import check_tools as _check
 
         return _check(tool_names=tool_names)
 
     @server.tool()
-    def get_tool_help(tool_name: str) -> dict:
-        """Get usage information, flags, and caveats for a specific tool."""
+    def get_windows_tool_help(tool_name: str) -> dict:
+        """Get usage information, flags, and caveats for a specific Windows tool."""
         from wintools_mcp.tools.discovery import get_tool_help as _help
 
         result = _help(tool_name)
         audit.log(
-            tool="get_tool_help",
+            tool="get_windows_tool_help",
             params={"tool_name": tool_name},
             result_summary=result,
         )
         return result
 
     @server.tool()
-    def suggest_tools(artifact_type: str, question: str = "") -> dict:
-        """Suggest tools for analyzing a specific artifact type."""
+    def suggest_windows_tools(artifact_type: str, question: str = "") -> dict:
+        """Suggest Windows tools for analyzing a specific artifact type."""
         from wintools_mcp.tools.discovery import suggest_tools as _suggest
 
         result = _suggest(artifact_type, question)
         audit.log(
-            tool="suggest_tools",
+            tool="suggest_windows_tools",
             params={"artifact_type": artifact_type},
             result_summary=result,
         )
@@ -123,7 +123,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
     # --- Generic Execution ---
     @server.tool()
-    def run_command(
+    def run_windows_command(
         command: list[str],
         purpose: str,
         timeout: int = 0,
@@ -225,7 +225,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             exit_code_meaning = td.exit_code_meanings.get(exit_code) if td else None
 
             response = build_response(
-                tool_name="run_command",
+                tool_name="run_windows_command",
                 success=success,
                 data=resp_data,
                 audit_id=audit_id,
@@ -247,7 +247,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 response["full_output_sha256"] = exec_result.get("output_sha256")
                 response["full_output_bytes"] = exec_result.get("stdout_total_bytes")
             audit.log(
-                tool="run_command",
+                tool="run_windows_command",
                 params={"command": command, "purpose": purpose},
                 result_summary={
                     "exit_code": exec_result["exit_code"],
@@ -272,14 +272,14 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         except (WintoolsError, ValueError) as e:
             elapsed = time.monotonic() - start
             response = build_response(
-                tool_name="run_command",
+                tool_name="run_windows_command",
                 success=False,
                 data=None,
                 audit_id=audit_id,
                 error=str(e),
             )
             audit.log(
-                tool="run_command",
+                tool="run_windows_command",
                 params={"command": command, "purpose": purpose},
                 result_summary={"error": str(e)},
                 audit_id=audit_id,
@@ -289,17 +289,20 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         except Exception as e:
             elapsed = time.monotonic() - start
             logger.error(
-                "Unexpected error in run_command(%s): %s", command, e, exc_info=True
+                "Unexpected error in run_windows_command(%s): %s",
+                command,
+                e,
+                exc_info=True,
             )
             response = build_response(
-                tool_name="run_command",
+                tool_name="run_windows_command",
                 success=False,
                 data=None,
                 audit_id=audit_id,
                 error=f"Unexpected error: {e}",
             )
             audit.log(
-                tool="run_command",
+                tool="run_windows_command",
                 params={"command": command, "purpose": purpose},
                 result_summary={"error": f"Unexpected: {e}"},
                 audit_id=audit_id,
@@ -308,7 +311,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             return response
 
     # Per-tool wrappers removed in FU-3 consolidation.
-    # All tool execution goes through run_command() which validates
+    # All tool execution goes through run_windows_command() which validates
     # against the catalog and sanitizes arguments.
 
     return server

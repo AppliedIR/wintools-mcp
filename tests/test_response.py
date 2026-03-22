@@ -87,7 +87,7 @@ class TestBuildResponse:
     def test_extractions_included(self, examiner):
         extractions = ["extractions/evtxecmd-Security-003.csv"]
         resp = build_response(
-            tool_name="run_command",
+            tool_name="run_windows_command",
             success=True,
             data={},
             audit_id="win-testuser-20260220-001",
@@ -97,7 +97,7 @@ class TestBuildResponse:
 
     def test_extractions_omitted_when_none(self, examiner):
         resp = build_response(
-            tool_name="run_command",
+            tool_name="run_windows_command",
             success=True,
             data={},
             audit_id="win-testuser-20260220-001",
@@ -106,7 +106,7 @@ class TestBuildResponse:
 
     def test_extractions_omitted_when_empty(self, examiner):
         resp = build_response(
-            tool_name="run_command",
+            tool_name="run_windows_command",
             success=True,
             data={},
             audit_id="win-testuser-20260220-001",
