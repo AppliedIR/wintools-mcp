@@ -67,7 +67,15 @@ class WintoolsConfig:
             )
         except ValueError:
             pass  # Keep YAML or default value
-        cfg.case_dir = os.environ.get("AIIR_CASE_DIR", cfg.case_dir)
+        env_case = os.environ.get("AIIR_CASE_DIR", "").strip()
+        if (
+            env_case
+            and Path(env_case).is_dir()
+            and (Path(env_case) / "CASE.yaml").exists()
+        ):
+            cfg.case_dir = env_case
+        elif not env_case:
+            cfg.case_dir = cfg.case_dir  # Keep YAML default
         cfg.active_case = os.environ.get("AIIR_ACTIVE_CASE", cfg.active_case)
         cfg.share_root = os.environ.get("AIIR_SHARE_ROOT", cfg.share_root)
         cfg.audit_dir = os.environ.get("AIIR_AUDIT_DIR", cfg.audit_dir)

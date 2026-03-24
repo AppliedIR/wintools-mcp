@@ -36,10 +36,13 @@ class TestWintoolsConfig:
         # Only lowercase alphanumeric + hyphens
         assert all(c.isalnum() or c == "-" for c in cfg.examiner)
 
-    def test_case_dir_from_env(self, monkeypatch):
-        monkeypatch.setenv("AIIR_CASE_DIR", "C:\\Cases\\INC-001")
+    def test_case_dir_from_env(self, monkeypatch, tmp_path):
+        case_dir = tmp_path / "INC-001"
+        case_dir.mkdir()
+        (case_dir / "CASE.yaml").write_text("case_id: test\n")
+        monkeypatch.setenv("AIIR_CASE_DIR", str(case_dir))
         cfg = WintoolsConfig.from_env()
-        assert cfg.case_dir == "C:\\Cases\\INC-001"
+        assert cfg.case_dir == str(case_dir)
 
     def test_active_case_from_env(self, monkeypatch):
         monkeypatch.setenv("AIIR_ACTIVE_CASE", "INC-2026-001")
