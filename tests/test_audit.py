@@ -9,17 +9,17 @@ from wintools_mcp.audit import AuditWriter, resolve_examiner
 
 class TestExaminerResolution:
     def test_examiner_from_env(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "Jane")
+        monkeypatch.setenv("VHIR_EXAMINER", "Jane")
         assert resolve_examiner() == "jane"
 
     def test_examiner_fallback_analyst(self, monkeypatch):
-        monkeypatch.delenv("AIIR_EXAMINER", raising=False)
-        monkeypatch.setenv("AIIR_ANALYST", "Steve")
+        monkeypatch.delenv("VHIR_EXAMINER", raising=False)
+        monkeypatch.setenv("VHIR_ANALYST", "Steve")
         assert resolve_examiner() == "steve"
 
     def test_examiner_fallback_os_user(self, monkeypatch):
-        monkeypatch.delenv("AIIR_EXAMINER", raising=False)
-        monkeypatch.delenv("AIIR_ANALYST", raising=False)
+        monkeypatch.delenv("VHIR_EXAMINER", raising=False)
+        monkeypatch.delenv("VHIR_ANALYST", raising=False)
         result = resolve_examiner()
         assert result  # Non-empty
         assert result == result.lower()
@@ -27,7 +27,7 @@ class TestExaminerResolution:
 
 class TestAuditIds:
     def test_audit_id_format(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "jane")
+        monkeypatch.setenv("VHIR_EXAMINER", "jane")
         audit = AuditWriter()
         eid = audit._next_audit_id()
         assert eid.startswith("wintools-jane-")
@@ -39,7 +39,7 @@ class TestAuditIds:
         assert len(parts[3]) == 3  # NNN
 
     def test_audit_id_sequential(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "jane")
+        monkeypatch.setenv("VHIR_EXAMINER", "jane")
         audit = AuditWriter()
         id1 = audit._next_audit_id()
         id2 = audit._next_audit_id()
@@ -50,7 +50,7 @@ class TestAuditIds:
         assert id3.endswith("-003")
 
     def test_audit_id_per_process(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "steve")
+        monkeypatch.setenv("VHIR_EXAMINER", "steve")
         a1 = AuditWriter()
         a2 = AuditWriter()
         # Different instances get independent counters
@@ -81,7 +81,7 @@ class TestAuditWriting:
         assert "ts" in entry
 
     def test_case_id_from_env(self, case_dir, examiner, monkeypatch):
-        monkeypatch.setenv("AIIR_ACTIVE_CASE", "INC-2026-001")
+        monkeypatch.setenv("VHIR_ACTIVE_CASE", "INC-2026-001")
         audit = AuditWriter()
         audit.log(tool="test", params={}, result_summary={})
 
@@ -102,8 +102,8 @@ class TestAuditWriting:
         assert entry["elapsed_ms"] == 1234.5
 
     def test_no_write_without_case_dir(self, monkeypatch, tmp_path, examiner):
-        monkeypatch.delenv("AIIR_CASE_DIR", raising=False)
-        monkeypatch.delenv("AIIR_AUDIT_DIR", raising=False)
+        monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
+        monkeypatch.delenv("VHIR_AUDIT_DIR", raising=False)
         # Ensure active_case fallback also fails
         monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "nohome")
         audit = AuditWriter()
@@ -135,11 +135,11 @@ class TestAuditRetrieval:
         assert len(entries) == 2
 
     def test_get_entries_case_filter(self, case_dir, examiner, monkeypatch):
-        monkeypatch.setenv("AIIR_ACTIVE_CASE", "INC-001")
+        monkeypatch.setenv("VHIR_ACTIVE_CASE", "INC-001")
         audit = AuditWriter()
         audit.log(tool="t1", params={}, result_summary={})
 
-        monkeypatch.setenv("AIIR_ACTIVE_CASE", "INC-002")
+        monkeypatch.setenv("VHIR_ACTIVE_CASE", "INC-002")
         audit.log(tool="t2", params={}, result_summary={})
 
         entries = audit.get_entries(case_id="INC-001")
@@ -147,7 +147,7 @@ class TestAuditRetrieval:
         assert entries[0]["tool"] == "t1"
 
     def test_get_entries_empty(self, monkeypatch, tmp_path, examiner):
-        monkeypatch.delenv("AIIR_CASE_DIR", raising=False)
+        monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         audit = AuditWriter()
@@ -168,8 +168,8 @@ class TestAuditDirParameter:
 
     def test_audit_dir_env_var(self, tmp_path, monkeypatch, examiner):
         audit_dir = tmp_path / "env_audit"
-        monkeypatch.setenv("AIIR_AUDIT_DIR", str(audit_dir))
-        monkeypatch.delenv("AIIR_CASE_DIR", raising=False)
+        monkeypatch.setenv("VHIR_AUDIT_DIR", str(audit_dir))
+        monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
         audit = AuditWriter()
         audit.log(tool="test", params={}, result_summary={})
 
@@ -179,7 +179,7 @@ class TestAuditDirParameter:
     def test_explicit_overrides_env(self, tmp_path, monkeypatch, examiner):
         env_dir = tmp_path / "env_audit"
         explicit_dir = tmp_path / "explicit_audit"
-        monkeypatch.setenv("AIIR_AUDIT_DIR", str(env_dir))
+        monkeypatch.setenv("VHIR_AUDIT_DIR", str(env_dir))
         audit = AuditWriter(audit_dir=str(explicit_dir))
         audit.log(tool="test", params={}, result_summary={})
 
@@ -189,9 +189,9 @@ class TestAuditDirParameter:
     def test_env_overrides_case_dir(self, tmp_path, monkeypatch, examiner):
         case_dir = tmp_path / "case"
         case_dir.mkdir()
-        monkeypatch.setenv("AIIR_CASE_DIR", str(case_dir))
+        monkeypatch.setenv("VHIR_CASE_DIR", str(case_dir))
         env_audit = tmp_path / "local_audit"
-        monkeypatch.setenv("AIIR_AUDIT_DIR", str(env_audit))
+        monkeypatch.setenv("VHIR_AUDIT_DIR", str(env_audit))
         audit = AuditWriter()
         audit.log(tool="test", params={}, result_summary={})
 

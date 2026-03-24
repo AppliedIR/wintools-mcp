@@ -33,7 +33,7 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 
 ### Installer Modes
 
-**AIIR-integrated (default)** — Full platform integration with a SIFT workstation. Case directory accessed via SMB share. Audit trail, evidence, and tool output written to the shared case directory.
+**ValiHuntIR-integrated (default)** — Full platform integration with a SIFT workstation. Case directory accessed via SMB share. Audit trail, evidence, and tool output written to the shared case directory.
 
 ```powershell
 .\setup-windows.ps1
@@ -52,7 +52,7 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 | `-AcknowledgeSecurityHole` | Bypass the interactive security prompt (required for `-NonInteractive`) |
 | `-Standalone` | Local case directory instead of SMB to SIFT |
 | `-NonInteractive` | No prompts, use defaults for all options |
-| `-InstallDir PATH` | Installation directory (default: `C:\Tools\aiir`) |
+| `-InstallDir PATH` | Installation directory (default: `C:\Tools\vhir`) |
 | `-Examiner NAME` | Examiner slug (default: Windows username) |
 | `-Port PORT` | HTTP server port (default: 4624) |
 | `-BindAddress ADDR` | HTTP bind address (default: 0.0.0.0) |
@@ -62,14 +62,14 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 ### Scripted Examples
 
 ```powershell
-# Non-interactive AIIR install
+# Non-interactive ValiHuntIR install
 .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
 
 # Non-interactive standalone
 .\setup-windows.ps1 -Standalone -NonInteractive -AcknowledgeSecurityHole
 
 # Custom directory, examiner, and port
-.\setup-windows.ps1 -InstallDir "D:\Forensics\aiir" -Examiner "steve" -Port 8443 -AcknowledgeSecurityHole
+.\setup-windows.ps1 -InstallDir "D:\Forensics\vhir" -Examiner "steve" -Port 8443 -AcknowledgeSecurityHole
 ```
 
 ## Manual Install
@@ -101,7 +101,7 @@ One Windows VM with forensic tools, wintools-mcp, and the LLM client all on the 
 |       |                                      |
 |  Forensic Tools (Zimmerman, Hayabusa, etc.)  |
 |                                              |
-|  C:\Tools\aiir\cases\INC-2026-0001\          |
+|  C:\Tools\vhir\cases\INC-2026-0001\          |
 +----------------------------------------------+
 ```
 
@@ -109,7 +109,7 @@ Setup:
 ```powershell
 .\setup-windows.ps1 -Standalone
 # Case dir is local. No SMB needed.
-set AIIR_CASE_DIR=C:\Tools\aiir\cases\INC-2026-0001
+set VHIR_CASE_DIR=C:\Tools\vhir\cases\INC-2026-0001
 ```
 
 ### Architecture 2: SIFT + Windows (Typical)
@@ -121,7 +121,7 @@ SIFT workstation for Linux forensics and case management. Windows VM for Windows
 |  SIFT Workstation         |      |  Windows Forensic VM      |
 |                           |      |                           |
 |  LLM Client               |----->|  wintools-mcp :4624      |
-|  aiir CLI                 |      |  Forensic Tools           |
+|  vhir CLI                 |      |  Forensic Tools           |
 |  sift-gateway :4508       |      |       |                   |
 |  forensic-mcp (stdio)     |      |       | SMB               |
 |  sift-mcp (stdio)         |      |       v                   |
@@ -143,22 +143,22 @@ Setup:
 net use Z: \\192.168.1.10\cases /persistent:yes
 
 # Set case dir:
-set AIIR_CASE_DIR=Z:\INC-2026-0001
+set VHIR_CASE_DIR=Z:\INC-2026-0001
 
 # Configure LLM client (on SIFT or analyst machine):
-aiir setup client --sift=192.168.1.10:4508 --windows=192.168.1.20:4624
+vhir setup client --sift=192.168.1.10:4508 --windows=192.168.1.20:4624
 ```
 
 ### Architecture 3: Remote Analyst
 
-LLM client and aiir CLI on a separate analyst workstation. SIFT and Windows VMs run headless.
+LLM client and vhir CLI on a separate analyst workstation. SIFT and Windows VMs run headless.
 
 ```
 +--------------------+      +--------------------+      +--------------------+
 |  Analyst Machine   |      |  SIFT Workstation  |      |  Windows VM        |
 |                    |      |                    |      |                    |
 |  LLM Client       |----->|  gateway :4508     |      |  wintools :4624    |
-|  aiir CLI          |----->|  MCPs (stdio)      |      |  Forensic Tools    |
+|  vhir CLI          |----->|  MCPs (stdio)      |      |  Forensic Tools    |
 |                    |  |   |  /cases/           |<-----|  SMB               |
 |                    |  |   +--------------------+      +--------------------+
 |                    |  |
@@ -175,8 +175,8 @@ Setup:
 .\setup-windows.ps1
 
 # On analyst machine:
-pip install aiir
-aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
+pip install vhir
+vhir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
 ```
 
 ### Architecture 4: Multi-Examiner Team
@@ -198,11 +198,11 @@ Multiple examiners, each with their own SIFT + Windows setup. Each examiner main
          v                           v
 ```
 
-Each examiner works independently in their own flat case directory. To share findings, use `aiir sync export` to create a contribution bundle and `aiir sync import` to merge another examiner's contributions. This avoids the complexity of shared filesystems and locking.
+Each examiner works independently in their own flat case directory. To share findings, use `vhir sync export` to create a contribution bundle and `vhir sync import` to merge another examiner's contributions. This avoids the complexity of shared filesystems and locking.
 
 ## Case Directory Setup
 
-### AIIR Mode (SMB to SIFT)
+### ValiHuntIR Mode (SMB to SIFT)
 
 The case directory lives on the SIFT workstation and is shared via Samba.
 
@@ -231,10 +231,10 @@ sudo net usershare add cases /cases
 net use Z: \\SIFT_IP\cases /persistent:yes
 
 # Set the active case
-set AIIR_CASE_DIR=Z:\INC-2026-0001
+set VHIR_CASE_DIR=Z:\INC-2026-0001
 ```
 
-When `AIIR_CASE_DIR` is set, wintools-mcp writes audit entries to `audit\wintools-mcp.jsonl` within the case directory. This is the same layout that SIFT MCPs use, creating a unified audit trail.
+When `VHIR_CASE_DIR` is set, wintools-mcp writes audit entries to `audit\wintools-mcp.jsonl` within the case directory. This is the same layout that SIFT MCPs use, creating a unified audit trail.
 
 ### Standalone Mode (Local)
 
@@ -242,13 +242,13 @@ In standalone mode, cases are stored locally:
 
 ```powershell
 # Default location (set during install)
-set AIIR_CASE_DIR=C:\Tools\aiir\cases\INC-2026-0001
+set VHIR_CASE_DIR=C:\Tools\vhir\cases\INC-2026-0001
 
 # Create case structure
-mkdir C:\Tools\aiir\cases\INC-2026-0001
+mkdir C:\Tools\vhir\cases\INC-2026-0001
 ```
 
-The audit directory is created automatically when wintools-mcp receives its first tool call with `AIIR_CASE_DIR` set.
+The audit directory is created automatically when wintools-mcp receives its first tool call with `VHIR_CASE_DIR` set.
 
 ## Starting the Server
 
@@ -275,7 +275,7 @@ Add to `.mcp.json`:
       "command": "C:\\path\\to\\.venv\\Scripts\\python.exe",
       "args": ["-m", "wintools_mcp"],
       "env": {
-        "AIIR_EXAMINER": "steve"
+        "VHIR_EXAMINER": "steve"
       }
     }
   }
@@ -297,8 +297,8 @@ python -m wintools_mcp --scan
 | `WINTOOLS_PORT` | `4624` | HTTP server port |
 | `WINTOOLS_TOOL_PATHS` | (none) | Additional binary search directories (semicolon-separated) |
 | `WINTOOLS_CATALOG_DIR` | (auto) | Override catalog YAML directory |
-| `AIIR_CASE_DIR` | (none) | Active case directory for audit trail |
-| `AIIR_EXAMINER` | OS user | Examiner identity (lowercase slug) |
+| `VHIR_CASE_DIR` | (none) | Active case directory for audit trail |
+| `VHIR_EXAMINER` | OS user | Examiner identity (lowercase slug) |
 
 ## Troubleshooting
 
@@ -311,5 +311,5 @@ python -m wintools_mcp --scan
 | Timeout errors | Tool takes too long | Increase `WINTOOLS_TIMEOUT` or per-tool timeout |
 | Missing forensic-knowledge | Installed without `[fk]` extra | Run `pip install -e ".[fk]"` |
 | SMB share not accessible | Firewall or credentials | Check `net use` status; verify SIFT Samba config |
-| Audit entries not recorded | `AIIR_CASE_DIR` not set | Set `AIIR_CASE_DIR` to active case path |
+| Audit entries not recorded | `VHIR_CASE_DIR` not set | Set `VHIR_CASE_DIR` to active case path |
 | Health check fails | Port conflict or bind error | Check if another process uses port 4624 |

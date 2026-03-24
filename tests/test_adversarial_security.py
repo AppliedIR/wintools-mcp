@@ -199,9 +199,9 @@ class TestAuditWriterConcurrency:
 
     def test_no_duplicate_audit_ids_under_contention(self, tmp_path, monkeypatch):
         """50 threads generating evidence IDs simultaneously — all must be unique."""
-        monkeypatch.setenv("AIIR_EXAMINER", "tester")
+        monkeypatch.setenv("VHIR_EXAMINER", "tester")
         (tmp_path / "CASE.yaml").write_text("case_id: test\n")
-        monkeypatch.setenv("AIIR_CASE_DIR", str(tmp_path))
+        monkeypatch.setenv("VHIR_CASE_DIR", str(tmp_path))
 
         from wintools_mcp.audit import AuditWriter
 
@@ -236,9 +236,9 @@ class TestAuditWriterConcurrency:
         self, tmp_path, monkeypatch
     ):
         """Verify JSONL file is parseable after concurrent writes."""
-        monkeypatch.setenv("AIIR_EXAMINER", "tester")
+        monkeypatch.setenv("VHIR_EXAMINER", "tester")
         (tmp_path / "CASE.yaml").write_text("case_id: test\n")
-        monkeypatch.setenv("AIIR_CASE_DIR", str(tmp_path))
+        monkeypatch.setenv("VHIR_CASE_DIR", str(tmp_path))
 
         from wintools_mcp.audit import AuditWriter
 

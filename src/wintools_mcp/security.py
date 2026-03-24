@@ -27,12 +27,12 @@ _TOOL_BLOCKED_FLAGS: dict[str, set[str]] = {
     "powershell.exe": {"-command", "-c", "-e", "-encodedcommand", "-enc"},
 }
 
-# Protect AIIR config directory (tokens, credentials) from being read as
+# Protect ValiHuntIR config directory (tokens, credentials) from being read as
 # input to forensic tools. System directories are NOT blocked — the catalog
 # allowlist controls what binaries can run, making input path blocking
 # redundant for system dirs and harmful for forensic use cases like
 # sigcheck C:\Windows\System32\svchost.exe.
-_BLOCKED_DIRECTORIES = (os.path.join(os.path.expanduser("~"), ".aiir"),)
+_BLOCKED_DIRECTORIES = (os.path.join(os.path.expanduser("~"), ".vhir"),)
 
 
 def sanitize_extra_args(extra_args: list[str], tool_name: str = "") -> list[str]:

@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    AIIR Platform Installer for Windows Forensic Workstation
+    ValiHuntIR Platform Installer for Windows Forensic Workstation
 
 .DESCRIPTION
     Installs wintools-mcp on an isolated Windows forensic workstation.
@@ -17,8 +17,8 @@
 
     Two installation modes are supported:
 
-    AIIR Mode (default):
-      Integrates with the full AIIR platform on a SIFT workstation.
+    ValiHuntIR Mode (default):
+      Integrates with the full ValiHuntIR platform on a SIFT workstation.
       Case directory is accessed via SMB from the SIFT share. Audit
       trail, evidence files, and tool output are written to the shared
       case directory. Requires network access to the SIFT workstation.
@@ -43,7 +43,7 @@
     Requires -AcknowledgeSecurityHole.
 
 .PARAMETER InstallDir
-    Installation directory. Default: C:\Tools\aiir or %USERPROFILE%\aiir.
+    Installation directory. Default: C:\Tools\vhir or %USERPROFILE%\vhir.
 
 .PARAMETER Examiner
     Examiner identity slug (lowercase, e.g., "steve"). Default: current
@@ -70,14 +70,14 @@
     SIFT gateway port. Default: 4508.
 
 .PARAMETER JoinCode
-    One-time join code from 'aiir setup join-code' on SIFT workstation.
+    One-time join code from 'vhir setup join-code' on SIFT workstation.
     Enables automated credential exchange instead of manual copy-paste.
 
 .PARAMETER Uninstall
     Remove wintools-mcp: scheduled task, firewall rule, environment variables,
     and optionally the install directory. Prompts for confirmation on each
     component. After uninstalling on Windows, also run
-    'aiir setup client --uninstall' on the SIFT workstation.
+    'vhir setup client --uninstall' on the SIFT workstation.
 
 .PARAMETER Update
     Update wintools-mcp: git pull, pip reinstall, restart scheduled task.
@@ -85,7 +85,7 @@
     silently proceeding with stale code.
 
 .EXAMPLE
-    # Interactive install with full AIIR integration
+    # Interactive install with full ValiHuntIR integration
     .\setup-windows.ps1
 
 .EXAMPLE
@@ -93,12 +93,12 @@
     .\setup-windows.ps1 -Standalone
 
 .EXAMPLE
-    # Non-interactive with AIIR integration
+    # Non-interactive with ValiHuntIR integration
     .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
 
 .EXAMPLE
     # Non-interactive standalone with custom directory
-    .\setup-windows.ps1 -Standalone -NonInteractive -AcknowledgeSecurityHole -InstallDir "D:\Forensics\aiir"
+    .\setup-windows.ps1 -Standalone -NonInteractive -AcknowledgeSecurityHole -InstallDir "D:\Forensics\vhir"
 
 .EXAMPLE
     # Custom port and examiner
@@ -111,14 +111,14 @@
     #   3. Configure your LLM client to connect to this machine
     .\setup-windows.ps1 -Standalone
     # Then on the analyst machine:
-    #   aiir setup client --windows=WIN_IP:4624
+    #   vhir setup client --windows=WIN_IP:4624
 
 .EXAMPLE
     # Deployment: SIFT + Windows (typical team setup)
-    #   1. Install AIIR on SIFT:  ./sift-install.sh  (with wintools support)
-    #   2. Get join code on SIFT: aiir setup join-code
+    #   1. Install ValiHuntIR on SIFT:  ./sift-install.sh  (with wintools support)
+    #   2. Get join code on SIFT: vhir setup join-code
     #   3. Install on Windows:    .\setup-windows.ps1  (enter join code when prompted)
-    #   4. Configure client:      aiir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
+    #   4. Configure client:      vhir setup client --sift=SIFT_IP:4508 --windows=WIN_IP:4624
     .\setup-windows.ps1
 
 .EXAMPLE
@@ -130,7 +130,7 @@
     # Deployment: Air-gapped lab
     #   Pre-stage: clone wintools-mcp repo to USB, transfer to lab
     #   Then run installer pointing to pre-staged directory
-    .\setup-windows.ps1 -Standalone -InstallDir "E:\aiir"
+    .\setup-windows.ps1 -Standalone -InstallDir "E:\vhir"
 #>
 [CmdletBinding()]
 param(
@@ -212,7 +212,7 @@ function Derive-SMBPassword {
     $enc = [System.Text.Encoding]::UTF8
     $deriv = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
         $enc.GetBytes($JoinCode),
-        $enc.GetBytes("aiir-smb-v1"),
+        $enc.GetBytes("vhir-smb-v1"),
         600000,
         [System.Security.Cryptography.HashAlgorithmName]::SHA256)
     $dk = $deriv.GetBytes(32)
@@ -274,15 +274,15 @@ function Set-StaticIP {
     }
 
     # Write network.yaml
-    $aiirDir = Join-Path $env:USERPROFILE ".aiir"
-    if (-not (Test-Path $aiirDir)) {
-        New-Item -ItemType Directory -Path $aiirDir -Force | Out-Null
+    $vhirDir = Join-Path $env:USERPROFILE ".vhir"
+    if (-not (Test-Path $vhirDir)) {
+        New-Item -ItemType Directory -Path $vhirDir -Force | Out-Null
     }
     @"
 static_ip: $IP
 interface: $($adapter.InterfaceAlias)
 configured_at: $([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
-"@ | Set-Content -Path (Join-Path $aiirDir "network.yaml") -Encoding UTF8
+"@ | Set-Content -Path (Join-Path $vhirDir "network.yaml") -Encoding UTF8
 
     Write-Ok "Static IP set to $IP"
     return $IP
@@ -308,8 +308,8 @@ if ($Uninstall) {
 
     # Resolve install dir from env or default
     if (-not $InstallDir) {
-        if (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
-        elseif (Test-Path "$env:USERPROFILE\aiir") { $InstallDir = "$env:USERPROFILE\aiir" }
+        if (Test-Path "C:\Tools\vhir") { $InstallDir = "C:\Tools\vhir" }
+        elseif (Test-Path "$env:USERPROFILE\vhir") { $InstallDir = "$env:USERPROFILE\vhir" }
         else {
             Write-Warn "Could not find wintools-mcp installation directory"
             Write-Host "  Specify with: .\setup-windows.ps1 -Uninstall -InstallDir <path>"
@@ -319,7 +319,7 @@ if ($Uninstall) {
     Write-Info "Install directory: $InstallDir"
 
     # 1. Remove scheduled task
-    $taskName = "AIIR wintools-mcp"
+    $taskName = "ValiHuntIR wintools-mcp"
     try {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
@@ -335,7 +335,7 @@ if ($Uninstall) {
     }
 
     # 2. Remove firewall rule
-    $ruleName = "AIIR wintools-mcp"
+    $ruleName = "ValiHuntIR wintools-mcp"
     try {
         $rule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if ($rule) {
@@ -351,7 +351,7 @@ if ($Uninstall) {
     }
 
     # 3. Remove environment variables
-    foreach ($varName in @("AIIR_EXAMINER", "AIIR_CASE_DIR", "AIIR_ACTIVE_CASE", "AIIR_SHARE_ROOT", "AIIR_AUDIT_DIR", "WINTOOLS_CASE_ROOT")) {
+    foreach ($varName in @("VHIR_EXAMINER", "VHIR_CASE_DIR", "VHIR_ACTIVE_CASE", "VHIR_SHARE_ROOT", "VHIR_AUDIT_DIR", "WINTOOLS_CASE_ROOT")) {
         $userVal = [Environment]::GetEnvironmentVariable($varName, "User")
         $machVal = [Environment]::GetEnvironmentVariable($varName, "Machine")
         if ($userVal -or $machVal) {
@@ -384,7 +384,7 @@ if ($Uninstall) {
     Write-Host ""
     Write-Ok "Uninstall complete"
     Write-Host "  Note: On the SIFT workstation, also run:" -ForegroundColor Yellow
-    Write-Host "    aiir setup client --uninstall    (removes MCP config entries)" -ForegroundColor Gray
+    Write-Host "    vhir setup client --uninstall    (removes MCP config entries)" -ForegroundColor Gray
     exit 0
 }
 
@@ -406,8 +406,8 @@ if ($Update) {
             $wintoolsDir = $scriptParent
             $InstallDir = Split-Path $scriptParent -Parent
         }
-        elseif (Test-Path "C:\Tools\aiir") { $InstallDir = "C:\Tools\aiir" }
-        elseif (Test-Path "$env:USERPROFILE\aiir") { $InstallDir = "$env:USERPROFILE\aiir" }
+        elseif (Test-Path "C:\Tools\vhir") { $InstallDir = "C:\Tools\vhir" }
+        elseif (Test-Path "$env:USERPROFILE\vhir") { $InstallDir = "$env:USERPROFILE\vhir" }
         else {
             Write-Err "Could not find wintools-mcp installation. Use -InstallDir to specify."
             exit 1
@@ -555,7 +555,7 @@ if ($Update) {
     }
 
     # 5. Restart via scheduled task, or tell user to start manually
-    $taskName = "AIIR wintools-mcp"
+    $taskName = "ValiHuntIR wintools-mcp"
     try {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
@@ -587,7 +587,7 @@ if ($Update) {
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor White
-Write-Host "  AIIR - Artificial Intelligence Incident Response" -ForegroundColor White
+Write-Host "  ValiHuntIR - Validated Hunting for Incident Response" -ForegroundColor White
 Write-Host "  Windows Workstation Installer" -ForegroundColor White
 Write-Host "============================================================" -ForegroundColor White
 Write-Host ""
@@ -595,7 +595,7 @@ Write-Host ""
 if ($Standalone) {
     Write-Host "  Mode: Standalone (local case directory)" -ForegroundColor Cyan
 } else {
-    Write-Host "  Mode: AIIR-integrated (SMB to SIFT workstation)" -ForegroundColor Cyan
+    Write-Host "  Mode: ValiHuntIR-integrated (SMB to SIFT workstation)" -ForegroundColor Cyan
 }
 Write-Host ""
 
@@ -794,9 +794,9 @@ if ($networkOk) {
 Write-Header "Phase 2: Installing wintools-mcp"
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-    $defaultDir = "C:\Tools\aiir"
+    $defaultDir = "C:\Tools\vhir"
     if (-not (Test-Path "C:\Tools")) {
-        $defaultDir = "$env:USERPROFILE\aiir"
+        $defaultDir = "$env:USERPROFILE\vhir"
     }
     $InstallDir = Read-Prompt "Specify installation directory" $defaultDir
 }
@@ -1012,7 +1012,7 @@ try {
 $examinerDeferred = $false
 
 if (-not $Standalone -and [string]::IsNullOrWhiteSpace($Examiner)) {
-    # AIIR mode without -Examiner flag: defer prompt to after join so we can
+    # ValiHuntIR mode without -Examiner flag: defer prompt to after join so we can
     # default to the SIFT examiner name from the join response.
     $examinerDeferred = $true
 } else {
@@ -1041,24 +1041,24 @@ if (-not $Standalone -and [string]::IsNullOrWhiteSpace($Examiner)) {
 
     # Save config
     try {
-        $aiirConfigDir = Join-Path $env:USERPROFILE ".aiir"
-        if (-not (Test-Path $aiirConfigDir)) {
-            New-Item -ItemType Directory -Path $aiirConfigDir -Force | Out-Null
+        $vhirConfigDir = Join-Path $env:USERPROFILE ".vhir"
+        if (-not (Test-Path $vhirConfigDir)) {
+            New-Item -ItemType Directory -Path $vhirConfigDir -Force | Out-Null
         }
-        "examiner: $Examiner" | Set-Content -Path (Join-Path $aiirConfigDir "config.yaml") -Encoding UTF8
+        "examiner: $Examiner" | Set-Content -Path (Join-Path $vhirConfigDir "config.yaml") -Encoding UTF8
         Write-Ok "Saved examiner identity: $Examiner"
     } catch {
-        Write-Warn "Could not save examiner config to ~/.aiir/config.yaml"
+        Write-Warn "Could not save examiner config to ~/.vhir/config.yaml"
     }
 
     # Set env var persistently
     try {
-        [Environment]::SetEnvironmentVariable("AIIR_EXAMINER", $Examiner, "User")
-        $env:AIIR_EXAMINER = $Examiner
-        Write-Ok "Set AIIR_EXAMINER=$Examiner"
+        [Environment]::SetEnvironmentVariable("VHIR_EXAMINER", $Examiner, "User")
+        $env:VHIR_EXAMINER = $Examiner
+        Write-Ok "Set VHIR_EXAMINER=$Examiner"
     } catch {
-        Write-Warn "Could not set AIIR_EXAMINER environment variable"
-        $env:AIIR_EXAMINER = $Examiner
+        Write-Warn "Could not set VHIR_EXAMINER environment variable"
+        $env:VHIR_EXAMINER = $Examiner
     }
 }
 
@@ -1127,7 +1127,7 @@ Write-Info "Generating tool inventory report..."
 $overviewPath = Join-Path $InstallDir "TOOLS_OVERVIEW.md"
 # Write Python script to temp file to avoid PS here-string quoting issues with
 # nested double-quotes in f-strings (PS 5.1 mangles them when passed via -c)
-$overviewScript = Join-Path $env:TEMP "aiir_overview.py"
+$overviewScript = Join-Path $env:TEMP "vhir_overview.py"
 try {
 @'
 import sys
@@ -1146,7 +1146,7 @@ for name, td in sorted(catalog.items()):
         missing.append((td.name, td.category, td.description or ""))
 
 lines = []
-lines.append(f"# AIIR Tool Inventory - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+lines.append(f"# ValiHuntIR Tool Inventory - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 lines.append("")
 lines.append(f"Generated by setup-windows.ps1 on {datetime.now().strftime('%Y-%m-%d')}.")
 lines.append("wintools-mcp rescans automatically on each discovery call.")
@@ -1251,8 +1251,8 @@ if ($Standalone) {
     Write-Host "    $caseDir\INC-2026-0001\" -ForegroundColor White
     Write-Host "    $caseDir\INC-2026-0001\audit\" -ForegroundColor White
     Write-Host ""
-    Write-Host "  Set AIIR_CASE_DIR before starting a case:" -ForegroundColor White
-    Write-Host "    set AIIR_CASE_DIR=$caseDir\INC-2026-0001" -ForegroundColor White
+    Write-Host "  Set VHIR_CASE_DIR before starting a case:" -ForegroundColor White
+    Write-Host "    set VHIR_CASE_DIR=$caseDir\INC-2026-0001" -ForegroundColor White
     Write-Host ""
     Write-Host "  Place evidence working copies in the case directory." -ForegroundColor White
     Write-Host "  Tool output and audit entries are written to the audit subdirectory." -ForegroundColor White
@@ -1260,21 +1260,21 @@ if ($Standalone) {
 
     # Save standalone config (Machine level so SYSTEM scheduled task can see it)
     try {
-        [Environment]::SetEnvironmentVariable("AIIR_CASE_DIR", $caseDir, "Machine")
+        [Environment]::SetEnvironmentVariable("VHIR_CASE_DIR", $caseDir, "Machine")
         [Environment]::SetEnvironmentVariable("WINTOOLS_CASE_ROOT", $caseDir, "Machine")
-        $env:AIIR_CASE_DIR = $caseDir
+        $env:VHIR_CASE_DIR = $caseDir
         $env:WINTOOLS_CASE_ROOT = $caseDir
-        Write-Ok "Set AIIR_CASE_DIR=$caseDir (machine-level)"
+        Write-Ok "Set VHIR_CASE_DIR=$caseDir (machine-level)"
     } catch {
         # Fall back to User level if not running as admin
         try {
-            [Environment]::SetEnvironmentVariable("AIIR_CASE_DIR", $caseDir, "User")
+            [Environment]::SetEnvironmentVariable("VHIR_CASE_DIR", $caseDir, "User")
             [Environment]::SetEnvironmentVariable("WINTOOLS_CASE_ROOT", $caseDir, "User")
-            Write-Warn "Set AIIR_CASE_DIR at User level (run as Administrator for Machine level)"
+            Write-Warn "Set VHIR_CASE_DIR at User level (run as Administrator for Machine level)"
         } catch {
-            Write-Warn "Could not set AIIR_CASE_DIR environment variable"
+            Write-Warn "Could not set VHIR_CASE_DIR environment variable"
         }
-        $env:AIIR_CASE_DIR = $caseDir
+        $env:VHIR_CASE_DIR = $caseDir
         $env:WINTOOLS_CASE_ROOT = $caseDir
     }
 
@@ -1283,7 +1283,7 @@ if ($Standalone) {
         $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
         $bytes = New-Object byte[] 12
         $rng.GetBytes($bytes)
-        $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+        $wintoolsApiKey = "vhir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
         $rng.Dispose()
         Write-Ok "Generated API key: $(Mask-ApiKey $wintoolsApiKey)"
     } catch {
@@ -1321,8 +1321,8 @@ $toolPathsYaml
         Write-Info "Existing config found -- preserving: $wintoolsConfigPath"
     }
 } else {
-    # --- AIIR mode: join gateway + SMB to SIFT ---
-    Write-Host "  In AIIR mode, wintools-mcp joins the SIFT gateway." -ForegroundColor White
+    # --- ValiHuntIR mode: join gateway + SMB to SIFT ---
+    Write-Host "  In ValiHuntIR mode, wintools-mcp joins the SIFT gateway." -ForegroundColor White
     Write-Host "  The case directory is shared via SMB and mapped" -ForegroundColor White
     Write-Host "  automatically during the join process." -ForegroundColor White
     Write-Host ""
@@ -1375,7 +1375,7 @@ $toolPathsYaml
         $joinCodeValue = $JoinCode
     } else {
         # Join code first — by the time the user has it, SIFT IP is known
-        Write-Host "  On the SIFT workstation, run: aiir setup join-code" -ForegroundColor Cyan
+        Write-Host "  On the SIFT workstation, run: vhir setup join-code" -ForegroundColor Cyan
         Write-Host ""
         $joinCodeValue = Read-Prompt "Join code from SIFT workstation (blank to skip)" ""
 
@@ -1452,11 +1452,11 @@ $toolPathsYaml
                 Write-Host "  The gateway may still be bound to localhost." -ForegroundColor White
                 Write-Host "  On the SIFT workstation, run:" -ForegroundColor White
                 Write-Host ""
-                Write-Host "    sed -i 's/host: 127.0.0.1/host: 0.0.0.0/' ~/.aiir/gateway.yaml" -ForegroundColor Cyan
-                Write-Host "    systemctl --user restart aiir-gateway" -ForegroundColor Cyan
+                Write-Host "    sed -i 's/host: 127.0.0.1/host: 0.0.0.0/' ~/.vhir/gateway.yaml" -ForegroundColor Cyan
+                Write-Host "    systemctl --user restart vhir-gateway" -ForegroundColor Cyan
                 Write-Host ""
                 Write-Host "  Other possibilities:" -ForegroundColor Gray
-                Write-Host "    - Gateway not running (aiir service status)" -ForegroundColor Gray
+                Write-Host "    - Gateway not running (vhir service status)" -ForegroundColor Gray
                 Write-Host "    - Firewall blocking port $siftPort" -ForegroundColor Gray
                 if (-not $NonInteractive) {
                     Write-Host ""
@@ -1482,7 +1482,7 @@ $toolPathsYaml
             if (-not $gatewayReachable) {
                 Write-Warn "Port is open but HTTP health check failed"
                 Write-Host "  The port is accepting connections but not responding to HTTP." -ForegroundColor Yellow
-                Write-Host "  Check that the AIIR gateway (not another service) is on port $siftPort." -ForegroundColor White
+                Write-Host "  Check that the ValiHuntIR gateway (not another service) is on port $siftPort." -ForegroundColor White
                 if (-not $NonInteractive) {
                     Write-Host ""
                     $retry = Read-Prompt "Press Enter to retry, or 'skip' to continue without gateway" ""
@@ -1552,7 +1552,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
             $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
             $bytes = New-Object byte[] 12
             $rng.GetBytes($bytes)
-            $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+            $wintoolsApiKey = "vhir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
             $rng.Dispose()
         } catch {
             Write-Warn "Could not generate API key for join"
@@ -1590,7 +1590,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                     Write-Ok "Gateway token received: $(Mask-ApiKey $joinData.gateway_token)"
                 }
                 if ($joinData.restart_required) {
-                    Write-Info "Gateway restart required. Run 'aiir service restart' on SIFT."
+                    Write-Info "Gateway restart required. Run 'vhir service restart' on SIFT."
                 }
             } catch {
                 $statusCode = $null
@@ -1692,24 +1692,24 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
 
         # Save config
         try {
-            $aiirConfigDir = Join-Path $env:USERPROFILE ".aiir"
-            if (-not (Test-Path $aiirConfigDir)) {
-                New-Item -ItemType Directory -Path $aiirConfigDir -Force | Out-Null
+            $vhirConfigDir = Join-Path $env:USERPROFILE ".vhir"
+            if (-not (Test-Path $vhirConfigDir)) {
+                New-Item -ItemType Directory -Path $vhirConfigDir -Force | Out-Null
             }
-            "examiner: $Examiner" | Set-Content -Path (Join-Path $aiirConfigDir "config.yaml") -Encoding UTF8
+            "examiner: $Examiner" | Set-Content -Path (Join-Path $vhirConfigDir "config.yaml") -Encoding UTF8
             Write-Ok "Saved examiner identity: $Examiner"
         } catch {
-            Write-Warn "Could not save examiner config to ~/.aiir/config.yaml"
+            Write-Warn "Could not save examiner config to ~/.vhir/config.yaml"
         }
 
         # Set env var persistently
         try {
-            [Environment]::SetEnvironmentVariable("AIIR_EXAMINER", $Examiner, "User")
-            $env:AIIR_EXAMINER = $Examiner
-            Write-Ok "Set AIIR_EXAMINER=$Examiner"
+            [Environment]::SetEnvironmentVariable("VHIR_EXAMINER", $Examiner, "User")
+            $env:VHIR_EXAMINER = $Examiner
+            Write-Ok "Set VHIR_EXAMINER=$Examiner"
         } catch {
-            Write-Warn "Could not set AIIR_EXAMINER environment variable"
-            $env:AIIR_EXAMINER = $Examiner
+            Write-Warn "Could not set VHIR_EXAMINER environment variable"
+            $env:VHIR_EXAMINER = $Examiner
         }
     }
 
@@ -1723,7 +1723,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
                 $bytes = New-Object byte[] 12
                 $rng.GetBytes($bytes)
-                $wintoolsApiKey = "aiir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+                $wintoolsApiKey = "vhir_wt_" + [BitConverter]::ToString($bytes).Replace("-", "").ToLower()
                 $rng.Dispose()
                 Write-Ok "Generated API key: $(Mask-ApiKey $wintoolsApiKey)"
             } catch {
@@ -1733,7 +1733,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
     }
 
     # Build TLS config section (empty string if no cert)
-    # No YAML double-quotes around paths: \a in C:\aiir is a YAML escape
+    # No YAML double-quotes around paths: \a in C:\vhir is a YAML escape
     # in double-quoted strings. Unquoted YAML treats backslash as literal.
     $tlsYaml = ""
     if (Test-Path $certPath) {
@@ -1780,7 +1780,7 @@ $toolPathsYaml$tlsYaml$smbYaml
         if (-not $joinSucceeded) {
             Write-Host ""
             Write-Host "  Add this snippet to your SIFT workstation's gateway.yaml" -ForegroundColor White
-            Write-Host "  File: ~/.aiir/gateway.yaml (under the 'backends:' key)" -ForegroundColor White
+            Write-Host "  File: ~/.vhir/gateway.yaml (under the 'backends:' key)" -ForegroundColor White
             Write-Host ""
             Write-Host "    wintools-mcp:" -ForegroundColor Gray
             Write-Host "      type: http" -ForegroundColor Gray
@@ -1788,16 +1788,16 @@ $toolPathsYaml$tlsYaml$smbYaml
             Write-Host "      bearer_token: `"$wintoolsApiKey`"" -ForegroundColor Gray
             Write-Host "      enabled: true" -ForegroundColor Gray
             if (Test-Path $certPath) {
-                Write-Host "      tls_cert: `"~/.aiir/tls/wintools-cert.pem`"" -ForegroundColor Gray
+                Write-Host "      tls_cert: `"~/.vhir/tls/wintools-cert.pem`"" -ForegroundColor Gray
             }
             Write-Host ""
             if (Test-Path $certPath) {
                 Write-Host "  Copy the cert to SIFT first:" -ForegroundColor White
-                Write-Host "    scp $certPath sift:~/.aiir/tls/wintools-cert.pem" -ForegroundColor Gray
+                Write-Host "    scp $certPath sift:~/.vhir/tls/wintools-cert.pem" -ForegroundColor Gray
                 Write-Host ""
             }
             Write-Host "  After pasting, restart the gateway:" -ForegroundColor White
-            Write-Host "    aiir service restart" -ForegroundColor Gray
+            Write-Host "    vhir service restart" -ForegroundColor Gray
             Write-Host ""
             Write-Host "  Clients then access wintools via the gateway at:" -ForegroundColor White
             Write-Host "    http://SIFT_IP:4508/mcp/wintools-mcp" -ForegroundColor Gray
@@ -1807,13 +1807,13 @@ $toolPathsYaml$tlsYaml$smbYaml
             $snippetPath = Join-Path $InstallDir "gateway-snippet.yaml"
             $snippetTlsCert = ""
             if (Test-Path $certPath) {
-                $snippetTlsCert = "`n  tls_cert: ~/.aiir/tls/wintools-cert.pem"
+                $snippetTlsCert = "`n  tls_cert: ~/.vhir/tls/wintools-cert.pem"
             }
             try {
                 @"
 # Gateway backend snippet for wintools-mcp
 # Generated $(Get-Date -Format 'yyyy-MM-dd HH:mm')
-# Paste into ~/.aiir/gateway.yaml under the 'backends:' key on SIFT
+# Paste into ~/.vhir/gateway.yaml under the 'backends:' key on SIFT
 wintools-mcp:
   type: http
   url: "${wintoolsScheme}://${localIp}:${Port}/mcp"
@@ -1872,7 +1872,7 @@ if (-not $skipServerStart) {
         $startArgs += @("--config", $wintoolsConfigPath)
     }
     # Set env var before starting (PS 5.1 compatible -- -Environment requires PS 7+)
-    $env:AIIR_EXAMINER = $Examiner
+    $env:VHIR_EXAMINER = $Examiner
 
     try {
         $process = Start-Process -FilePath $venvPython -ArgumentList $startArgs -PassThru -WindowStyle Hidden
@@ -1885,18 +1885,18 @@ if (-not $skipServerStart) {
             if ($wintoolsScheme -eq "https") {
                 # PS 5.1: scriptblock-to-delegate for ServerCertificateValidationCallback
                 # is unreliable. Use ICertificatePolicy which PS 5.1 respects consistently.
-                if (-not ([System.Management.Automation.PSTypeName]'AiirTrustLocalCert').Type) {
+                if (-not ([System.Management.Automation.PSTypeName]'VhirTrustLocalCert').Type) {
                     Add-Type @"
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
-public class AiirTrustLocalCert : ICertificatePolicy {
+public class VhirTrustLocalCert : ICertificatePolicy {
     public bool CheckValidationResult(ServicePoint sp, X509Certificate cert,
         WebRequest req, int problem) { return true; }
 }
 "@
                 }
                 $previousPolicy = [System.Net.ServicePointManager]::CertificatePolicy
-                [System.Net.ServicePointManager]::CertificatePolicy = New-Object AiirTrustLocalCert
+                [System.Net.ServicePointManager]::CertificatePolicy = New-Object VhirTrustLocalCert
             }
             try {
                 $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
@@ -1950,13 +1950,13 @@ try {
         "# Start wintools-mcp in HTTP mode",
         "# Environment vars set here because the scheduled task runs as SYSTEM",
         "# which doesn't see User-level environment variables",
-        "`$env:AIIR_EXAMINER = `"$Examiner`""
+        "`$env:VHIR_EXAMINER = `"$Examiner`""
     )
-    if ($env:AIIR_CASE_DIR) {
-        $startupLines += "`$env:AIIR_CASE_DIR = `"$($env:AIIR_CASE_DIR)`""
+    if ($env:VHIR_CASE_DIR) {
+        $startupLines += "`$env:VHIR_CASE_DIR = `"$($env:VHIR_CASE_DIR)`""
     }
-    if ($env:AIIR_ACTIVE_CASE) {
-        $startupLines += "`$env:AIIR_ACTIVE_CASE = `"$($env:AIIR_ACTIVE_CASE)`""
+    if ($env:VHIR_ACTIVE_CASE) {
+        $startupLines += "`$env:VHIR_ACTIVE_CASE = `"$($env:VHIR_ACTIVE_CASE)`""
     }
     $startupLines += "& `"$venvPython`" -m wintools_mcp $scriptArgs"
     ($startupLines -join "`r`n") | Set-Content -Path $startupPath -Encoding UTF8
@@ -1966,7 +1966,7 @@ try {
 
 if ($startChoice -eq "1" -and -not $skipServerStart) {
     # Register scheduled task for auto-start
-    $taskName = "AIIR wintools-mcp"
+    $taskName = "ValiHuntIR wintools-mcp"
 
     if ($serverHealthy) {
         try {
@@ -1977,7 +1977,7 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
                 Write-Info "Removed existing scheduled task"
             }
 
-            # Run the startup script (which sets AIIR_EXAMINER and passes --config)
+            # Run the startup script (which sets VHIR_EXAMINER and passes --config)
             $action = New-ScheduledTaskAction `
                 -Execute "powershell.exe" `
                 -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startupPath`""
@@ -1996,7 +1996,7 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
                 -Settings $settings `
                 -RunLevel Highest `
                 -User "SYSTEM" `
-                -Description "AIIR wintools-mcp forensic tool server" | Out-Null
+                -Description "ValiHuntIR wintools-mcp forensic tool server" | Out-Null
 
             Write-Ok "Scheduled task registered: $taskName"
             Write-Ok "Will auto-start at boot"
@@ -2015,7 +2015,7 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
 
     # Add firewall rule
     try {
-        $ruleName = "AIIR wintools-mcp"
+        $ruleName = "ValiHuntIR wintools-mcp"
         $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if (-not $existingRule) {
             if ($siftIp -and $siftIp -ne "THIS_MACHINE_IP") {
@@ -2032,7 +2032,7 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
         }
     } catch {
         Write-Warn "Could not add firewall rule (run as Administrator)"
-        Write-Host "  Manual: netsh advfirewall firewall add rule name=`"AIIR wintools-mcp`" dir=in action=allow protocol=TCP localport=$Port"
+        Write-Host "  Manual: netsh advfirewall firewall add rule name=`"ValiHuntIR wintools-mcp`" dir=in action=allow protocol=TCP localport=$Port"
     }
 } else {
     Write-Ok "Generated startup script: $startupPath"
@@ -2071,7 +2071,7 @@ if ($Standalone) {
     Write-Host "  Mode:           Standalone (local case directory)"
     Write-Host "  Case root:      $caseDir"
 } else {
-    Write-Host "  Mode:           AIIR-integrated (SMB to SIFT)"
+    Write-Host "  Mode:           ValiHuntIR-integrated (SMB to SIFT)"
 }
 
 Write-Host ""
@@ -2092,7 +2092,7 @@ if (-not $Standalone) {
         Write-Host "        bearer_token: `"$wintoolsApiKey`""
         Write-Host "        enabled: true"
         if (Test-Path $certPath) {
-            Write-Host "        tls_cert: `"~/.aiir/tls/wintools-cert.pem`""
+            Write-Host "        tls_cert: `"~/.vhir/tls/wintools-cert.pem`""
         }
         Write-Host ""
         if (Test-Path $snippetPath) {
@@ -2106,7 +2106,7 @@ if (-not $Standalone) {
         Write-Host "        url: `"${wintoolsScheme}://${localIp}:${Port}/mcp`""
         Write-Host "        enabled: true"
         if (Test-Path $certPath) {
-            Write-Host "        tls_cert: `"~/.aiir/tls/wintools-cert.pem`""
+            Write-Host "        tls_cert: `"~/.vhir/tls/wintools-cert.pem`""
         }
     }
     Write-Host ""
@@ -2123,9 +2123,9 @@ if ($Standalone -or -not $joinSucceeded) {
     Write-Host ""
     Write-Host "  On the analyst machine, run:" -ForegroundColor White
     if ($Standalone) {
-        Write-Host "    aiir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
+        Write-Host "    vhir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
     } else {
-        Write-Host "    aiir setup client --sift=SIFT_IP:4508 --windows=${localIp}:${Port}" -ForegroundColor Gray
+        Write-Host "    vhir setup client --sift=SIFT_IP:4508 --windows=${localIp}:${Port}" -ForegroundColor Gray
     }
     Write-Host ""
     Write-Host "  Or add to .mcp.json manually:" -ForegroundColor White
@@ -2168,9 +2168,9 @@ if ($Standalone) {
     Write-Host "  2. Create a case directory:" -ForegroundColor White
     Write-Host "     mkdir $caseDir\INC-2026-0001" -ForegroundColor Gray
     Write-Host "  3. Set the active case:" -ForegroundColor White
-    Write-Host "     set AIIR_CASE_DIR=$caseDir\INC-2026-0001" -ForegroundColor Gray
+    Write-Host "     set VHIR_CASE_DIR=$caseDir\INC-2026-0001" -ForegroundColor Gray
     Write-Host "  4. Configure your LLM client:" -ForegroundColor White
-    Write-Host "     aiir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
+    Write-Host "     vhir setup client --windows=${localIp}:${Port}" -ForegroundColor Gray
     Write-Host "  5. Start investigating" -ForegroundColor White
 } elseif ($joinSucceeded) {
     if ($missingCount -gt 0) {
@@ -2183,7 +2183,7 @@ if ($Standalone) {
     Write-Host "  is handled automatically when you init/activate a case." -ForegroundColor Gray
     Write-Host ""
     Write-Host "  If you need an LLM client on this Windows machine:" -ForegroundColor Gray
-    Write-Host "     aiir setup client --sift=${siftIp}:${siftPort} --windows=${localIp}:${Port}" -ForegroundColor Gray
+    Write-Host "     vhir setup client --sift=${siftIp}:${siftPort} --windows=${localIp}:${Port}" -ForegroundColor Gray
 } else {
     if ($missingCount -gt 0) {
         Write-Host "  1. Install $missingCount missing forensic tool(s)" -ForegroundColor White
@@ -2192,15 +2192,15 @@ if ($Standalone) {
     Write-Host "  2. Complete SIFT gateway registration:" -ForegroundColor White
     Write-Host "     Re-run this installer with a valid join code, or register manually" -ForegroundColor Gray
     Write-Host "  3. Configure your LLM client (on SIFT or analyst machine):" -ForegroundColor White
-    Write-Host "     aiir setup client --sift=SIFT_IP:4508 --windows=${localIp}:${Port}" -ForegroundColor Gray
+    Write-Host "     vhir setup client --sift=SIFT_IP:4508 --windows=${localIp}:${Port}" -ForegroundColor Gray
     Write-Host "  4. Start investigating" -ForegroundColor White
 }
 Write-Host ""
 if ($Standalone -and $startChoice -eq "1" -and $serverHealthy -and -not $skipServerStart) {
-    Write-Host "  Note: AIIR_CASE_DIR is set per case and must be updated when" -ForegroundColor Yellow
+    Write-Host "  Note: VHIR_CASE_DIR is set per case and must be updated when" -ForegroundColor Yellow
     Write-Host "  switching cases. If using auto-start (scheduled task), set it" -ForegroundColor Yellow
     Write-Host "  as a Machine-level environment variable:" -ForegroundColor Yellow
-    Write-Host "    [Environment]::SetEnvironmentVariable(`"AIIR_CASE_DIR`", `"$caseDir\INC-2026-0001`", `"Machine`")" -ForegroundColor Gray
+    Write-Host "    [Environment]::SetEnvironmentVariable(`"VHIR_CASE_DIR`", `"$caseDir\INC-2026-0001`", `"Machine`")" -ForegroundColor Gray
     Write-Host "  Or restart wintools-mcp manually after changing cases." -ForegroundColor Yellow
     Write-Host ""
 }

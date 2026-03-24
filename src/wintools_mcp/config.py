@@ -38,7 +38,7 @@ class WintoolsConfig:
     )
     smb_user: str = ""
     smb_password: str = ""
-    audit_dir: str = ""  # Local audit directory (default: AIIR_CASE_DIR/audit/)
+    audit_dir: str = ""  # Local audit directory (default: VHIR_CASE_DIR/audit/)
 
     # HTTP mode
     http_host: str = "127.0.0.1"
@@ -67,7 +67,7 @@ class WintoolsConfig:
             )
         except ValueError:
             pass  # Keep YAML or default value
-        env_case = os.environ.get("AIIR_CASE_DIR", "").strip()
+        env_case = os.environ.get("VHIR_CASE_DIR", "").strip()
         if (
             env_case
             and Path(env_case).is_dir()
@@ -76,13 +76,13 @@ class WintoolsConfig:
             cfg.case_dir = env_case
         elif not env_case:
             cfg.case_dir = cfg.case_dir  # Keep YAML default
-        cfg.active_case = os.environ.get("AIIR_ACTIVE_CASE", cfg.active_case)
-        cfg.share_root = os.environ.get("AIIR_SHARE_ROOT", cfg.share_root)
-        cfg.audit_dir = os.environ.get("AIIR_AUDIT_DIR", cfg.audit_dir)
+        cfg.active_case = os.environ.get("VHIR_ACTIVE_CASE", cfg.active_case)
+        cfg.share_root = os.environ.get("VHIR_SHARE_ROOT", cfg.share_root)
+        cfg.audit_dir = os.environ.get("VHIR_AUDIT_DIR", cfg.audit_dir)
 
-        # Examiner identity: AIIR_EXAMINER > AIIR_ANALYST (deprecated) > OS username
+        # Examiner identity: VHIR_EXAMINER > VHIR_ANALYST (deprecated) > OS username
         # Set once at startup, immutable for process lifetime.
-        raw = os.environ.get("AIIR_EXAMINER") or os.environ.get("AIIR_ANALYST", "")
+        raw = os.environ.get("VHIR_EXAMINER") or os.environ.get("VHIR_ANALYST", "")
         if not raw:
             try:
                 raw = getpass.getuser()

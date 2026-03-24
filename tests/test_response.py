@@ -115,7 +115,7 @@ class TestBuildResponse:
         assert "extractions" not in resp
 
     def test_examiner_in_response(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "steve")
+        monkeypatch.setenv("VHIR_EXAMINER", "steve")
         resp = build_response(
             tool_name="run_test",
             success=True,

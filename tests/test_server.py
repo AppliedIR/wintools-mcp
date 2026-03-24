@@ -38,7 +38,7 @@ tools:
     (cat_dir / "timeline.yaml").write_text(timeline_yaml)
 
     monkeypatch.setenv("WINTOOLS_CATALOG_DIR", str(cat_dir))
-    monkeypatch.setenv("AIIR_EXAMINER", "testuser")
+    monkeypatch.setenv("VHIR_EXAMINER", "testuser")
     return cat_dir
 
 

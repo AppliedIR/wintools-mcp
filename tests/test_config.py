@@ -13,25 +13,25 @@ class TestWintoolsConfig:
         assert cfg.file_transfer_enabled is True
 
     def test_from_env_examiner_primary(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "Jane")
+        monkeypatch.setenv("VHIR_EXAMINER", "Jane")
         cfg = WintoolsConfig.from_env()
         assert cfg.examiner == "jane"  # lowercased
 
     def test_from_env_examiner_fallback_analyst(self, monkeypatch):
-        monkeypatch.delenv("AIIR_EXAMINER", raising=False)
-        monkeypatch.setenv("AIIR_ANALYST", "Steve")
+        monkeypatch.delenv("VHIR_EXAMINER", raising=False)
+        monkeypatch.setenv("VHIR_ANALYST", "Steve")
         cfg = WintoolsConfig.from_env()
         assert cfg.examiner == "steve"
 
     def test_from_env_examiner_fallback_os_user(self, monkeypatch):
-        monkeypatch.delenv("AIIR_EXAMINER", raising=False)
-        monkeypatch.delenv("AIIR_ANALYST", raising=False)
+        monkeypatch.delenv("VHIR_EXAMINER", raising=False)
+        monkeypatch.delenv("VHIR_ANALYST", raising=False)
         cfg = WintoolsConfig.from_env()
         assert cfg.examiner  # Should be something (OS username)
         assert cfg.examiner == cfg.examiner.lower()
 
     def test_examiner_sanitization(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "Jane@Company!")
+        monkeypatch.setenv("VHIR_EXAMINER", "Jane@Company!")
         cfg = WintoolsConfig.from_env()
         # Only lowercase alphanumeric + hyphens
         assert all(c.isalnum() or c == "-" for c in cfg.examiner)
@@ -40,12 +40,12 @@ class TestWintoolsConfig:
         case_dir = tmp_path / "INC-001"
         case_dir.mkdir()
         (case_dir / "CASE.yaml").write_text("case_id: test\n")
-        monkeypatch.setenv("AIIR_CASE_DIR", str(case_dir))
+        monkeypatch.setenv("VHIR_CASE_DIR", str(case_dir))
         cfg = WintoolsConfig.from_env()
         assert cfg.case_dir == str(case_dir)
 
     def test_active_case_from_env(self, monkeypatch):
-        monkeypatch.setenv("AIIR_ACTIVE_CASE", "INC-2026-001")
+        monkeypatch.setenv("VHIR_ACTIVE_CASE", "INC-2026-001")
         cfg = WintoolsConfig.from_env()
         assert cfg.active_case == "INC-2026-001"
 
@@ -71,16 +71,16 @@ class TestWintoolsConfig:
         assert cfg.http_port == 9000
 
     def test_share_root_from_env(self, monkeypatch):
-        monkeypatch.setenv("AIIR_SHARE_ROOT", "E:\\cases\\SRL2")
+        monkeypatch.setenv("VHIR_SHARE_ROOT", "E:\\cases\\SRL2")
         cfg = WintoolsConfig.from_env()
         assert cfg.share_root == "E:\\cases\\SRL2"
 
     def test_audit_dir_from_env(self, monkeypatch):
         monkeypatch.setenv(
-            "AIIR_AUDIT_DIR", "C:\\Users\\jane\\AppData\\Local\\aiir\\audit"
+            "VHIR_AUDIT_DIR", "C:\\Users\\jane\\AppData\\Local\\vhir\\audit"
         )
         cfg = WintoolsConfig.from_env()
-        assert cfg.audit_dir == "C:\\Users\\jane\\AppData\\Local\\aiir\\audit"
+        assert cfg.audit_dir == "C:\\Users\\jane\\AppData\\Local\\vhir\\audit"
 
     def test_share_root_from_yaml(self, tmp_path):
         yaml_file = tmp_path / "config.yaml"
@@ -97,7 +97,7 @@ class TestWintoolsConfig:
         assert cfg.audit_dir == ""
 
     def test_singleton(self, monkeypatch):
-        monkeypatch.setenv("AIIR_EXAMINER", "singleton-test")
+        monkeypatch.setenv("VHIR_EXAMINER", "singleton-test")
         cfg1 = get_config()
         cfg2 = get_config()
         assert cfg1 is cfg2

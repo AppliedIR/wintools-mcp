@@ -115,11 +115,11 @@ class TestExecutor:
             assert "\\" not in path or "/" in path
 
     def test_save_output_extractions_share_relative(self, tmp_path, monkeypatch):
-        """When AIIR_SHARE_ROOT is set, extractions use share-relative paths."""
+        """When VHIR_SHARE_ROOT is set, extractions use share-relative paths."""
         proc = _mock_popen(stdout=b"data")
 
         save_dir = str(tmp_path / "extractions")
-        monkeypatch.setenv("AIIR_SHARE_ROOT", str(tmp_path))
+        monkeypatch.setenv("VHIR_SHARE_ROOT", str(tmp_path))
 
         with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)
@@ -130,11 +130,11 @@ class TestExecutor:
         assert str(tmp_path) not in result["extractions"][0]
 
     def test_save_output_extractions_no_share_root(self, tmp_path, monkeypatch):
-        """Without AIIR_SHARE_ROOT, extractions contain full paths."""
+        """Without VHIR_SHARE_ROOT, extractions contain full paths."""
         proc = _mock_popen(stdout=b"data")
 
         save_dir = str(tmp_path / "extractions")
-        monkeypatch.delenv("AIIR_SHARE_ROOT", raising=False)
+        monkeypatch.delenv("VHIR_SHARE_ROOT", raising=False)
 
         with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)

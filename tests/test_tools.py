@@ -34,7 +34,7 @@ tools:
     (cat_dir / "zimmerman.yaml").write_text(yaml_content)
 
     monkeypatch.setenv("WINTOOLS_CATALOG_DIR", str(cat_dir))
-    monkeypatch.setenv("AIIR_EXAMINER", "testuser")
+    monkeypatch.setenv("VHIR_EXAMINER", "testuser")
     return cat_dir
 
 

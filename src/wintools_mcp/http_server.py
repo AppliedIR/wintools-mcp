@@ -184,8 +184,8 @@ async def activate_case(request: Request) -> JSONResponse:
     windows_case_dir = cfg.share_root  # Per-case share — UNC path IS the case dir
     cfg.case_dir = windows_case_dir
     cfg.active_case = case_id
-    os.environ["AIIR_CASE_DIR"] = windows_case_dir
-    os.environ["AIIR_ACTIVE_CASE"] = case_id
+    os.environ["VHIR_CASE_DIR"] = windows_case_dir
+    os.environ["VHIR_ACTIVE_CASE"] = case_id
 
     return JSONResponse(
         {
@@ -216,8 +216,8 @@ async def deactivate_case(request: Request) -> JSONResponse:
 
     cfg.case_dir = ""
     cfg.active_case = ""
-    os.environ.pop("AIIR_CASE_DIR", None)
-    os.environ.pop("AIIR_ACTIVE_CASE", None)
+    os.environ.pop("VHIR_CASE_DIR", None)
+    os.environ.pop("VHIR_ACTIVE_CASE", None)
     return JSONResponse({"status": "deactivated"})
 
 

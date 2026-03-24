@@ -33,12 +33,12 @@ def case_dir(tmp_path, monkeypatch):
     cd = tmp_path / "case"
     cd.mkdir()
     (cd / "CASE.yaml").write_text("case_id: test\n")
-    monkeypatch.setenv("AIIR_CASE_DIR", str(cd))
+    monkeypatch.setenv("VHIR_CASE_DIR", str(cd))
     return cd
 
 
 @pytest.fixture
 def examiner(monkeypatch):
     """Set examiner identity."""
-    monkeypatch.setenv("AIIR_EXAMINER", "testuser")
+    monkeypatch.setenv("VHIR_EXAMINER", "testuser")
     return "testuser"

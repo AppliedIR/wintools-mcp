@@ -1,11 +1,13 @@
+![ValiHuntIR](docs/images/vhir-logo.png)
+
 # Windows Tools MCP
 [![CI](https://github.com/AppliedIR/wintools-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AppliedIR/wintools-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/AppliedIR/wintools-mcp/blob/main/LICENSE)
 
 Catalog-gated Windows forensic tool execution with knowledge-enriched response envelopes.
 
-**[Platform Documentation](https://appliedir.github.io/aiir/)** ·
-[Deployment Guide](https://appliedir.github.io/aiir/deployment/)
+**[Platform Documentation](https://appliedir.github.io/vhir/)** ·
+[Deployment Guide](https://appliedir.github.io/vhir/deployment/)
 
 > **Public Beta** — This project is undergoing active feature development.
 > Backward compatibility with future releases is not guaranteed. Consider
@@ -14,13 +16,13 @@ Catalog-gated Windows forensic tool execution with knowledge-enriched response e
 
 ## Architecture
 
-wintools-mcp runs independently on a Windows forensic workstation, exposing a Streamable HTTP endpoint on port 4624. The LLM client and aiir CLI are the two human-facing tools. The aiir CLI always runs on the SIFT workstation — it requires direct filesystem access to the case directory. When the LLM client runs on a separate machine, the examiner must have SSH access to SIFT for all CLI operations. The LLM client connects to wintools-mcp over the network.
+wintools-mcp runs independently on a Windows forensic workstation, exposing a Streamable HTTP endpoint on port 4624. The LLM client and vhir CLI are the two human-facing tools. The vhir CLI always runs on the SIFT workstation — it requires direct filesystem access to the case directory. When the LLM client runs on a separate machine, the examiner must have SSH access to SIFT for all CLI operations. The LLM client connects to wintools-mcp over the network.
 
 ```mermaid
 graph LR
     subgraph sift ["SIFT Workstation"]
         CC["LLM Client<br/>(human interface)"]
-        CLI["aiir CLI<br/>(human interface)"]
+        CLI["vhir CLI<br/>(human interface)"]
         CASE["Case Directory"]
 
         CLI --> CASE
@@ -204,11 +206,11 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 | `WINTOOLS_PORT` | `4624` | HTTP server port |
 | `WINTOOLS_TOOL_PATHS` | (none) | Additional binary search directories (path-separated) |
 | `WINTOOLS_CATALOG_DIR` | (auto) | Override path to catalog YAML directory |
-| `AIIR_CASE_DIR` | (none) | Active case directory; enables per-case audit trail |
-| `AIIR_AUDIT_DIR` | (none) | Local audit directory (overrides AIIR_CASE_DIR/audit/) |
-| `AIIR_SHARE_ROOT` | (none) | SMB mount root for evidence reads and extraction writes (e.g., `E:\cases\SRL2\`) |
-| `AIIR_ACTIVE_CASE` | (none) | Case identifier recorded in audit entries |
-| `AIIR_EXAMINER` | OS user | Examiner identity (lowercase slug) |
+| `VHIR_CASE_DIR` | (none) | Active case directory; enables per-case audit trail |
+| `VHIR_AUDIT_DIR` | (none) | Local audit directory (overrides VHIR_CASE_DIR/audit/) |
+| `VHIR_SHARE_ROOT` | (none) | SMB mount root for evidence reads and extraction writes (e.g., `E:\cases\SRL2\`) |
+| `VHIR_ACTIVE_CASE` | (none) | Case identifier recorded in audit entries |
+| `VHIR_EXAMINER` | OS user | Examiner identity (lowercase slug) |
 
 ### YAML Config File
 
@@ -227,12 +229,12 @@ Pass via `--config path/to/config.yaml`. Environment variables override YAML val
 
 ### Bearer Token Authentication
 
-All API requests require a valid bearer token. Tokens are generated during installation with the `aiir_wt_` prefix (24 hex characters, 96 bits of entropy). The token is stored in `config.yaml` under `api_keys` and displayed post-install for the examiner to copy to their SIFT gateway configuration.
+All API requests require a valid bearer token. Tokens are generated during installation with the `vhir_wt_` prefix (24 hex characters, 96 bits of entropy). The token is stored in `config.yaml` under `api_keys` and displayed post-install for the examiner to copy to their SIFT gateway configuration.
 
 ```yaml
 # config.yaml (on Windows)
 api_keys:
-  aiir_wt_a1b2c3d4e5f6a1b2c3d4e5f6:
+  vhir_wt_a1b2c3d4e5f6a1b2c3d4e5f6:
     examiner: "default"
     role: "examiner"
 ```
@@ -248,34 +250,34 @@ backends:
   wintools-mcp:
     type: http
     url: "http://WIN_IP:4624/mcp"
-    bearer_token: "aiir_wt_..."
+    bearer_token: "vhir_wt_..."
 ```
 
-Alternatively, `aiir setup` prompts for the Windows VM address and token during interactive configuration.
+Alternatively, `vhir setup` prompts for the Windows VM address and token during interactive configuration.
 
 LLM clients can also connect directly to wintools-mcp without going through the gateway, using the same bearer token in their MCP client configuration.
 
 ### Audit Trail
 
-Every tool execution is logged to the audit directory. Resolution order: explicit `audit_dir` constructor parameter > `AIIR_AUDIT_DIR` env var > `AIIR_CASE_DIR/audit/`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
+Every tool execution is logged to the audit directory. Resolution order: explicit `audit_dir` constructor parameter > `VHIR_AUDIT_DIR` env var > `VHIR_CASE_DIR/audit/`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
 
 ## Security Considerations
 
-All AIIR components are assumed to run on an isolated forensic network, protected by firewalls, and not exposed to the Internet or untrusted systems. wintools-mcp accepts incoming connections from the SIFT gateway and LLM clients within this network. These inter-component connections are expected and intentional. The system must never be exposed to networks outside the forensic environment.
+All ValiHuntIR components are assumed to run on an isolated forensic network, protected by firewalls, and not exposed to the Internet or untrusted systems. wintools-mcp accepts incoming connections from the SIFT gateway and LLM clients within this network. These inter-component connections are expected and intentional. The system must never be exposed to networks outside the forensic environment.
 
-All API requests require a valid bearer token (`aiir_wt_` prefix). Tokens are generated during installation and must be securely transferred to the SIFT gateway configuration or LLM client setup. The `--no-auth` flag is for development only and must not be used in any environment with real evidence.
+All API requests require a valid bearer token (`vhir_wt_` prefix). Tokens are generated during installation and must be securely transferred to the SIFT gateway configuration or LLM client setup. The `--no-auth` flag is for development only and must not be used in any environment with real evidence.
 
 Any data loaded into the system runs the risk of being exposed to the underlying AI. Only place data on these systems that you are willing to send to your AI provider.
 
 wintools-mcp parses forensic artifacts (registry hives, event logs, prefetch files, memory dumps) that may contain hostile content crafted by an attacker. Tools run as subprocesses with `shell=False` and catalog-gated execution to limit attack surface. The hardcoded denylist, catalog allowlist, and argument sanitization are defense-in-depth measures, not preventative controls.
 
-Case directory access via SMB share should use authenticated connections. The share should be restricted to the AIIR components that need access. Read-only access is sufficient for evidence files; write access is needed for extractions and audit entries.
+Case directory access via SMB share should use authenticated connections. The share should be restricted to the ValiHuntIR components that need access. Read-only access is sufficient for evidence files; write access is needed for extractions and audit entries.
 
 ## Evidence Handling
 
-Never place original evidence on any AIIR system. Only use working copies for which verified originals or backups exist. AIIR workstations process evidence through AI-connected tools, and any data loaded into these systems may be transmitted to the configured AI provider. Treat all AIIR systems as analysis environments, not evidence storage.
+Never place original evidence on any ValiHuntIR system. Only use working copies for which verified originals or backups exist. ValiHuntIR workstations process evidence through AI-connected tools, and any data loaded into these systems may be transmitted to the configured AI provider. Treat all ValiHuntIR systems as analysis environments, not evidence storage.
 
-Evidence integrity is verified by SHA-256 hashes recorded at registration. Examiners can optionally lock evidence to read-only via `aiir evidence lock`. Proper evidence integrity depends on verified hashes, write blockers, and chain-of-custody procedures that exist outside this platform.
+Evidence integrity is verified by SHA-256 hashes recorded at registration. Examiners can optionally lock evidence to read-only via `vhir evidence lock`. Proper evidence integrity depends on verified hashes, write blockers, and chain-of-custody procedures that exist outside this platform.
 
 Case directories can reside on external or removable media. ext4 is preferred for full permission support. NTFS and exFAT are acceptable but file permission controls (read-only protection) will be silently ineffective. FAT32 is discouraged due to the 4 GB file size limit.
 
