@@ -579,7 +579,7 @@ if ($Update) {
                 $null = git clone --depth 1 --filter=blob:none --sparse "${githubOrg}/sift-mcp.git" $fkTempDir 2>&1
                 if ($LASTEXITCODE -ne 0) { throw "git clone failed (exit $LASTEXITCODE)" }
                 Push-Location $fkTempDir
-                $null = git sparse-checkout set packages/forensic-knowledge 2>&1
+                $null = git sparse-checkout set "packages/forensic-knowledge" 2>&1
                 if ($LASTEXITCODE -ne 0) { throw "sparse-checkout failed (exit $LASTEXITCODE)" }
                 Pop-Location
                 $fkLocalDir = Join-Path $fkTempDir "packages" "forensic-knowledge"
@@ -1013,7 +1013,7 @@ if (-not $fkInstalled) {
                 $null = git clone --depth 1 --filter=blob:none --sparse "${githubOrg}/sift-mcp.git" $fkTempDir 2>&1
                 if ($LASTEXITCODE -ne 0) { throw "git clone failed (exit $LASTEXITCODE)" }
                 Push-Location $fkTempDir
-                $null = git sparse-checkout set packages/forensic-knowledge 2>&1
+                $null = git sparse-checkout set "packages/forensic-knowledge" 2>&1
                 if ($LASTEXITCODE -ne 0) { throw "sparse-checkout failed (exit $LASTEXITCODE)" }
                 Pop-Location
                 $fkLocalDir = Join-Path $fkTempDir "packages" "forensic-knowledge"
