@@ -425,6 +425,16 @@ if ($Update) {
     if (-not $wintoolsDir) {
         $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
     }
+
+    # Warn if running from a different location than the installed copy
+    $scriptSource = Split-Path $PSScriptRoot -Parent
+    if ($scriptSource -ne $wintoolsDir) {
+        Write-Warn "You are running from: $scriptSource"
+        Write-Warn "Installed copy is at: $wintoolsDir"
+        Write-Host "  The update will apply to the installed copy." -ForegroundColor Yellow
+        Write-Host "  Run future commands from: cd $wintoolsDir" -ForegroundColor Yellow
+        Write-Host ""
+    }
     # Install creates .venv inside $wintoolsDir, not $InstallDir/venv
     $venvDir = Join-Path $wintoolsDir ".venv"
     $venvPython = Join-Path $venvDir "Scripts\python.exe"
