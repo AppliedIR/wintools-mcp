@@ -263,14 +263,22 @@ function Set-StaticIP {
     $dns = (Get-DnsClientServerAddress -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses
 
     try {
-        $null = Remove-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -Confirm:$false -ErrorAction Stop
+        # Remove existing IP and gateway route to avoid "already exists" errors
+        $null = Remove-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+        $null = Remove-NetRoute -InterfaceIndex $idx -DestinationPrefix "0.0.0.0/0" -Confirm:$false -ErrorAction SilentlyContinue
         $null = New-NetIPAddress -InterfaceIndex $idx -IPAddress $IP -PrefixLength $prefix -DefaultGateway $gw -ErrorAction Stop
         if ($dns) { $null = Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses $dns }
     } catch {
-        Write-Err "Failed to set static IP (requires Administrator): $_"
-        Write-Host "  Run this installer as Administrator, or set the IP manually:" -ForegroundColor Yellow
-        Write-Host "  netsh interface ipv4 set address `"$($adapter.InterfaceAlias)`" static $IP $prefix $gw" -ForegroundColor Gray
-        return $null
+        # Fallback: try netsh which handles existing routes gracefully
+        Write-Warn "PowerShell cmdlet failed, trying netsh..."
+        $mask = if ($prefix -eq 24) { "255.255.255.0" } elseif ($prefix -eq 16) { "255.255.0.0" } else { "255.255.255.0" }
+        $netshResult = netsh interface ipv4 set address "$($adapter.InterfaceAlias)" static $IP $mask $gw
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "Failed to set static IP (requires Administrator): $_"
+            Write-Host "  Run this installer as Administrator, or set the IP manually:" -ForegroundColor Yellow
+            Write-Host "  netsh interface ipv4 set address `"$($adapter.InterfaceAlias)`" static $IP $mask $gw" -ForegroundColor Gray
+            return $null
+        }
     }
 
     # Write network.yaml
