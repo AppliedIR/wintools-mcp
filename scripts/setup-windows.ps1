@@ -152,6 +152,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Enforce TLS 1.2 — PS 5.1 defaults to SSL3/TLS1.0 which GitHub rejects
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 $process = $null
 $skipServerStart = $false
 $serverHealthy = $false
@@ -270,7 +273,13 @@ function Set-StaticIP {
     # Use netsh — single atomic operation, sets static even if IP matches (DHCP → static)
     $mask = switch ($prefix) { 24 { "255.255.255.0" } 16 { "255.255.0.0" } 8 { "255.0.0.0" } default { "255.255.255.0" } }
     $adapterName = $adapter.InterfaceAlias
-    $null = netsh interface ipv4 set address "$adapterName" static $IP $mask $gw 2>&1
+    $prevEAPNetsh = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $null = & netsh interface ipv4 set address "$adapterName" static $IP $mask $gw 2>&1
+    } finally {
+        $ErrorActionPreference = $prevEAPNetsh
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Err "Failed to set static IP (may require Administrator)"
         Write-Host "  Run this installer as Administrator, or set the IP manually:" -ForegroundColor Yellow
@@ -386,7 +395,16 @@ if ($Uninstall) {
         }
     }
 
-    # 4. Remove install directory (venv, source, config)
+    # 4. Kill running wintools process before removing files
+    $wintoolsProcs = Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -like "*wintools*" }
+    if ($wintoolsProcs) {
+        $wintoolsProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Write-Ok "Stopped running wintools process(es)"
+    }
+
+    # 5. Remove install directory (venv, source, config)
     if (Test-Path $InstallDir) {
         $dirSize = "{0:N1} MB" -f ((Get-ChildItem -Recurse -File $InstallDir -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB)
         if (Read-YesNo "Remove install directory $InstallDir ($dirSize)?" $false) {
@@ -548,23 +566,33 @@ if ($Update) {
 
     # 2. Reinstall package
     Write-Info "Reinstalling wintools-mcp..."
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
-        & $venvPython -m pip install --progress-bar off -e $wintoolsDir 2>&1 | Out-Null
+        $null = & $venvPython -m pip install --progress-bar off -e $wintoolsDir 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
         Write-Ok "Package reinstalled"
     } catch {
         Write-Err "pip install failed: $_"
         exit 1
+    } finally {
+        $ErrorActionPreference = $prevEAP
     }
 
     # 3. Reinstall FK if present (local copy or from sift-mcp repo)
     $fkDir = Join-Path $InstallDir "forensic-knowledge"
     $githubOrg = "https://github.com/AppliedIR"
     if (Test-Path $fkDir) {
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         try {
-            & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1 | Out-Null
+            $null = & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
             Write-Ok "forensic-knowledge reinstalled (local)"
         } catch {
             Write-Warn "FK reinstall failed (non-fatal)"
+        } finally {
+            $ErrorActionPreference = $prevEAP
         }
     } else {
         # Install FK from GitHub archive URL — no git required
@@ -600,14 +628,67 @@ if ($Update) {
             if ($t) { $task = $t; $taskName = $name; break }
         } catch {}
     }
+    $currentTaskName = "Valhuntir wintools-mcp"
     try {
         if ($task) {
+            # If found under old name, re-register under current name
+            if ($taskName -ne $currentTaskName) {
+                Write-Info "Renaming scheduled task from '$taskName' to '$currentTaskName'..."
+                # Capture task action before unregistering
+                $oldAction = (Get-ScheduledTask -TaskName $taskName).Actions[0]
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+                $action = New-ScheduledTaskAction `
+                    -Execute $oldAction.Execute `
+                    -Argument $oldAction.Arguments
+                $trigger = New-ScheduledTaskTrigger -AtStartup
+                $settings = New-ScheduledTaskSettingsSet `
+                    -AllowStartIfOnBatteries `
+                    -DontStopIfGoingOnBatteries `
+                    -StartWhenAvailable `
+                    -RestartCount 3 `
+                    -RestartInterval (New-TimeSpan -Minutes 1)
+                Register-ScheduledTask `
+                    -TaskName $currentTaskName `
+                    -Action $action `
+                    -Trigger $trigger `
+                    -Settings $settings `
+                    -RunLevel Highest `
+                    -User "SYSTEM" `
+                    -Description "Valhuntir wintools-mcp forensic tool server" | Out-Null
+                Write-Ok "Scheduled task renamed to '$currentTaskName'"
+                $taskName = $currentTaskName
+            }
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
             Start-ScheduledTask -TaskName $taskName
             Write-Ok "Scheduled task restarted"
-        } elseif ($wintoolsProcs) {
-            Write-Warn "Stopped running wintools process but no scheduled task found to restart it"
-            Write-Info "Start manually: & $venvPython -m wintools_mcp --host 0.0.0.0 --port $Port"
+        } else {
+            # No task found — recreate from start-wintools.ps1 if available
+            $startupPath = Join-Path $InstallDir "start-wintools.ps1"
+            if (Test-Path $startupPath) {
+                $action = New-ScheduledTaskAction `
+                    -Execute "powershell.exe" `
+                    -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startupPath`""
+                $trigger = New-ScheduledTaskTrigger -AtStartup
+                $settings = New-ScheduledTaskSettingsSet `
+                    -AllowStartIfOnBatteries `
+                    -DontStopIfGoingOnBatteries `
+                    -StartWhenAvailable `
+                    -RestartCount 3 `
+                    -RestartInterval (New-TimeSpan -Minutes 1)
+                Register-ScheduledTask `
+                    -TaskName $currentTaskName `
+                    -Action $action `
+                    -Trigger $trigger `
+                    -Settings $settings `
+                    -RunLevel Highest `
+                    -User "SYSTEM" `
+                    -Description "Valhuntir wintools-mcp forensic tool server" | Out-Null
+                Start-ScheduledTask -TaskName $currentTaskName
+                Write-Ok "Scheduled task recreated: $currentTaskName"
+            } elseif ($wintoolsProcs) {
+                Write-Warn "Stopped running wintools process but no scheduled task found to restart it"
+                Write-Info "Start manually: & $venvPython -m wintools_mcp --host 0.0.0.0 --port $Port"
+            }
         }
     } catch {
         Write-Warn "Could not restart scheduled task: $_"
@@ -740,13 +821,18 @@ if (-not $pythonCmd) {
 }
 
 # pip
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 try {
-    & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m pip --version 2>&1 | Out-Null
+    $null = & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m pip --version 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "pip not found (exit $LASTEXITCODE)" }
     Write-Ok "pip available"
 } catch {
     Write-Err "pip not found"
     Write-Host "  Run: $pythonCmd -m ensurepip --upgrade"
     exit 1
+} finally {
+    $ErrorActionPreference = $prevEAP
 }
 
 # git (optional -- ZIP fallback available)
@@ -818,10 +904,15 @@ try {
     $networkOk = $true
 } catch { }
 if (-not $networkOk -and $hasGit) {
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
-        git ls-remote https://github.com/AppliedIR/wintools-mcp.git HEAD 2>&1 | Out-Null
-        $networkOk = $true
+        $null = & git ls-remote https://github.com/AppliedIR/wintools-mcp.git HEAD 2>&1
+        if ($LASTEXITCODE -eq 0) { $networkOk = $true }
     } catch { }
+    finally {
+        $ErrorActionPreference = $prevEAP
+    }
 }
 if ($networkOk) {
     Write-Ok "Network access to GitHub"
@@ -867,7 +958,7 @@ function Get-RepoAsZip {
     $extractedDir = Join-Path $InstallDir "$RepoName-main"
     Write-Info "Downloading $RepoName..."
     try {
-        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120
     } catch {
         Remove-Item $zipPath -ErrorAction SilentlyContinue
         throw "Download failed for $RepoName`: $_"
@@ -890,12 +981,14 @@ function Get-RepoAsZip {
 # Clone or download wintools-mcp
 $cloneOk = $false
 if ($hasGit) {
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
         if (Test-Path $wintoolsDir) {
             Write-Info "Directory exists, pulling latest..."
             Push-Location $wintoolsDir
             try {
-                $pullOutput = git pull --quiet 2>&1
+                $null = & git pull --quiet 2>&1
                 if ($LASTEXITCODE -ne 0) {
                     Write-Warn "git pull failed (exit $LASTEXITCODE). Using existing code."
                 } else {
@@ -912,12 +1005,14 @@ if ($hasGit) {
                 $cloneOk = $true
             }
         } else {
-            git clone --quiet "$githubOrg/wintools-mcp.git" $wintoolsDir 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "git clone exit code $LASTEXITCODE" }
+            $null = & git clone --quiet "$githubOrg/wintools-mcp.git" $wintoolsDir 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "git clone failed (exit $LASTEXITCODE)" }
             $cloneOk = $true
         }
     } catch {
         Write-Warn "git clone failed, falling back to ZIP download"
+    } finally {
+        $ErrorActionPreference = $prevEAP
     }
 }
 if (-not $cloneOk) {
@@ -950,12 +1045,22 @@ if (-not (Test-Path $venvPython)) {
     exit 1
 }
 
-try { & $venvPython -m pip install --progress-bar off --upgrade pip 2>&1 | Out-Null } catch { }
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try { $null = & $venvPython -m pip install --progress-bar off --upgrade pip 2>&1 } catch { }
+finally { $ErrorActionPreference = $prevEAP }
 
 # Install wintools-mcp without FK first (always works)
-try { & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1 | Out-Null } catch {
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    $null = & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
+} catch {
     Write-Err "Failed to install wintools-mcp"
     exit 1
+} finally {
+    $ErrorActionPreference = $prevEAP
 }
 
 # forensic-knowledge (FK) enrichment — optional
@@ -967,22 +1072,30 @@ $fkDir = Join-Path $InstallDir "forensic-knowledge"
 $fkInstalled = $false
 
 # Check if already installed in this venv
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 try {
-    $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
-    if ($fkTest -eq "ok") {
+    $null = & $venvPython -c "import forensic_knowledge" 2>&1
+    if ($LASTEXITCODE -eq 0) {
         $fkInstalled = $true
     }
 } catch { }
+finally { $ErrorActionPreference = $prevEAP }
 
 # If not installed, try pip install from sift-mcp repo subdirectory
 if (-not $fkInstalled) {
     # First check if a local copy exists (from a previous install or manual placement)
     if (Test-Path $fkDir) {
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         try {
-            & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1 | Out-Null
-            $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
-            if ($fkTest -eq "ok") { $fkInstalled = $true }
+            $null = & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $null = & $venvPython -c "import forensic_knowledge" 2>&1
+                if ($LASTEXITCODE -eq 0) { $fkInstalled = $true }
+            }
         } catch { }
+        finally { $ErrorActionPreference = $prevEAP }
     }
     # Otherwise install from sift-mcp GitHub repo subdirectory
     if (-not $fkInstalled -and $networkOk) {
@@ -1097,7 +1210,8 @@ if ($scanOutput) {
     # Check for missing tools and prompt for additional directories
     $missingLine = $scanOutput | Where-Object { $_ -match "(\d+) missing" }
     if ($missingLine -and -not $NonInteractive) {
-        $missingCount = if ($missingLine -match "(\d+) missing") { [int]$Matches[1] } else { 0 }
+        $missingCount = 0
+        if ($missingLine -match "(\d+) missing") { $missingCount = [int]$Matches[1] }
         if ($missingCount -gt 0) {
             Write-Host ""
             Write-Host "  $missingCount tool(s) not found in default search paths:" -ForegroundColor Yellow
@@ -1598,7 +1712,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                     -Method POST `
                     -ContentType "application/json" `
                     -Body $joinBody `
-                    -TimeoutSec 10 `
+                    -TimeoutSec 30 `
                     -UseBasicParsing `
                     -ErrorAction Stop
                 $joinData = $joinResponse.Content | ConvertFrom-Json
@@ -1988,11 +2102,13 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
 
     if ($serverHealthy) {
         try {
-            # Remove existing task if present
-            $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-            if ($existing) {
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-                Write-Info "Removed existing scheduled task"
+            # Remove ALL historical task names before registering
+            foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
+                $old = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+                if ($old) {
+                    Unregister-ScheduledTask -TaskName $name -Confirm:$false
+                    Write-Info "Removed existing scheduled task: $name"
+                }
             }
 
             # Run the startup script (which sets VHIR_EXAMINER and passes --config)
@@ -2031,22 +2147,21 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
         Write-Host "  schtasks /create /tn `"$taskName`" /tr `"powershell.exe -ExecutionPolicy Bypass -File \`"$startupPath\`"`" /sc onstart /ru SYSTEM"
     }
 
-    # Add firewall rule
+    # Add firewall rule — remove ALL historical names first
     try {
         $ruleName = "Valhuntir wintools-mcp"
-        $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        if (-not $existingRule) {
-            if ($siftIp -and $siftIp -ne "THIS_MACHINE_IP") {
-                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress $siftIp -ErrorAction Stop | Out-Null
-                Write-Ok "Firewall rule added for TCP port $Port (restricted to $siftIp)"
-            } else {
-                New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress 127.0.0.1 -ErrorAction Stop | Out-Null
-                Write-Ok "Firewall rule added for TCP port $Port (localhost only)"
-                Write-Warn "IMPORTANT: Firewall restricted to localhost. For remote SIFT access, run:"
-                Write-Host "  Set-NetFirewallRule -DisplayName `"$ruleName`" -RemoteAddress SIFT_IP_HERE"
-            }
+        foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
+            $old = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+            if ($old) { Remove-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue }
+        }
+        if ($siftIp -and $siftIp -ne "THIS_MACHINE_IP") {
+            New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress $siftIp -ErrorAction Stop | Out-Null
+            Write-Ok "Firewall rule added for TCP port $Port (restricted to $siftIp)"
         } else {
-            Write-Ok "Firewall rule already exists"
+            New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -RemoteAddress 127.0.0.1 -ErrorAction Stop | Out-Null
+            Write-Ok "Firewall rule added for TCP port $Port (localhost only)"
+            Write-Warn "IMPORTANT: Firewall restricted to localhost. For remote SIFT access, run:"
+            Write-Host "  Set-NetFirewallRule -DisplayName `"$ruleName`" -RemoteAddress SIFT_IP_HERE"
         }
     } catch {
         Write-Warn "Could not add firewall rule (run as Administrator)"
