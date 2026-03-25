@@ -262,12 +262,12 @@ function Set-StaticIP {
            Select-Object -First 1).NextHop
     $dns = (Get-DnsClientServerAddress -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue).ServerAddresses
 
-    # If the IP is already set correctly, skip
-    if ($currentIP -and $currentIP.IPAddress -eq $IP) {
+    # If IP matches AND is already static, skip
+    if ($currentIP -and $currentIP.IPAddress -eq $IP -and $currentIP.PrefixOrigin -eq "Manual") {
         return $IP
     }
 
-    # Use netsh — single atomic operation, no remove+add race
+    # Use netsh — single atomic operation, sets static even if IP matches (DHCP → static)
     $mask = switch ($prefix) { 24 { "255.255.255.0" } 16 { "255.255.0.0" } 8 { "255.0.0.0" } default { "255.255.255.0" } }
     $adapterName = $adapter.InterfaceAlias
     $null = netsh interface ipv4 set address "$adapterName" static $IP $mask $gw 2>&1
