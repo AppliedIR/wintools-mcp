@@ -30,7 +30,7 @@ def _validate_str_length(value: str | None, field: str, max_len: int) -> None:
 
 
 _INSTRUCTIONS = """\
-You are executing forensic tools on a Windows workstation as part of a ValiHuntIR investigation. You run Zimmerman tools and Windows-native utilities and return results. The following discipline governs how you handle evidence and tool output.
+You are executing forensic tools on a Windows workstation as part of a Valhuntir investigation. You run Zimmerman tools and Windows-native utilities and return results. The following discipline governs how you handle evidence and tool output.
 
 EVIDENCE IS SOVEREIGN: If evidence contradicts a hypothesis, the hypothesis is wrong. Revise the hypothesis, never reinterpret evidence to preserve a theory.
 

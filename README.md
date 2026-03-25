@@ -1,4 +1,4 @@
-![ValiHuntIR](docs/images/vhir-logo.png)
+![Valhuntir](docs/images/vhir-logo.png)
 
 # Windows Tools MCP
 [![CI](https://github.com/AppliedIR/wintools-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/AppliedIR/wintools-mcp/actions/workflows/ci.yml)
@@ -6,8 +6,8 @@
 
 Catalog-gated Windows forensic tool execution with knowledge-enriched response envelopes.
 
-**[Platform Documentation](https://appliedir.github.io/valihuntir/)** ·
-[Deployment Guide](https://appliedir.github.io/valihuntir/deployment/)
+**[Platform Documentation](https://appliedir.github.io/valhuntir/)** ·
+[Deployment Guide](https://appliedir.github.io/valhuntir/deployment/)
 
 > **Public Beta** — This project is undergoing active feature development.
 > Backward compatibility with future releases is not guaranteed. Consider
@@ -263,7 +263,7 @@ Every tool execution is logged to the audit directory. Resolution order: explici
 
 ## Security Considerations
 
-All ValiHuntIR components are assumed to run on an isolated forensic network, protected by firewalls, and not exposed to the Internet or untrusted systems. wintools-mcp accepts incoming connections from the SIFT gateway and LLM clients within this network. These inter-component connections are expected and intentional. The system must never be exposed to networks outside the forensic environment.
+All Valhuntir components are assumed to run on an isolated forensic network, protected by firewalls, and not exposed to the Internet or untrusted systems. wintools-mcp accepts incoming connections from the SIFT gateway and LLM clients within this network. These inter-component connections are expected and intentional. The system must never be exposed to networks outside the forensic environment.
 
 All API requests require a valid bearer token (`vhir_wt_` prefix). Tokens are generated during installation and must be securely transferred to the SIFT gateway configuration or LLM client setup. The `--no-auth` flag is for development only and must not be used in any environment with real evidence.
 
@@ -271,11 +271,11 @@ Any data loaded into the system runs the risk of being exposed to the underlying
 
 wintools-mcp parses forensic artifacts (registry hives, event logs, prefetch files, memory dumps) that may contain hostile content crafted by an attacker. Tools run as subprocesses with `shell=False` and catalog-gated execution to limit attack surface. The hardcoded denylist, catalog allowlist, and argument sanitization are defense-in-depth measures, not preventative controls.
 
-Case directory access via SMB share should use authenticated connections. The share should be restricted to the ValiHuntIR components that need access. Read-only access is sufficient for evidence files; write access is needed for extractions and audit entries.
+Case directory access via SMB share should use authenticated connections. The share should be restricted to the Valhuntir components that need access. Read-only access is sufficient for evidence files; write access is needed for extractions and audit entries.
 
 ## Evidence Handling
 
-Never place original evidence on any ValiHuntIR system. Only use working copies for which verified originals or backups exist. ValiHuntIR workstations process evidence through AI-connected tools, and any data loaded into these systems may be transmitted to the configured AI provider. Treat all ValiHuntIR systems as analysis environments, not evidence storage.
+Never place original evidence on any Valhuntir system. Only use working copies for which verified originals or backups exist. Valhuntir workstations process evidence through AI-connected tools, and any data loaded into these systems may be transmitted to the configured AI provider. Treat all Valhuntir systems as analysis environments, not evidence storage.
 
 Evidence integrity is verified by SHA-256 hashes recorded at registration. Examiners can optionally lock evidence to read-only via `vhir evidence lock`. Proper evidence integrity depends on verified hashes, write blockers, and chain-of-custody procedures that exist outside this platform.
 

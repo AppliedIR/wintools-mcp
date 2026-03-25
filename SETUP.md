@@ -33,7 +33,7 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 
 ### Installer Modes
 
-**ValiHuntIR-integrated (default)** — Full platform integration with a SIFT workstation. Case directory accessed via SMB share. Audit trail, evidence, and tool output written to the shared case directory.
+**Valhuntir-integrated (default)** — Full platform integration with a SIFT workstation. Case directory accessed via SMB share. Audit trail, evidence, and tool output written to the shared case directory.
 
 ```powershell
 .\setup-windows.ps1
@@ -62,7 +62,7 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 ### Scripted Examples
 
 ```powershell
-# Non-interactive ValiHuntIR install
+# Non-interactive Valhuntir install
 .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
 
 # Non-interactive standalone
@@ -202,7 +202,7 @@ Each examiner works independently in their own flat case directory. To share fin
 
 ## Case Directory Setup
 
-### ValiHuntIR Mode (SMB to SIFT)
+### Valhuntir Mode (SMB to SIFT)
 
 The case directory lives on the SIFT workstation and is shared via Samba.
 

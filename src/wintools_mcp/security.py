@@ -27,7 +27,7 @@ _TOOL_BLOCKED_FLAGS: dict[str, set[str]] = {
     "powershell.exe": {"-command", "-c", "-e", "-encodedcommand", "-enc"},
 }
 
-# Protect ValiHuntIR config directory (tokens, credentials) from being read as
+# Protect Valhuntir config directory (tokens, credentials) from being read as
 # input to forensic tools. System directories are NOT blocked — the catalog
 # allowlist controls what binaries can run, making input path blocking
 # redundant for system dirs and harmful for forensic use cases like
