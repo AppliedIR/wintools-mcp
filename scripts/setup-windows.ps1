@@ -582,7 +582,7 @@ if ($Update) {
                 Write-Ok "forensic-knowledge updated (from sift-mcp repo)"
                 Remove-Item -Recurse -Force $fkTempDir -ErrorAction SilentlyContinue
             } catch {
-                Write-Warn "FK update failed (non-fatal)"
+                Write-Warn "FK update failed (non-fatal): $_"
                 Pop-Location -ErrorAction SilentlyContinue
             }
         } else {
