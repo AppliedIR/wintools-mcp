@@ -963,14 +963,22 @@ if (-not $fkInstalled) {
     if (-not $fkInstalled -and $networkOk) {
         Write-Info "Installing forensic-knowledge from sift-mcp repository..."
         if ($hasGit) {
-            # With git: pip can install directly from the repo subdirectory
+            # Clone sift-mcp shallowly, install FK from local checkout
             try {
-                & $venvPython -m pip install --progress-bar off `
-                    "forensic-knowledge @ git+${githubOrg}/sift-mcp.git#subdirectory=packages/forensic-knowledge" 2>&1 | Out-Null
+                $fkTempDir = Join-Path $env:TEMP "sift-mcp-fk"
+                if (Test-Path $fkTempDir) { Remove-Item -Recurse -Force $fkTempDir }
+                $null = git clone --depth 1 --filter=blob:none --sparse "${githubOrg}/sift-mcp.git" $fkTempDir 2>&1
+                Push-Location $fkTempDir
+                $null = git sparse-checkout set packages/forensic-knowledge 2>&1
+                Pop-Location
+                $fkLocalDir = Join-Path $fkTempDir "packages" "forensic-knowledge"
+                & $venvPython -m pip install --progress-bar off $fkLocalDir 2>&1 | Out-Null
                 $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
                 if ($fkTest -eq "ok") { $fkInstalled = $true }
+                Remove-Item -Recurse -Force $fkTempDir -ErrorAction SilentlyContinue
             } catch {
                 Write-Warn "Could not install forensic-knowledge: $_"
+                Pop-Location -ErrorAction SilentlyContinue
             }
         } else {
             # Without git: download sift-mcp ZIP, extract FK subdirectory, pip install
