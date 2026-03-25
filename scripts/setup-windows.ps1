@@ -326,10 +326,16 @@ if ($Uninstall) {
     }
     Write-Info "Install directory: $InstallDir"
 
-    # 1. Remove scheduled task
-    $taskName = "Valhuntir wintools-mcp"
+    # 1. Remove scheduled task (check all historical names)
+    $task = $null
+    $taskName = $null
+    foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
+        try {
+            $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if ($t) { $task = $t; $taskName = $name; break }
+        } catch {}
+    }
     try {
-        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
             if (Read-YesNo "Remove scheduled task '$taskName'?" $true) {
                 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
@@ -342,10 +348,16 @@ if ($Uninstall) {
         Write-Warn "Could not check/remove scheduled task: $_"
     }
 
-    # 2. Remove firewall rule
-    $ruleName = "Valhuntir wintools-mcp"
+    # 2. Remove firewall rule (check all historical names)
+    $rule = $null
+    $ruleName = $null
+    foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
+        try {
+            $r = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+            if ($r) { $rule = $r; $ruleName = $name; break }
+        } catch {}
+    }
     try {
-        $rule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if ($rule) {
             if (Read-YesNo "Remove firewall rule '$ruleName'?" $true) {
                 Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop
@@ -573,9 +585,16 @@ if ($Update) {
     }
 
     # 5. Restart via scheduled task, or tell user to start manually
-    $taskName = "Valhuntir wintools-mcp"
+    # Check both old and new task names (rebrand: ValiHuntIR/AIIR → Valhuntir)
+    $task = $null
+    $taskName = $null
+    foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
+        try {
+            $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if ($t) { $task = $t; $taskName = $name; break }
+        } catch {}
+    }
     try {
-        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($task) {
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
             Start-ScheduledTask -TaskName $taskName
