@@ -567,12 +567,26 @@ if ($Update) {
             Write-Warn "FK reinstall failed (non-fatal)"
         }
     } else {
-        try {
-            & $venvPython -m pip install --progress-bar off --upgrade `
-                "forensic-knowledge @ git+${githubOrg}/sift-mcp.git#subdirectory=packages/forensic-knowledge" 2>&1 | Out-Null
-            Write-Ok "forensic-knowledge updated (from sift-mcp repo)"
-        } catch {
-            Write-Warn "FK update failed (non-fatal)"
+        # Shallow clone + sparse checkout (pip git+ clone fails on Windows)
+        $hasGit = Get-Command git -ErrorAction SilentlyContinue
+        if ($hasGit) {
+            try {
+                $fkTempDir = Join-Path $env:TEMP "sift-mcp-fk-update"
+                if (Test-Path $fkTempDir) { Remove-Item -Recurse -Force $fkTempDir }
+                $null = git clone --depth 1 --filter=blob:none --sparse "${githubOrg}/sift-mcp.git" $fkTempDir 2>&1
+                Push-Location $fkTempDir
+                $null = git sparse-checkout set packages/forensic-knowledge 2>&1
+                Pop-Location
+                $fkLocalDir = Join-Path $fkTempDir "packages" "forensic-knowledge"
+                & $venvPython -m pip install --progress-bar off $fkLocalDir 2>&1 | Out-Null
+                Write-Ok "forensic-knowledge updated (from sift-mcp repo)"
+                Remove-Item -Recurse -Force $fkTempDir -ErrorAction SilentlyContinue
+            } catch {
+                Write-Warn "FK update failed (non-fatal)"
+                Pop-Location -ErrorAction SilentlyContinue
+            }
+        } else {
+            Write-Warn "FK update skipped (git not available)"
         }
     }
 
