@@ -570,18 +570,25 @@ if ($Update) {
         # Shallow clone + sparse checkout (pip git+ clone fails on Windows)
         $hasGit = Get-Command git -ErrorAction SilentlyContinue
         if ($hasGit) {
+            # Git writes progress to stderr — suspend ErrorActionPreference
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
             try {
                 $fkTempDir = Join-Path $env:TEMP "sift-mcp-fk-update"
                 if (Test-Path $fkTempDir) { Remove-Item -Recurse -Force $fkTempDir }
                 $null = git clone --depth 1 --filter=blob:none --sparse "${githubOrg}/sift-mcp.git" $fkTempDir 2>&1
+                if ($LASTEXITCODE -ne 0) { throw "git clone failed (exit $LASTEXITCODE)" }
                 Push-Location $fkTempDir
                 $null = git sparse-checkout set packages/forensic-knowledge 2>&1
+                if ($LASTEXITCODE -ne 0) { throw "sparse-checkout failed (exit $LASTEXITCODE)" }
                 Pop-Location
                 $fkLocalDir = Join-Path $fkTempDir "packages" "forensic-knowledge"
+                $ErrorActionPreference = $prevEAP
                 & $venvPython -m pip install --progress-bar off $fkLocalDir 2>&1 | Out-Null
                 Write-Ok "forensic-knowledge updated (from sift-mcp repo)"
                 Remove-Item -Recurse -Force $fkTempDir -ErrorAction SilentlyContinue
             } catch {
+                $ErrorActionPreference = $prevEAP
                 Write-Warn "FK update failed (non-fatal): $_"
                 Pop-Location -ErrorAction SilentlyContinue
             }
@@ -997,19 +1004,26 @@ if (-not $fkInstalled) {
         Write-Info "Installing forensic-knowledge from sift-mcp repository..."
         if ($hasGit) {
             # Clone sift-mcp shallowly, install FK from local checkout
+            # Git writes progress to stderr — suspend ErrorActionPreference
+            $prevEAP2 = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
             try {
                 $fkTempDir = Join-Path $env:TEMP "sift-mcp-fk"
                 if (Test-Path $fkTempDir) { Remove-Item -Recurse -Force $fkTempDir }
                 $null = git clone --depth 1 --filter=blob:none --sparse "${githubOrg}/sift-mcp.git" $fkTempDir 2>&1
+                if ($LASTEXITCODE -ne 0) { throw "git clone failed (exit $LASTEXITCODE)" }
                 Push-Location $fkTempDir
                 $null = git sparse-checkout set packages/forensic-knowledge 2>&1
+                if ($LASTEXITCODE -ne 0) { throw "sparse-checkout failed (exit $LASTEXITCODE)" }
                 Pop-Location
                 $fkLocalDir = Join-Path $fkTempDir "packages" "forensic-knowledge"
+                $ErrorActionPreference = $prevEAP2
                 & $venvPython -m pip install --progress-bar off $fkLocalDir 2>&1 | Out-Null
                 $fkTest = & $venvPython -c "import forensic_knowledge; print('ok')" 2>&1
                 if ($fkTest -eq "ok") { $fkInstalled = $true }
                 Remove-Item -Recurse -Force $fkTempDir -ErrorAction SilentlyContinue
             } catch {
+                $ErrorActionPreference = $prevEAP2
                 Write-Warn "Could not install forensic-knowledge: $_"
                 Pop-Location -ErrorAction SilentlyContinue
             }
