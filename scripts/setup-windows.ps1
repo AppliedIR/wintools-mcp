@@ -347,7 +347,7 @@ if ($Uninstall) {
     try {
         if ($task) {
             if (Read-YesNo "Remove scheduled task '$taskName'?" $true) {
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
                 Write-Ok "Scheduled task removed"
             }
         } else {
@@ -636,7 +636,7 @@ if ($Update) {
                 Write-Info "Renaming scheduled task from '$taskName' to '$currentTaskName'..."
                 # Capture task action before unregistering
                 $oldAction = (Get-ScheduledTask -TaskName $taskName).Actions[0]
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
                 $action = New-ScheduledTaskAction `
                     -Execute $oldAction.Execute `
                     -Argument $oldAction.Arguments
@@ -654,12 +654,12 @@ if ($Update) {
                     -Settings $settings `
                     -RunLevel Highest `
                     -User "SYSTEM" `
-                    -Description "Valhuntir wintools-mcp forensic tool server" | Out-Null
+                    -Description "Valhuntir wintools-mcp forensic tool server" -ErrorAction Stop | Out-Null
                 Write-Ok "Scheduled task renamed to '$currentTaskName'"
                 $taskName = $currentTaskName
             }
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-            Start-ScheduledTask -TaskName $taskName
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
             Write-Ok "Scheduled task restarted"
         } else {
             # No task found — recreate from start-wintools.ps1 if available
@@ -682,8 +682,8 @@ if ($Update) {
                     -Settings $settings `
                     -RunLevel Highest `
                     -User "SYSTEM" `
-                    -Description "Valhuntir wintools-mcp forensic tool server" | Out-Null
-                Start-ScheduledTask -TaskName $currentTaskName
+                    -Description "Valhuntir wintools-mcp forensic tool server" -ErrorAction Stop | Out-Null
+                Start-ScheduledTask -TaskName $currentTaskName -ErrorAction Stop
                 Write-Ok "Scheduled task recreated: $currentTaskName"
             } elseif ($wintoolsProcs) {
                 Write-Warn "Stopped running wintools process but no scheduled task found to restart it"
@@ -1647,7 +1647,7 @@ $toolPathsYaml
             # Export PFX then convert to PEM via Python cryptography library
             $pfxPath = Join-Path $tlsDir "temp.pfx"
             Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$thumbprint" `
-                -FilePath $pfxPath -Password (New-Object SecureString) | Out-Null
+                -FilePath $pfxPath -Password (New-Object SecureString) -ErrorAction Stop | Out-Null
 
             & $venvPython -c @"
 from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, PrivateFormat, NoEncryption
@@ -2130,7 +2130,7 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
                 -Settings $settings `
                 -RunLevel Highest `
                 -User "SYSTEM" `
-                -Description "Valhuntir wintools-mcp forensic tool server" | Out-Null
+                -Description "Valhuntir wintools-mcp forensic tool server" -ErrorAction Stop | Out-Null
 
             Write-Ok "Scheduled task registered: $taskName"
             Write-Ok "Will auto-start at boot"
