@@ -62,6 +62,39 @@ def _validate_output_dir(resolved_path: Path) -> None:
             )
 
 
+def _decode_output(raw: bytes) -> str:
+    """Decode process output, detecting UTF-16LE from Sysinternals tools."""
+    if raw[:2] == b"\xff\xfe":
+        # BOM present — utf-16 auto-detects endianness and strips BOM
+        text = raw.decode("utf-16", errors="replace")
+    elif _looks_like_utf16le(raw):
+        # Likely UTF-16LE without BOM (common on Windows)
+        try:
+            text = raw.decode("utf-16-le", errors="replace")
+        except ValueError:
+            # Odd-length byte sequence
+            text = raw.decode("utf-8", errors="replace")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n")
+
+
+def _looks_like_utf16le(raw: bytes) -> bool:
+    """Check if raw bytes look like UTF-16LE ASCII (alternating null pattern).
+
+    UTF-16LE encoding of ASCII text has a null byte at every odd index.
+    Check that >50% of odd-indexed bytes in the first 100 bytes are null.
+    """
+    if len(raw) < 10:
+        return False
+    sample = raw[:100]
+    odd_bytes = sample[1::2]
+    if not odd_bytes:
+        return False
+    null_ratio = odd_bytes.count(0) / len(odd_bytes)
+    return null_ratio > 0.5
+
+
 def _read_pipe(pipe, chunks: list[bytes], limit: int, total: list[int]) -> None:
     """Read from a pipe incrementally, respecting byte limit."""
     while True:
@@ -176,8 +209,8 @@ def execute(
 
         stdout_raw = b"".join(stdout_chunks)
         stderr_raw = b"".join(stderr_chunks)
-        stdout = stdout_raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
-        stderr = stderr_raw.decode("utf-8", errors="replace").replace("\r\n", "\n")
+        stdout = _decode_output(stdout_raw)
+        stderr = _decode_output(stderr_raw)
         stdout_byte_count = len(stdout_raw)
 
         response: dict[str, Any] = {

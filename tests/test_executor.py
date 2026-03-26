@@ -7,7 +7,74 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from wintools_mcp.exceptions import ExecutionError, ExecutionTimeoutError
-from wintools_mcp.executor import _truncate, _validate_output_dir, execute
+from wintools_mcp.executor import (
+    _decode_output,
+    _looks_like_utf16le,
+    _truncate,
+    _validate_output_dir,
+    execute,
+)
+
+
+class TestDecodeOutput:
+    """H9: UTF-16LE detection for Sysinternals tool output."""
+
+    def test_utf8_passthrough(self):
+        raw = b"Hello, world!\r\nLine 2\r\n"
+        assert _decode_output(raw) == "Hello, world!\nLine 2\n"
+
+    def test_utf16le_with_bom(self):
+        text = "Autorunsc output\r\n"
+        raw = text.encode("utf-16")  # includes BOM
+        result = _decode_output(raw)
+        assert "Autorunsc output" in result
+        # BOM should be stripped (utf-16 codec does this)
+        assert "\ufeff" not in result
+
+    def test_utf16le_without_bom(self):
+        text = "sigcheck output\r\n"
+        raw = text.encode("utf-16-le")  # no BOM
+        result = _decode_output(raw)
+        assert "sigcheck output" in result
+
+    def test_utf8_with_stray_null_not_detected_as_utf16(self):
+        """A single null byte in UTF-8 should not trigger UTF-16LE detection."""
+        raw = b"Normal text with one \x00 null byte in it, still UTF-8\r\n"
+        result = _decode_output(raw)
+        # Should decode as UTF-8, not garble as UTF-16LE
+        assert "Normal text" in result
+
+    def test_empty_input(self):
+        assert _decode_output(b"") == ""
+
+    def test_short_input(self):
+        assert _decode_output(b"Hi") == "Hi"
+
+    def test_odd_length_utf16le_fallback(self):
+        """Odd-length bytes that look like UTF-16LE should fallback gracefully."""
+        # 11 bytes — odd length triggers ValueError from utf-16-le
+        raw = b"H\x00e\x00l\x00l\x00o\x00!"
+        result = _decode_output(raw)
+        assert isinstance(result, str)
+
+
+class TestLooksLikeUtf16le:
+    """Heuristic for detecting UTF-16LE without BOM."""
+
+    def test_ascii_as_utf16le(self):
+        raw = "Hello World".encode("utf-16-le")
+        assert _looks_like_utf16le(raw) is True
+
+    def test_plain_utf8(self):
+        raw = b"Regular ASCII text without nulls"
+        assert _looks_like_utf16le(raw) is False
+
+    def test_too_short(self):
+        assert _looks_like_utf16le(b"Hi\x00") is False
+
+    def test_stray_null_not_detected(self):
+        raw = b"Text with one \x00 null in it, not UTF-16LE at all really"
+        assert _looks_like_utf16le(raw) is False
 
 
 def _mock_popen(stdout=b"", stderr=b"", returncode=0):
