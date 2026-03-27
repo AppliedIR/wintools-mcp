@@ -6,8 +6,8 @@
 
 Catalog-gated Windows forensic tool execution with knowledge-enriched response envelopes.
 
-**[Platform Documentation](https://appliedir.github.io/valhuntir/)** ·
-[Deployment Guide](https://appliedir.github.io/valhuntir/deployment/)
+**[Platform Documentation](https://appliedir.github.io/Valhuntir/)** ·
+[Deployment Guide](https://appliedir.github.io/Valhuntir/deployment/)
 
 > **Public Beta** — This project is undergoing active feature development.
 > Backward compatibility with future releases is not guaranteed. Consider
