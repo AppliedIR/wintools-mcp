@@ -604,7 +604,7 @@ if ($Update) {
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir `
+            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir --force-reinstall `
                 "forensic-knowledge @ ${githubOrg}/sift-mcp/archive/refs/heads/main.zip#subdirectory=packages/forensic-knowledge" 2>&1
             if ($LASTEXITCODE -ne 0) { throw "FK install failed (exit $LASTEXITCODE)" }
             $null = & $venvPython -c "import forensic_knowledge" 2>&1
@@ -1113,7 +1113,7 @@ if (-not $fkInstalled) {
         $prevEAP2 = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir `
+            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir --force-reinstall `
                 "forensic-knowledge @ ${githubOrg}/sift-mcp/archive/refs/heads/main.zip#subdirectory=packages/forensic-knowledge" 2>&1
             if ($LASTEXITCODE -ne 0) { throw "FK install failed (exit $LASTEXITCODE)" }
             $null = & $venvPython -c "import forensic_knowledge" 2>&1
