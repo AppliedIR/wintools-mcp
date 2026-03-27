@@ -588,7 +588,12 @@ if ($Update) {
         try {
             $null = & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1
             if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
-            Write-Ok "forensic-knowledge reinstalled (local)"
+            $null = & $venvPython -c "import forensic_knowledge" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Ok "forensic-knowledge reinstalled (local)"
+            } else {
+                Write-Warn "forensic-knowledge pip succeeded but import failed"
+            }
         } catch {
             Write-Warn "FK reinstall failed (non-fatal)"
         } finally {
@@ -599,10 +604,15 @@ if ($Update) {
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $null = & $venvPython -m pip install --progress-bar off `
+            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir `
                 "forensic-knowledge @ ${githubOrg}/sift-mcp/archive/refs/heads/main.zip#subdirectory=packages/forensic-knowledge" 2>&1
             if ($LASTEXITCODE -ne 0) { throw "FK install failed (exit $LASTEXITCODE)" }
-            Write-Ok "forensic-knowledge updated (from sift-mcp repo)"
+            $null = & $venvPython -c "import forensic_knowledge" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Ok "forensic-knowledge updated (from sift-mcp repo)"
+            } else {
+                Write-Warn "forensic-knowledge pip succeeded but import failed"
+            }
         } catch {
             Write-Warn "FK update failed (non-fatal): $_"
         } finally {
@@ -1103,7 +1113,7 @@ if (-not $fkInstalled) {
         $prevEAP2 = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $null = & $venvPython -m pip install --progress-bar off `
+            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir `
                 "forensic-knowledge @ ${githubOrg}/sift-mcp/archive/refs/heads/main.zip#subdirectory=packages/forensic-knowledge" 2>&1
             if ($LASTEXITCODE -ne 0) { throw "FK install failed (exit $LASTEXITCODE)" }
             $null = & $venvPython -c "import forensic_knowledge" 2>&1
