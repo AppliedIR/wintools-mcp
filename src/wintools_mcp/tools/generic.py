@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from wintools_mcp.catalog import get_tool_def, validate_command
+from wintools_mcp.catalog import PS_SCRIPT_EXCEPTIONS, get_tool_def, validate_command
 from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_tool
 from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
@@ -11,6 +11,49 @@ from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args, validate_input_path
 
 logger = logging.getLogger(__name__)
+
+
+def _expand_script_command(command: list[str]) -> list[str]:
+    """Auto-expand script-type tools into PowerShell invocations.
+
+    Transforms ["Get-InjectedThreadEx", ...args] into
+    ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+     "-File", "<resolved_path>", ...args].
+    """
+    td = get_tool_def(command[0])
+    if not td or td.exec_type != "script":
+        return command
+
+    # Find the .ps1 script file from install_paths
+    script_file = f"{command[0]}.ps1"
+    # Check if it's a known PS exception (case-insensitive)
+    if script_file.lower() not in PS_SCRIPT_EXCEPTIONS:
+        return command
+
+    script_path = None
+    for search_dir in td.install_paths or []:
+        candidate = Path(search_dir) / script_file
+        if candidate.exists():
+            script_path = str(candidate)
+            break
+
+    if not script_path:
+        searched = (
+            ", ".join(td.install_paths) if td.install_paths else "no install_paths"
+        )
+        raise ToolNotInCatalogError(
+            f"Script not found: {script_file} (searched: {searched}). "
+            f"Download from: {td.install_methods[0].url if td.install_methods else 'see catalog'}"
+        )
+
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        script_path,
+    ] + command[1:]
 
 
 def run_command(
@@ -25,6 +68,10 @@ def run_command(
     """Execute a catalog-approved command with denylist enforcement."""
     if not command:
         raise ValueError("Empty command")
+
+    # Script auto-expansion — must happen BEFORE validate_command()
+    # so the expanded PowerShell invocation passes the PS exception check
+    command = _expand_script_command(command)
 
     # Denylist + allowlist validation
     error = validate_command(command)
@@ -61,6 +108,23 @@ def run_command(
             validate_input_path(arg)
     if cwd:
         validate_input_path(cwd)
+
+    # Auto-inject output directory when catalog specifies output_flag
+    # and user didn't provide one (e.g., --csv, --json, -o)
+    td = get_tool_def(binary_name)
+    if td and td.output_flag:
+        user_has_output = any(
+            a.lower() in ("--csv", "--json", "-o", "--output") for a in command[1:]
+        )
+        if not user_has_output:
+            cfg = get_config()
+            if cfg.case_dir:
+                import os
+
+                output_dir = os.path.join(cfg.case_dir, "extractions", td.name.lower())
+                os.makedirs(output_dir, exist_ok=True)
+                command.extend([td.output_flag, output_dir])
+                logger.info("Auto-injected output: %s %s", td.output_flag, output_dir)
 
     exec_result = execute(
         command,

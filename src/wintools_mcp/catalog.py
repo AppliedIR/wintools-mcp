@@ -117,6 +117,7 @@ class ToolDefinition:
     input_style: str = "flag"
     input_flag: str = ""
     output_format: str = "text"
+    output_flag: str = ""  # e.g. "--csv" — server auto-injects output dir if user omits
     timeout_seconds: int = 600
     description: str = ""
     common_flags: list[dict] = field(default_factory=list)
@@ -194,6 +195,7 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 input_style=tool_entry.get("input_style", "flag"),
                 input_flag=tool_entry.get("input_flag", ""),
                 output_format=tool_entry.get("output_format", "text"),
+                output_flag=tool_entry.get("output_flag", ""),
                 timeout_seconds=tool_entry.get("timeout_seconds", 600),
                 description=tool_entry.get("description", ""),
                 common_flags=tool_entry.get("common_flags", []),
