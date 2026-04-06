@@ -1965,7 +1965,19 @@ share_root: $($script:shareRootForConfig)
                 if ($wintoolsProcs) {
                     $wintoolsProcs | Stop-Process -Force -ErrorAction SilentlyContinue
                     Start-Sleep -Seconds 2
-                    Write-Info "Stopped running wintools-mcp (will restart via scheduled task or Phase 6)"
+                    # Check if scheduled task exists to auto-restart
+                    $hasTask = $false
+                    foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
+                        if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+                            $hasTask = $true; break
+                        }
+                    }
+                    if ($hasTask) {
+                        Write-Info "Stopped running wintools-mcp (will restart via scheduled task or Phase 6)"
+                    } else {
+                        Write-Warn "Stopped running wintools-mcp but no scheduled task found to auto-restart it"
+                        Write-Host "  It will be started in Phase 6, or start manually after setup completes" -ForegroundColor Yellow
+                    }
                 }
             } catch {
                 Write-Warn "Could not update connection settings in config: $_"
