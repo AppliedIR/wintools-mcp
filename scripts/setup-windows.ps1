@@ -2087,20 +2087,40 @@ if (Test-Path $wintoolsConfigPath) {
     $scriptArgs += " --config `"$wintoolsConfigPath`""
 }
 try {
-    # Build startup script with all env vars the SYSTEM task needs
+    # Build startup script — ST-1 (restart loop), ST-2 (logging), ST-4 (config-based env)
+    # Python config.py now reads examiner/case_dir from config.yaml via os.environ.setdefault
+    # so the startup script only needs VHIR_EXAMINER as fallback for non-config deployments
+    $logDir = Join-Path $InstallDir "logs"
     $startupLines = @(
-        "# Start wintools-mcp in HTTP mode",
-        "# Environment vars set here because the scheduled task runs as SYSTEM",
-        "# which doesn't see User-level environment variables",
-        "`$env:VHIR_EXAMINER = `"$Examiner`""
+        "# Start wintools-mcp in HTTP mode with restart loop and logging",
+        "# ST-4: Python reads examiner/case from config.yaml — env vars are fallback only",
+        "`$env:VHIR_EXAMINER = `"$Examiner`"",
+        "",
+        "# ST-2: Startup logging with rotation (keep 3)",
+        "`$logDir = `"$logDir`"",
+        "if (-not (Test-Path `$logDir)) { New-Item -ItemType Directory -Path `$logDir | Out-Null }",
+        "`$logFile = Join-Path `$logDir `"wintools-startup.log`"",
+        "if (Test-Path `$logFile) {",
+        "    `$rotated = Join-Path `$logDir `"wintools-startup.`$(Get-Date -Format 'yyyyMMdd-HHmmss').log`"",
+        "    Move-Item `$logFile `$rotated -ErrorAction SilentlyContinue",
+        "    Get-ChildItem `$logDir -Filter `"wintools-startup.*.log`" |",
+        "        Sort-Object LastWriteTime -Descending |",
+        "        Select-Object -Skip 3 |",
+        "        Remove-Item -ErrorAction SilentlyContinue",
+        "}",
+        "",
+        "# ST-1: Restart loop with exponential backoff (5, 10, 20, 40, 60s)",
+        "`$maxRestarts = 5",
+        "`$restartCount = 0",
+        "while (`$restartCount -lt `$maxRestarts) {",
+        "    & `"$venvPython`" -m wintools_mcp $scriptArgs *> `$logFile",
+        "    `$exitCode = `$LASTEXITCODE",
+        "    if (`$exitCode -eq 0) { break }",
+        "    `$restartCount++",
+        "    `$wait = [math]::Min(60, 5 * [math]::Pow(2, `$restartCount - 1))",
+        "    Start-Sleep -Seconds `$wait",
+        "}"
     )
-    if ($env:VHIR_CASE_DIR) {
-        $startupLines += "`$env:VHIR_CASE_DIR = `"$($env:VHIR_CASE_DIR)`""
-    }
-    if ($env:VHIR_ACTIVE_CASE) {
-        $startupLines += "`$env:VHIR_ACTIVE_CASE = `"$($env:VHIR_ACTIVE_CASE)`""
-    }
-    $startupLines += "& `"$venvPython`" -m wintools_mcp $scriptArgs"
     ($startupLines -join "`r`n") | Set-Content -Path $startupPath -Encoding UTF8
 } catch {
     Write-Warn "Could not write startup script"

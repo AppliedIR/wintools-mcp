@@ -133,7 +133,16 @@ def _establish_smb_session(config: WintoolsConfig) -> None:
 
 
 async def health(request: Request) -> JSONResponse:
-    return JSONResponse({"status": "ok", "service": "wintools-mcp"})
+    fk_available = False
+    try:
+        import forensic_knowledge  # noqa: F401
+
+        fk_available = True
+    except ImportError:
+        pass
+    return JSONResponse(
+        {"status": "ok", "service": "wintools-mcp", "fk_available": fk_available}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -226,8 +235,22 @@ async def deactivate_case(request: Request) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
+def _install_signal_handlers() -> None:
+    """Install signal handlers for graceful shutdown (ST-3)."""
+    import signal
+
+    def _handle_shutdown(signum: int, frame: Any) -> None:
+        logger.info("Shutdown signal %s received, exiting cleanly", signum)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGINT, _handle_shutdown)
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+
+
 def create_http_app(config: WintoolsConfig) -> Starlette:
     """Build a Starlette app with /mcp (Streamable HTTP MCP) + /health + auth."""
+    _install_signal_handlers()
+
     # Establish SMB session if share_root is a UNC path
     if config.share_root.startswith("\\\\"):
         _establish_smb_session(config)

@@ -121,6 +121,31 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         )
         return result
 
+    # --- Share Info ---
+    @server.tool()
+    def get_share_info() -> dict:
+        """Get SMB share paths for evidence access from SIFT.
+
+        Returns share_root, case_dir, evidence_dir, and extractions_dir
+        so the LLM knows where to find and write evidence files.
+        """
+        result: dict = {"share_root": config.share_root or ""}
+        if config.case_dir:
+            result["case_dir"] = config.case_dir
+            result["evidence_dir"] = f"{config.case_dir}\\evidence"
+            result["extractions_dir"] = f"{config.case_dir}\\extractions"
+        elif config.share_root and config.active_case:
+            case_path = f"{config.share_root}\\{config.active_case}"
+            result["case_dir"] = case_path
+            result["evidence_dir"] = f"{case_path}\\evidence"
+            result["extractions_dir"] = f"{case_path}\\extractions"
+        else:
+            result["note"] = (
+                "No active case. Activate a case via the gateway "
+                "or set VHIR_CASE_DIR environment variable."
+            )
+        return result
+
     # --- Generic Execution ---
     @server.tool()
     def run_windows_command(

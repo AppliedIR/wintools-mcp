@@ -191,6 +191,18 @@ class WintoolsConfig:
             self.tls_certfile = tls.get("certfile", self.tls_certfile)
             self.tls_keyfile = tls.get("keyfile", self.tls_keyfile)
 
+        # ST-4: Set env vars from config so startup script doesn't need
+        # to hardcode them. os.environ.setdefault preserves explicit env vars.
+        examiner = doc.get("examiner")
+        if examiner:
+            os.environ.setdefault("VHIR_EXAMINER", str(examiner))
+        case_dir = doc.get("case_dir")
+        if case_dir:
+            os.environ.setdefault("VHIR_CASE_DIR", str(case_dir))
+        active_case = doc.get("active_case")
+        if active_case:
+            os.environ.setdefault("VHIR_ACTIVE_CASE", str(active_case))
+
 
 # Module-level singleton — initialized once, immutable after that
 _config: WintoolsConfig | None = None
