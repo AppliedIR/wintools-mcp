@@ -152,7 +152,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Enforce TLS 1.2 — PS 5.1 defaults to SSL3/TLS1.0 which GitHub rejects
+# Enforce TLS 1.2 -- PS 5.1 defaults to SSL3/TLS1.0 which GitHub rejects
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $process = $null
@@ -270,7 +270,7 @@ function Set-StaticIP {
         return $IP
     }
 
-    # Use netsh — single atomic operation, sets static even if IP matches (DHCP → static)
+    # Use netsh -- single atomic operation, sets static even if IP matches (DHCP -> static)
     $mask = switch ($prefix) { 24 { "255.255.255.0" } 16 { "255.255.0.0" } 8 { "255.0.0.0" } default { "255.255.255.0" } }
     $adapterName = $adapter.InterfaceAlias
     $prevEAPNetsh = $ErrorActionPreference
@@ -523,7 +523,7 @@ if ($Update) {
         # Normal git update
         Write-Info "Pulling latest changes..."
         $status = git status --porcelain 2>&1
-        # Filter untracked files (??) — they never conflict with git pull
+        # Filter untracked files (??) -- they never conflict with git pull
         $modified = $status | Where-Object { $_ -notmatch '^\?\?' }
         if ($modified) {
             Write-Warn "Working tree has uncommitted changes:"
@@ -600,7 +600,7 @@ if ($Update) {
             $ErrorActionPreference = $prevEAP
         }
     } else {
-        # Install FK from GitHub archive URL — no git required
+        # Install FK from GitHub archive URL -- no git required
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
@@ -629,7 +629,7 @@ if ($Update) {
     }
 
     # 5. Restart via scheduled task, or tell user to start manually
-    # Check both old and new task names (rebrand: ValiHuntIR/AIIR → Valhuntir)
+    # Check both old and new task names (rebrand: ValiHuntIR/AIIR -> Valhuntir)
     $task = $null
     $taskName = $null
     foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
@@ -672,7 +672,7 @@ if ($Update) {
             Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
             Write-Ok "Scheduled task restarted"
         } else {
-            # No task found — recreate from start-wintools.ps1 if available
+            # No task found -- recreate from start-wintools.ps1 if available
             $startupPath = Join-Path $InstallDir "start-wintools.ps1"
             if (Test-Path $startupPath) {
                 $action = New-ScheduledTaskAction `
@@ -1073,7 +1073,7 @@ try {
     $ErrorActionPreference = $prevEAP
 }
 
-# forensic-knowledge (FK) enrichment — optional
+# forensic-knowledge (FK) enrichment -- optional
 # FK lives inside the sift-mcp monorepo at packages/forensic-knowledge/.
 # pip can install it directly from that subdirectory via git+subdirectory syntax.
 # Without FK, tool execution still works but responses lack caveats, advisories,
@@ -1516,7 +1516,7 @@ $toolPathsYaml
         $siftPort = "$GatewayPort"
         $joinCodeValue = $JoinCode
     } else {
-        # Join code first — by the time the user has it, SIFT IP is known
+        # Join code first -- by the time the user has it, SIFT IP is known
         Write-Host "  On the SIFT workstation, run: vhir setup join-code" -ForegroundColor Cyan
         Write-Host ""
         $joinCodeValue = Read-Prompt "Join code from SIFT workstation (blank to skip)" ""
@@ -1740,14 +1740,14 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                     $statusCode = [int]$_.Exception.Response.StatusCode
                 }
                 if ($statusCode -eq 403) {
-                    # Server rejected the request — key was NOT stored. Safe to clear.
+                    # Server rejected the request -- key was NOT stored. Safe to clear.
                     $wintoolsApiKey = ""
                     Write-Warn "Join failed: invalid, expired, or already-used join code"
                 } elseif ($statusCode -eq 429) {
                     $wintoolsApiKey = ""
                     Write-Warn "Join failed: too many attempts. Try again later."
                 } else {
-                    # Timeout or network error — server MAY have stored the key.
+                    # Timeout or network error -- server MAY have stored the key.
                     # Keep the generated key so config.yaml matches what was sent.
                     Write-Warn "Join failed: $_"
                     Write-Warn "The API key sent to the gateway may or may not have been stored."
@@ -1759,7 +1759,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
         }
     }
 
-    # Drive mapping — only if join succeeded and SMB fields present
+    # Drive mapping -- only if join succeeded and SMB fields present
     if ($joinSucceeded -and $joinData.smb_share) {
         $derivedPw = Derive-SMBPassword -JoinCode $joinCodeValue
         $smbHost = $joinData.smb_host
@@ -1767,7 +1767,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
         $smbUser = $joinData.smb_user
         $uncPath = "\\$smbHost\$smbShare"
 
-        # Always save derived credentials for config.yaml — regardless of net use result
+        # Always save derived credentials for config.yaml -- regardless of net use result
         $script:smbUserForConfig = $smbUser
         $script:smbPasswordForConfig = $derivedPw
         $script:shareRootForConfig = $uncPath
@@ -1812,7 +1812,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
 
     $derivedPw = $null
 
-    # Deferred examiner prompt — now that join is complete, we know the SIFT examiner
+    # Deferred examiner prompt -- now that join is complete, we know the SIFT examiner
     if ($examinerDeferred) {
         Write-Host ""
         Write-Host "--- Examiner Identity ---" -ForegroundColor White
@@ -1948,7 +1948,7 @@ share_root: $($script:shareRootForConfig)
                     if ($content -match '(?m)^\s+vhir_wt_') {
                         $content = $content -replace '(?m)^\s+vhir_wt_[^\r\n]*', "  ${wintoolsApiKey}:"
                     } elseif ($content -match 'api_keys:') {
-                        # api_keys exists but no vhir_wt_ entry — append under it
+                        # api_keys exists but no vhir_wt_ entry -- append under it
                         $content = $content -replace '(api_keys:[^\r\n]*)', "`$1`r`n  ${wintoolsApiKey}:`r`n    examiner: `"gateway`"`r`n    role: `"examiner`""
                     } else {
                         $content = $content.TrimEnd() + "`r`napi_keys:`r`n  ${wintoolsApiKey}:`r`n    examiner: `"gateway`"`r`n    role: `"examiner`""
@@ -2170,13 +2170,13 @@ if (Test-Path $wintoolsConfigPath) {
     $scriptArgs += " --config `"$wintoolsConfigPath`""
 }
 try {
-    # Build startup script — ST-1 (restart loop), ST-2 (logging), ST-4 (config-based env)
+    # Build startup script -- ST-1 (restart loop), ST-2 (logging), ST-4 (config-based env)
     # Python config.py now reads examiner/case_dir from config.yaml via os.environ.setdefault
     # so the startup script only needs VHIR_EXAMINER as fallback for non-config deployments
     $logDir = Join-Path $InstallDir "logs"
     $startupLines = @(
         "# Start wintools-mcp in HTTP mode with restart loop and logging",
-        "# ST-4: Python reads examiner/case from config.yaml — env vars are fallback only",
+        "# ST-4: Python reads examiner/case from config.yaml -- env vars are fallback only",
         "`$env:VHIR_EXAMINER = `"$Examiner`"",
         "",
         "# ST-2: Startup logging with rotation (keep 3)",
@@ -2260,7 +2260,7 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
         Write-Host "  schtasks /create /tn `"$taskName`" /tr `"powershell.exe -ExecutionPolicy Bypass -File \`"$startupPath\`"`" /sc onstart /ru SYSTEM"
     }
 
-    # Add firewall rule — remove ALL historical names first
+    # Add firewall rule -- remove ALL historical names first
     try {
         $ruleName = "Valhuntir wintools-mcp"
         foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
