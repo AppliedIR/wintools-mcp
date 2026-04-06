@@ -19,6 +19,8 @@ tools:
         description: "Verify digital signatures"
       - flag: "-v"
         description: "Query VirusTotal"
+      - flag: "-z"
+        description: "Scan offline Windows system via mounted image. LIMITATION: Only registry-based ASEPs. Does NOT detect WMI persistence or scheduled tasks offline."
       - flag: "-accepteula"
         description: "Accept EULA (required for first run)"
     install_methods:
@@ -136,6 +138,12 @@ tools:
         description: "Query VirusTotal"
       - flag: "-h"
         description: "Show file hashes"
+      - flag: "-r"
+        description: "Disable CRL revocation check — required on offline/air-gapped workstations"
+      - flag: "-o"
+        description: "Offline VT workflow — capture hashes for later VT check on connected system. Free API: 4 req/min, 500/day. Only submit suspicious hashes, not bulk scans."
+      - flag: "-i"
+        description: "Show catalog-signed files (files signed via CatRoot catalog)"
       - flag: "-accepteula"
         description: "Accept EULA (required for first run)"
     install_methods:
