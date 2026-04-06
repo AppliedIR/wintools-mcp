@@ -235,7 +235,9 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
 
     if not suggestions:
         try:
-            available = [a["name"] for a in fk_loader.list_artifacts()]
+            available = [
+                a["name"] for a in fk_loader.list_artifacts(platform="windows")
+            ]
         except Exception as e:
             logger.warning("FK list_artifacts() failed: %s", e)
             available = []
