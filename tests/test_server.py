@@ -82,6 +82,13 @@ class TestCreateServer:
         tool_names = [t.name for t in server._tool_manager._tools.values()]
         assert len(tool_names) == 8
 
+    def test_server_has_get_share_info(self, test_catalog):
+        """get_share_info tool is registered."""
+        config = WintoolsConfig()
+        server = create_server(config)
+        tool_names = [t.name for t in server._tool_manager._tools.values()]
+        assert "get_share_info" in tool_names
+
     def test_server_has_instructions(self, test_catalog):
         """Verify forensic discipline instructions are set."""
         config = WintoolsConfig()

@@ -96,6 +96,32 @@ class TestWintoolsConfig:
         assert cfg.share_root == ""
         assert cfg.audit_dir == ""
 
+    def test_yaml_sets_env_vars_via_setdefault(self, tmp_path, monkeypatch):
+        """ST-4: config.yaml examiner/case_dir propagate to env vars."""
+        monkeypatch.delenv("VHIR_EXAMINER", raising=False)
+        monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
+        monkeypatch.delenv("VHIR_ACTIVE_CASE", raising=False)
+        yaml_file = tmp_path / "config.yaml"
+        yaml_file.write_text(
+            "examiner: alice\ncase_dir: C:\\cases\\INC-001\nactive_case: INC-001\n"
+        )
+        import os
+
+        WintoolsConfig.from_env(config_file=str(yaml_file))
+        assert os.environ.get("VHIR_EXAMINER") == "alice"
+        assert os.environ.get("VHIR_CASE_DIR") == "C:\\cases\\INC-001"
+        assert os.environ.get("VHIR_ACTIVE_CASE") == "INC-001"
+
+    def test_yaml_env_vars_do_not_override_explicit(self, tmp_path, monkeypatch):
+        """ST-4: explicit env vars take precedence over config.yaml."""
+        monkeypatch.setenv("VHIR_EXAMINER", "bob")
+        yaml_file = tmp_path / "config.yaml"
+        yaml_file.write_text("examiner: alice\n")
+        import os
+
+        WintoolsConfig.from_env(config_file=str(yaml_file))
+        assert os.environ.get("VHIR_EXAMINER") == "bob"
+
     def test_singleton(self, monkeypatch):
         monkeypatch.setenv("VHIR_EXAMINER", "singleton-test")
         cfg1 = get_config()

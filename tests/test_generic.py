@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
-from wintools_mcp.tools.generic import run_command
+from wintools_mcp.tools.generic import _expand_script_command, run_command
 
 
 @pytest.fixture
@@ -73,3 +73,85 @@ class TestRunCommand:
         ):
             with pytest.raises(ValueError, match="Blocked"):
                 run_command(["testtool.exe", "--exec", "malicious"])
+
+
+class TestScriptExpansion:
+    """Tests for _expand_script_command (BUG-W1)."""
+
+    def test_non_script_tool_unchanged(self, test_catalog):
+        """Non-script tools pass through unchanged."""
+        result = _expand_script_command(["testtool.exe", "-f", "input"])
+        assert result == ["testtool.exe", "-f", "input"]
+
+    def test_unknown_tool_unchanged(self, test_catalog):
+        """Unknown tools pass through unchanged."""
+        result = _expand_script_command(["nonexistent", "--help"])
+        assert result == ["nonexistent", "--help"]
+
+    def test_script_not_in_exceptions_unchanged(self, test_catalog):
+        """Script tools not in PS_SCRIPT_EXCEPTIONS pass through."""
+        from wintools_mcp.catalog import ToolDefinition
+
+        td = ToolDefinition(
+            name="SomeScript",
+            binary="powershell.exe",
+            category="scripts",
+            exec_type="script",
+            install_paths=["/tmp"],
+        )
+        with patch("wintools_mcp.tools.generic.get_tool_def", return_value=td):
+            result = _expand_script_command(["SomeScript", "--arg"])
+        assert result == ["SomeScript", "--arg"]
+
+    def test_script_found_expands(self, test_catalog, tmp_path):
+        """Known script in install_paths expands to PowerShell invocation."""
+        from wintools_mcp.catalog import ToolDefinition
+
+        script = tmp_path / "Get-InjectedThreadEx.ps1"
+        script.write_text("# script")
+        td = ToolDefinition(
+            name="Get-InjectedThreadEx",
+            binary="powershell.exe",
+            category="scripts",
+            exec_type="script",
+            install_paths=[str(tmp_path)],
+        )
+        with patch("wintools_mcp.tools.generic.get_tool_def", return_value=td):
+            result = _expand_script_command(["Get-InjectedThreadEx", "--verbose"])
+        assert result[0] == "powershell.exe"
+        assert "-NoProfile" in result
+        assert "-File" in result
+        assert str(script) in result
+        assert "--verbose" in result
+
+    def test_script_not_found_raises(self, test_catalog, tmp_path):
+        """Missing script raises ToolNotInCatalogError with searched paths."""
+        from wintools_mcp.catalog import InstallMethod, ToolDefinition
+
+        td = ToolDefinition(
+            name="Get-InjectedThreadEx",
+            binary="powershell.exe",
+            category="scripts",
+            exec_type="script",
+            install_paths=[str(tmp_path / "nonexistent")],
+            install_methods=[InstallMethod(method="github", url="https://example.com")],
+        )
+        with patch("wintools_mcp.tools.generic.get_tool_def", return_value=td):
+            with pytest.raises(ToolNotInCatalogError, match="Script not found"):
+                _expand_script_command(["Get-InjectedThreadEx"])
+
+    def test_path_traversal_blocked(self, test_catalog, tmp_path):
+        """Path traversal in command name is stripped to filename only."""
+        from wintools_mcp.catalog import ToolDefinition
+
+        td = ToolDefinition(
+            name="../../etc/Get-InjectedThreadEx",
+            binary="powershell.exe",
+            category="scripts",
+            exec_type="script",
+            install_paths=[str(tmp_path)],
+        )
+        with patch("wintools_mcp.tools.generic.get_tool_def", return_value=td):
+            # Should not find the script (traversal stripped, file doesn't exist)
+            with pytest.raises(ToolNotInCatalogError, match="Script not found"):
+                _expand_script_command(["../../etc/Get-InjectedThreadEx"])

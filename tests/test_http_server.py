@@ -158,6 +158,8 @@ class TestHTTPApp:
             data = resp.json()
             assert data["status"] == "ok"
             assert data["service"] == "wintools-mcp"
+            assert "fk_available" in data
+            assert isinstance(data["fk_available"], bool)
 
     def _mcp_headers(self, extra: dict | None = None) -> dict:
         """Standard headers for MCP requests (includes Host for DNS rebinding protection)."""
