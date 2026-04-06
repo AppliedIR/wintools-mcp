@@ -1767,6 +1767,24 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
         $smbUser = $joinData.smb_user
         $uncPath = "\\$smbHost\$smbShare"
 
+        # Always save derived credentials for config.yaml — regardless of net use result
+        $script:smbUserForConfig = $smbUser
+        $script:smbPasswordForConfig = $derivedPw
+        $script:shareRootForConfig = $uncPath
+
+        # Clean up any existing mapping to this UNC path before re-mapping
+        foreach ($letter in @("S","T","U","V","W","X","Y","Z")) {
+            if (Test-Path "${letter}:\") {
+                try {
+                    $existing = net use "${letter}:" 2>&1
+                    if ($existing -match [regex]::Escape($uncPath)) {
+                        $null = net use "${letter}:" /delete /yes 2>&1
+                        Write-Info "Removed stale mapping ${letter}: to $uncPath"
+                    }
+                } catch { }
+            }
+        }
+
         # Find available drive letter (S: preferred, fall back to T:-Z:)
         $driveLetter = $null
         foreach ($letter in @("S","T","U","V","W","X","Y","Z")) {
@@ -1783,11 +1801,6 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                 # net use is more reliable than New-PSDrive -Persist on PS 5.1
                 $netResult = net use "${driveLetter}:" $uncPath /user:$smbUser $derivedPw /persistent:yes 2>&1
                 if ($LASTEXITCODE -ne 0) { throw $netResult }
-
-                # Save SMB values for inclusion in config.yaml (written later)
-                $script:smbUserForConfig = $smbUser
-                $script:smbPasswordForConfig = $derivedPw
-                $script:shareRootForConfig = $uncPath
 
                 Write-Ok "Mapped ${driveLetter}: to $uncPath"
             } catch {
@@ -1899,10 +1912,68 @@ share_root: $($script:shareRootForConfig)
     }
 
     # Write wintools-mcp config.yaml with API key if provided
-    # Preserve existing config on re-run (delete config.yaml to regenerate)
+    # On re-join: update connection settings (smb_*, api_key) in existing config
+    # On re-run without join: preserve existing config
     if (Test-Path $wintoolsConfigPath) {
-        Write-Info "Existing config found -- preserving: $wintoolsConfigPath"
-        Write-Host "  Delete $wintoolsConfigPath and re-run to regenerate"
+        if ($joinSucceeded -or $script:smbPasswordForConfig) {
+            # Re-join: update connection settings in existing config
+            try {
+                $content = Get-Content $wintoolsConfigPath -Raw
+                $updated = @()
+
+                # Update SMB credentials
+                if ($script:smbPasswordForConfig) {
+                    if ($content -match 'smb_password:') {
+                        $content = $content -replace 'smb_password:[^\r\n]*', "smb_password: $($script:smbPasswordForConfig)"
+                    } else {
+                        $content = $content.TrimEnd() + "`r`nsmb_password: $($script:smbPasswordForConfig)"
+                    }
+                    if ($content -match 'smb_user:') {
+                        $content = $content -replace 'smb_user:[^\r\n]*', "smb_user: $($script:smbUserForConfig)"
+                    } else {
+                        $content = $content.TrimEnd() + "`r`nsmb_user: $($script:smbUserForConfig)"
+                    }
+                    if ($script:shareRootForConfig) {
+                        if ($content -match 'share_root:') {
+                            $content = $content -replace 'share_root:[^\r\n]*', "share_root: $($script:shareRootForConfig)"
+                        } else {
+                            $content = $content.TrimEnd() + "`r`nshare_root: $($script:shareRootForConfig)"
+                        }
+                    }
+                    $updated += "smb"
+                }
+
+                # Update API key (gateway sends new key on each join)
+                if ($wintoolsApiKey) {
+                    if ($content -match '(?m)^\s+vhir_wt_') {
+                        $content = $content -replace '(?m)^\s+vhir_wt_[^\r\n]*', "  ${wintoolsApiKey}:"
+                    } elseif ($content -match 'api_keys:') {
+                        # api_keys exists but no vhir_wt_ entry — append under it
+                        $content = $content -replace '(api_keys:[^\r\n]*)', "`$1`r`n  ${wintoolsApiKey}:`r`n    examiner: `"gateway`"`r`n    role: `"examiner`""
+                    } else {
+                        $content = $content.TrimEnd() + "`r`napi_keys:`r`n  ${wintoolsApiKey}:`r`n    examiner: `"gateway`"`r`n    role: `"examiner`""
+                    }
+                    $updated += "api_key"
+                }
+
+                $content | Set-Content -Path $wintoolsConfigPath -Encoding UTF8
+                Write-Ok "Updated connection settings in config: $($updated -join ', ')"
+
+                # Restart running wintools process so new config takes effect
+                $wintoolsProcs = Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Path -and $_.Path -like "*wintools*" }
+                if ($wintoolsProcs) {
+                    $wintoolsProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+                    Start-Sleep -Seconds 2
+                    Write-Info "Stopped running wintools-mcp (will restart via scheduled task or Phase 6)"
+                }
+            } catch {
+                Write-Warn "Could not update connection settings in config: $_"
+            }
+        } else {
+            Write-Info "Existing config preserved: $wintoolsConfigPath"
+            Write-Host "  Delete $wintoolsConfigPath and re-run to regenerate"
+        }
     } else {
     try {
     if ($wintoolsApiKey) {
