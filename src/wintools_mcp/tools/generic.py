@@ -1,6 +1,8 @@
 """Generic run_command: catalog-gated execution of any approved tool."""
 
+import hashlib
 import logging
+import time as _time
 from pathlib import Path
 
 from wintools_mcp.catalog import PS_SCRIPT_EXCEPTIONS, get_tool_def, validate_command
@@ -11,6 +13,46 @@ from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args, validate_input_path
 
 logger = logging.getLogger(__name__)
+
+# --- Result caching (Feature 4) ---
+_CACHE_TTL = 86400  # 24 hours
+_result_cache: dict[str, tuple[float, dict]] = {}  # key -> (timestamp, result)
+
+
+def _cache_key(command: list[str], input_files: list[str] | None = None) -> str:
+    """Build cache key from command + input file hashes."""
+    h = hashlib.sha256()
+    h.update("|".join(command).encode())
+    for path in sorted(input_files or []):
+        try:
+            p = Path(path)
+            if p.is_file():
+                # Hash first 64KB for speed on large files
+                with open(p, "rb") as f:
+                    h.update(f.read(65536))
+                h.update(str(p.stat().st_mtime_ns).encode())
+        except OSError:
+            h.update(path.encode())
+    return h.hexdigest()
+
+
+def _cache_get(key: str) -> dict | None:
+    """Return cached result if still valid, else None."""
+    entry = _result_cache.get(key)
+    if entry is None:
+        return None
+    ts, result = entry
+    if _time.monotonic() - ts > _CACHE_TTL:
+        del _result_cache[key]
+        return None
+    result = dict(result)  # shallow copy
+    result["_cached"] = True
+    return result
+
+
+def _cache_put(key: str, result: dict) -> None:
+    """Store result in cache."""
+    _result_cache[key] = (_time.monotonic(), result)
 
 
 def _expand_script_command(command: list[str]) -> list[str]:
@@ -70,6 +112,8 @@ def run_command(
     save_output: bool = False,
     save_dir: str | None = None,
     cwd: str | None = None,
+    no_cache: bool = False,
+    input_files: list[str] | None = None,
 ) -> dict:
     """Execute a catalog-approved command with denylist enforcement."""
     if not command:
@@ -79,7 +123,7 @@ def run_command(
     # so the expanded PowerShell invocation passes the PS exception check
     command = _expand_script_command(command)
 
-    # Denylist + allowlist validation
+    # Denylist + allowlist validation (always runs, even on cache hits)
     error = validate_command(command)
     if error:
         if "blocked" in error.lower():
@@ -95,6 +139,15 @@ def run_command(
             f"Use list_missing_windows_tools() for installation guidance."
         )
     command = [resolved] + command[1:]
+
+    # Cache lookup (Feature 4) — after validation + resolution
+    cache_key = None
+    if not no_cache and not save_output:
+        cache_key = _cache_key(command, input_files)
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            logger.info("Cache hit for %s", command[0])
+            return cached
 
     # Sanitize extra args
     sanitize_extra_args(command[1:], tool_name=binary_name)
@@ -151,6 +204,8 @@ def run_command(
     # Small output — return as-is
     if stdout_bytes <= cfg.response_byte_budget:
         exec_result["_output_format"] = output_format
+        if cache_key and exec_result.get("exit_code", 1) == 0:
+            _cache_put(cache_key, exec_result)
         return exec_result
 
     # Large output — parse with byte budget
@@ -182,4 +237,9 @@ def run_command(
         exec_result["_output_format"] = "parsed_text"
 
     exec_result["stdout"] = None
+
+    # Cache store (Feature 4)
+    if cache_key and exec_result.get("exit_code", 1) == 0:
+        _cache_put(cache_key, exec_result)
+
     return exec_result

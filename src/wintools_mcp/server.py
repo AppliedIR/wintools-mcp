@@ -146,6 +146,143 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             )
         return result
 
+    # --- KAPE Discovery ---
+    @server.tool()
+    def list_kape_targets(list_type: str = "targets") -> dict:
+        """List available KAPE targets or modules in structured categories.
+
+        KAPE is for PARSING already-collected evidence in the case directory,
+        NOT for live collection from target systems.
+
+        Args:
+            list_type: "targets" or "modules" (default: targets)
+        """
+        import shutil
+        import subprocess
+
+        kape_path = shutil.which("kape") or shutil.which("kape.exe")
+        if not kape_path:
+            return {
+                "error": "KAPE not installed. Download from https://www.kroll.com/kape"
+            }
+
+        flag = "--tlist" if list_type == "targets" else "--mlist"
+        try:
+            result = subprocess.run(
+                [kape_path, flag],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            lines = result.stdout.strip().splitlines()
+        except Exception as e:
+            return {"error": f"KAPE {flag} failed: {e}"}
+
+        # Parse into categories with counts
+        categories: dict[str, list[str]] = {}
+        current_cat = "Uncategorized"
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.endswith(":") and not stripped.startswith(" "):
+                current_cat = stripped.rstrip(":")
+                if current_cat not in categories:
+                    categories[current_cat] = []
+            elif stripped:
+                categories.setdefault(current_cat, []).append(stripped)
+
+        summary = {cat: len(items) for cat, items in categories.items()}
+        return {
+            "type": list_type,
+            "categories": summary,
+            "total": sum(summary.values()),
+            "note": "KAPE parses evidence already in the case directory. NOT for live collection.",
+            "drill_down": "Pass a category name to see individual entries (not yet implemented).",
+        }
+
+    # --- Batch Execution ---
+    @server.tool()
+    def batch_scan(
+        tool: str,
+        directory: str,
+        filter_pattern: str = "",
+        max_files: int = 500,
+        timeout: int = 3600,
+    ) -> dict:
+        """Run a tool against files in a directory with safety bounds.
+
+        Args:
+            tool: Tool name (e.g., "sigcheck", "densityscout", "capa")
+            directory: Path to scan
+            filter_pattern: File filter (e.g., "*.exe", "*.dll"). Empty = all files.
+            max_files: Maximum files to process (default 500, cap 100 for capa)
+            timeout: Total timeout in seconds (default 3600)
+        """
+        import fnmatch
+        import os
+        import time as _time
+
+        from wintools_mcp.tools.generic import run_command as _run
+
+        # Safety caps
+        tool_lower = tool.lower()
+        if "capa" in tool_lower:
+            max_files = min(max_files, 100)  # capa ~13s/file
+        else:
+            max_files = min(max_files, 500)
+
+        # Collect files
+        try:
+            all_files = []
+            for entry in os.scandir(directory):
+                if not entry.is_file():
+                    continue
+                if filter_pattern and not fnmatch.fnmatch(entry.name, filter_pattern):
+                    continue
+                all_files.append(entry.path)
+                if len(all_files) >= max_files:
+                    break
+        except OSError as e:
+            return {"error": f"Cannot scan directory: {e}"}
+
+        if not all_files:
+            return {"error": f"No files matching '{filter_pattern}' in {directory}"}
+
+        results = []
+        errors = []
+        start = _time.monotonic()
+        for i, filepath in enumerate(all_files):
+            if _time.monotonic() - start > timeout:
+                errors.append(f"Timeout after {i} files")
+                break
+            try:
+                r = _run(
+                    [tool, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
+                )
+                results.append(
+                    {
+                        "file": filepath,
+                        "exit_code": r.get("exit_code"),
+                        "stdout_bytes": r.get("stdout_total_bytes", 0),
+                    }
+                )
+            except Exception as e:
+                errors.append(f"{filepath}: {e}")
+
+        elapsed = _time.monotonic() - start
+        return {
+            "tool": tool,
+            "directory": directory,
+            "files_processed": len(results),
+            "files_total": len(all_files),
+            "errors": errors,
+            "elapsed_seconds": round(elapsed, 1),
+            "results": results[:20],  # first 20 inline, rest in saved output
+            "note": f"Processed {len(results)}/{len(all_files)} files"
+            + (f", {len(errors)} errors" if errors else ""),
+        }
+
     # --- Generic Execution ---
     @server.tool()
     def run_windows_command(
