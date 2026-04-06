@@ -28,6 +28,31 @@ _CASE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 # ---------------------------------------------------------------------------
+# Shared auth check for control endpoints
+# ---------------------------------------------------------------------------
+
+
+def _check_auth(request: Request, cfg: WintoolsConfig) -> JSONResponse | None:
+    """Check bearer token auth. Returns error response or None if OK."""
+    if not cfg.api_keys:
+        return None
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if not token:
+        return JSONResponse(
+            {"error": "Missing or invalid Authorization header"}, status_code=401
+        )
+    if len(token) > _MAX_TOKEN_LENGTH:
+        return JSONResponse({"error": "Invalid API key"}, status_code=403)
+    matched = False
+    for candidate in cfg.api_keys:
+        if hmac.compare_digest(token, candidate):
+            matched = True
+    if not matched:
+        return JSONResponse({"error": "Invalid API key"}, status_code=403)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # ASGI-level auth wrapper (same pattern as sift-gateway)
 # ---------------------------------------------------------------------------
 
@@ -112,12 +137,15 @@ async def health(request: Request) -> JSONResponse:
         fk_available = True
     except ImportError:
         pass
+    cfg = get_config()
     return JSONResponse(
         {
             "status": "ok",
             "service": "wintools-mcp",
             "fk_available": fk_available,
             "smb_session": is_smb_session_ok(),
+            "active_case": cfg.active_case,
+            "case_dir": cfg.case_dir,
         }
     )
 
@@ -128,22 +156,11 @@ async def health(request: Request) -> JSONResponse:
 
 
 async def activate_case(request: Request) -> JSONResponse:
-    """Activate a case — update config singleton and env vars."""
-    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    """Activate a case -- update config singleton and env vars."""
     cfg = get_config()
-    if cfg.api_keys:
-        if not token:
-            return JSONResponse(
-                {"error": "Missing or invalid Authorization header"}, status_code=401
-            )
-        if len(token) > _MAX_TOKEN_LENGTH:
-            return JSONResponse({"error": "Invalid API key"}, status_code=403)
-        matched = False
-        for candidate in cfg.api_keys:
-            if hmac.compare_digest(token, candidate):
-                matched = True
-        if not matched:
-            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+    auth_err = _check_auth(request, cfg)
+    if auth_err:
+        return auth_err
 
     raw_body = await request.body()
     if len(raw_body) > 1_000_000:  # 1 MB limit for control endpoint
@@ -167,11 +184,20 @@ async def activate_case(request: Request) -> JSONResponse:
             status_code=503,
         )
 
-    windows_case_dir = cfg.share_root  # Per-case share — UNC path IS the case dir
+    # Short-circuit if already on this case (avoids redundant YAML writes from 30s re-sync)
+    if cfg.active_case == case_id:
+        return JSONResponse(
+            {"status": "already_active", "case_id": case_id, "case_dir": cfg.case_dir}
+        )
+
+    windows_case_dir = cfg.share_root  # Per-case share -- UNC path IS the case dir
     cfg.case_dir = windows_case_dir
     cfg.active_case = case_id
     os.environ["VHIR_CASE_DIR"] = windows_case_dir
     os.environ["VHIR_ACTIVE_CASE"] = case_id
+
+    # Persist so case survives wintools restart
+    _persist_config_fields(cfg, {"case_dir": windows_case_dir, "active_case": case_id})
 
     return JSONResponse(
         {
@@ -183,27 +209,20 @@ async def activate_case(request: Request) -> JSONResponse:
 
 
 async def deactivate_case(request: Request) -> JSONResponse:
-    """Deactivate current case — clear config and env vars."""
-    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    """Deactivate current case -- clear config and env vars."""
     cfg = get_config()
-    if cfg.api_keys:
-        if not token:
-            return JSONResponse(
-                {"error": "Missing or invalid Authorization header"}, status_code=401
-            )
-        if len(token) > _MAX_TOKEN_LENGTH:
-            return JSONResponse({"error": "Invalid API key"}, status_code=403)
-        matched = False
-        for candidate in cfg.api_keys:
-            if hmac.compare_digest(token, candidate):
-                matched = True
-        if not matched:
-            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+    auth_err = _check_auth(request, cfg)
+    if auth_err:
+        return auth_err
 
     cfg.case_dir = ""
     cfg.active_case = ""
     os.environ.pop("VHIR_CASE_DIR", None)
     os.environ.pop("VHIR_ACTIVE_CASE", None)
+
+    # Persist cleared state so restart doesn't reload stale case
+    _persist_config_fields(cfg, {"case_dir": "", "active_case": ""})
+
     return JSONResponse({"status": "deactivated"})
 
 
@@ -213,20 +232,11 @@ async def deactivate_case(request: Request) -> JSONResponse:
 
 
 async def update_smb_credentials(request: Request) -> JSONResponse:
-    """Update SMB credentials and re-establish session (Fix 1)."""
-    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    """Update SMB credentials and re-establish session."""
     cfg = get_config()
-    if cfg.api_keys:
-        if not token:
-            return JSONResponse({"error": "Missing Authorization"}, status_code=401)
-        if len(token) > _MAX_TOKEN_LENGTH:
-            return JSONResponse({"error": "Invalid API key"}, status_code=403)
-        matched = False
-        for candidate in cfg.api_keys:
-            if hmac.compare_digest(token, candidate):
-                matched = True
-        if not matched:
-            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+    auth_err = _check_auth(request, cfg)
+    if auth_err:
+        return auth_err
 
     raw_body = await request.body()
     if len(raw_body) > 10_000:

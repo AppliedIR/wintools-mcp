@@ -1,8 +1,9 @@
-"""SMB session management — shared between http_server and executor."""
+"""SMB session management -- shared between http_server and executor."""
 
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 
 logger = logging.getLogger(__name__)
@@ -35,13 +36,23 @@ def establish_smb_session(config) -> bool:
             _smb_session_ok = True
             logger.info("SMB session established to %s", config.share_root)
             return True
-        # net use returns 2 if already connected — that's fine
-        if "already" in result.stderr.lower() or "already" in result.stdout.lower():
+        # Error 1219 (multiple connections) or "already connected" -- both fine
+        combined = (result.stderr + result.stdout).lower()
+        if "already" in combined or "multiple connections" in combined:
             _smb_session_ok = True
+            return True
+        # net use failed but share may be accessible via persistent mapping
+        if os.path.isdir(config.share_root):
+            _smb_session_ok = True
+            logger.info(
+                "SMB share accessible via existing mapping: %s", config.share_root
+            )
             return True
         _smb_session_ok = False
         logger.error(
-            "SMB session failed (exit %d): %s", result.returncode, result.stderr.strip()
+            "SMB session failed (exit %d): %s",
+            result.returncode,
+            result.stderr.strip(),
         )
         return False
     except Exception as e:

@@ -199,9 +199,11 @@ class WintoolsConfig:
             os.environ.setdefault("VHIR_EXAMINER", str(examiner))
         case_dir = doc.get("case_dir")
         if case_dir:
+            self.case_dir = str(case_dir)
             os.environ.setdefault("VHIR_CASE_DIR", str(case_dir))
         active_case = doc.get("active_case")
         if active_case:
+            self.active_case = str(active_case)
             os.environ.setdefault("VHIR_ACTIVE_CASE", str(active_case))
 
 
