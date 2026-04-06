@@ -188,6 +188,9 @@ def suggest_tools(artifact_type: str, question: str = "") -> dict:
             continue
         if not artifact or not isinstance(artifact, dict):
             continue
+        # Skip non-Windows artifacts (wintools only runs Windows tools)
+        if artifact.get("platform", "windows") != "windows":
+            continue
 
         for tool_name in artifact.get("related_tools") or []:
             # Avoid duplicates across aliases
