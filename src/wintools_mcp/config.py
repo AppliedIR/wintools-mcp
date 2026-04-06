@@ -57,6 +57,7 @@ class WintoolsConfig:
     @classmethod
     def from_env(cls, config_file: str | None = None) -> WintoolsConfig:
         cfg = cls()
+        cfg._config_file = config_file  # stored for _persist_config_fields
         if config_file:
             cfg._load_yaml(config_file)
 

@@ -181,7 +181,22 @@ def run_command(
                 import os
 
                 output_dir = os.path.join(cfg.case_dir, "extractions", td.name.lower())
-                os.makedirs(output_dir, exist_ok=True)
+                try:
+                    os.makedirs(output_dir, exist_ok=True)
+                except OSError as e:
+                    if "Access is denied" in str(e) or "WinError 5" in str(e):
+                        from wintools_mcp.smb import establish_smb_session
+
+                        if not establish_smb_session(cfg):
+                            return {
+                                "error": (
+                                    "SMB session expired — cannot write to case directory. "
+                                    "Check health endpoint for smb_session status."
+                                )
+                            }
+                        os.makedirs(output_dir, exist_ok=True)
+                    else:
+                        raise
                 command.extend([td.output_flag, output_dir])
                 logger.info("Auto-injected output: %s %s", td.output_flag, output_dir)
 

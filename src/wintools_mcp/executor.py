@@ -275,8 +275,27 @@ def _save_output(
     except ValueError:
         raise
     except OSError as e:
-        logger.warning("Failed to create output directory %s: %s", save_dir, e)
-        return
+        if "Access is denied" in str(e) or "WinError 5" in str(e):
+            # SMB session may have expired — try re-establishing
+            from wintools_mcp.smb import establish_smb_session
+
+            cfg = get_config()
+            if establish_smb_session(cfg):
+                try:
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                except OSError as retry_err:
+                    logger.error("SMB retry failed for %s: %s", save_dir, retry_err)
+                    return
+            else:
+                logger.error(
+                    "SMB session failed — cannot write to %s. "
+                    "Check credentials or re-run 'vhir setup join'.",
+                    save_dir,
+                )
+                return
+        else:
+            logger.warning("Failed to create output directory %s: %s", save_dir, e)
+            return
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_cmd = "".join(

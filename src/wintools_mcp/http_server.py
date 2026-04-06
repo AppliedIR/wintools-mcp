@@ -98,41 +98,13 @@ def _extract_bearer_token(scope: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# SMB session establishment
-# ---------------------------------------------------------------------------
-
-
-def _establish_smb_session(config: WintoolsConfig) -> None:
-    """Connect to the SIFT Samba share using stored credentials."""
-    import subprocess
-
-    if not config.smb_user or not config.smb_password:
-        logger.warning("SMB credentials not configured, skipping share mount")
-        return
-    result = subprocess.run(
-        [
-            "net",
-            "use",
-            config.share_root,
-            f"/user:{config.smb_user}",
-            config.smb_password,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    if result.returncode != 0:
-        logger.warning("SMB session failed: %s", result.stderr.strip())
-    else:
-        logger.info("SMB session established: %s", config.share_root)
-
-
-# ---------------------------------------------------------------------------
 # Health endpoint
 # ---------------------------------------------------------------------------
 
 
 async def health(request: Request) -> JSONResponse:
+    from wintools_mcp.smb import is_smb_session_ok
+
     fk_available = False
     try:
         import forensic_knowledge  # noqa: F401
@@ -141,7 +113,12 @@ async def health(request: Request) -> JSONResponse:
     except ImportError:
         pass
     return JSONResponse(
-        {"status": "ok", "service": "wintools-mcp", "fk_available": fk_available}
+        {
+            "status": "ok",
+            "service": "wintools-mcp",
+            "fk_available": fk_available,
+            "smb_session": is_smb_session_ok(),
+        }
     )
 
 
@@ -231,6 +208,81 @@ async def deactivate_case(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# SMB credential update endpoint
+# ---------------------------------------------------------------------------
+
+
+async def update_smb_credentials(request: Request) -> JSONResponse:
+    """Update SMB credentials and re-establish session (Fix 1)."""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    cfg = get_config()
+    if cfg.api_keys:
+        if not token:
+            return JSONResponse({"error": "Missing Authorization"}, status_code=401)
+        if len(token) > _MAX_TOKEN_LENGTH:
+            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+        matched = False
+        for candidate in cfg.api_keys:
+            if hmac.compare_digest(token, candidate):
+                matched = True
+        if not matched:
+            return JSONResponse({"error": "Invalid API key"}, status_code=403)
+
+    raw_body = await request.body()
+    if len(raw_body) > 10_000:
+        return JSONResponse({"error": "Request body too large"}, status_code=413)
+    try:
+        body = json.loads(raw_body)
+    except (json.JSONDecodeError, ValueError):
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    smb_password = body.get("smb_password", "")
+    if not smb_password:
+        return JSONResponse({"error": "smb_password required"}, status_code=400)
+    smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
+
+    cfg.smb_user = smb_user
+    cfg.smb_password = smb_password
+
+    from wintools_mcp.smb import establish_smb_session
+
+    success = establish_smb_session(cfg)
+
+    # Persist to config.yaml so it survives restart
+    _persist_config_fields(cfg, {"smb_user": smb_user, "smb_password": smb_password})
+
+    if success:
+        return JSONResponse(
+            {"status": "ok", "message": "SMB credentials updated, session established"}
+        )
+    return JSONResponse(
+        {"status": "error", "message": "Credentials saved but SMB session failed"},
+        status_code=503,
+    )
+
+
+def _persist_config_fields(cfg: WintoolsConfig, updates: dict) -> None:
+    """Update specific fields in config.yaml without overwriting the entire file."""
+    import yaml
+
+    config_path = getattr(cfg, "_config_file", None)
+    if not config_path:
+        return
+    from pathlib import Path
+
+    p = Path(config_path)
+    if not p.exists():
+        return
+    try:
+        doc = yaml.safe_load(p.read_text()) or {}
+        doc.update(updates)
+        p.write_text(yaml.dump(doc, default_flow_style=False))
+        logger.info("Config updated: %s", list(updates.keys()))
+    except Exception as e:
+        logger.warning("Failed to persist config update: %s", e)
+
+
+# ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
 
@@ -253,7 +305,9 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
 
     # Establish SMB session if share_root is a UNC path
     if config.share_root.startswith("\\\\"):
-        _establish_smb_session(config)
+        from wintools_mcp.smb import establish_smb_session
+
+        establish_smb_session(config)
 
     server = create_server(config)
 
@@ -288,6 +342,7 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
         Route("/health", health, methods=["GET"]),
         Route("/cases/activate", activate_case, methods=["POST"]),
         Route("/cases/deactivate", deactivate_case, methods=["POST"]),
+        Route("/config/update-smb", update_smb_credentials, methods=["POST"]),
         Route("/mcp", endpoint=auth_wrapped),
     ]
 
