@@ -25,14 +25,20 @@ def _expand_script_command(command: list[str]) -> list[str]:
         return command
 
     # Find the .ps1 script file from install_paths
-    script_file = f"{command[0]}.ps1"
+    # Use only the filename stem — strip any path traversal from user input
+    script_name = Path(command[0]).name
+    script_file = f"{script_name}.ps1"
     # Check if it's a known PS exception (case-insensitive)
     if script_file.lower() not in PS_SCRIPT_EXCEPTIONS:
         return command
 
     script_path = None
     for search_dir in td.install_paths or []:
-        candidate = Path(search_dir) / script_file
+        search_resolved = Path(search_dir).resolve()
+        candidate = (search_resolved / script_file).resolve()
+        # Verify resolved path stays within the search directory
+        if not str(candidate).startswith(str(search_resolved)):
+            continue
         if candidate.exists():
             script_path = str(candidate)
             break

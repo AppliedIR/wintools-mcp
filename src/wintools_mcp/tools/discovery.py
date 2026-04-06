@@ -36,7 +36,7 @@ ARTIFACT_ALIASES: dict[str, list[str]] = {
     "registry hive": ["registry_run_keys", "registry_services", "shimcache"],
     "hive": ["registry_run_keys", "registry_services", "shimcache"],
     "persistence": ["registry_run_keys", "registry_services"],
-    "execution": ["prefetch", "amcache", "shimcache"],
+    "execution": ["prefetch", "amcache"],
     "binary": ["amcache"],
     "dll": ["amcache"],
     "mft": ["mft"],

@@ -2113,7 +2113,7 @@ try {
         "`$maxRestarts = 5",
         "`$restartCount = 0",
         "while (`$restartCount -lt `$maxRestarts) {",
-        "    & `"$venvPython`" -m wintools_mcp $scriptArgs *> `$logFile",
+        "    & `"$venvPython`" -m wintools_mcp $scriptArgs *>> `$logFile",
         "    `$exitCode = `$LASTEXITCODE",
         "    if (`$exitCode -eq 0) { break }",
         "    `$restartCount++",
