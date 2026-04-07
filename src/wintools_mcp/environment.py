@@ -94,7 +94,10 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
                 for f in files:
                     if f.lower() == name.lower():
                         return str(Path(root) / f)
-                    if not name.lower().endswith(".exe") and f.lower() == f"{name}.exe".lower():
+                    if (
+                        not name.lower().endswith(".exe")
+                        and f.lower() == f"{name}.exe".lower()
+                    ):
                         return str(Path(root) / f)
         except OSError:
             continue
