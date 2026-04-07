@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import threading
 from typing import Any
 
 from starlette.applications import Starlette
@@ -15,8 +16,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from wintools_mcp.audit import AuditWriter
 from wintools_mcp.config import WintoolsConfig, get_config
 from wintools_mcp.server import create_server
+
+_control_audit = AuditWriter(mcp_name="wintools-mcp")
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +28,7 @@ logger = logging.getLogger(__name__)
 _MAX_TOKEN_LENGTH = 1024
 
 # Allowed characters in case_id (path traversal prevention)
-_CASE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_CASE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -93,11 +97,12 @@ class MCPAuthASGIApp:
             await resp(scope, receive, send)
             return
 
-        # Timing-safe key lookup: iterate ALL keys to prevent timing leaks
+        # Timing-safe key lookup: iterate ALL keys
         matched_key = None
         for candidate in self.api_keys:
-            if hmac.compare_digest(token, candidate) and matched_key is None:
-                matched_key = candidate
+            if hmac.compare_digest(token, candidate):  # noqa: SIM102
+                if matched_key is None:
+                    matched_key = candidate
 
         if matched_key is None:
             resp = JSONResponse({"error": "Invalid API key"}, status_code=403)
@@ -199,6 +204,13 @@ async def activate_case(request: Request) -> JSONResponse:
     # Persist so case survives wintools restart
     _persist_config_fields(cfg, {"case_dir": windows_case_dir, "active_case": case_id})
 
+    logger.info("Case activated: %s -> %s", case_id, windows_case_dir)
+    _control_audit.log(
+        tool="activate_case",
+        params={"case_id": case_id},
+        result_summary=f"case_dir={windows_case_dir}",
+    )
+
     return JSONResponse(
         {
             "status": "activated",
@@ -222,6 +234,9 @@ async def deactivate_case(request: Request) -> JSONResponse:
 
     # Persist cleared state so restart doesn't reload stale case
     _persist_config_fields(cfg, {"case_dir": "", "active_case": ""})
+    _control_audit.log(
+        tool="deactivate_case", params={}, result_summary="case deactivated"
+    )
 
     return JSONResponse({"status": "deactivated"})
 
@@ -260,6 +275,11 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
 
     # Persist to config.yaml so it survives restart
     _persist_config_fields(cfg, {"smb_user": smb_user, "smb_password": smb_password})
+    _control_audit.log(
+        tool="update_smb_credentials",
+        params={"smb_user": smb_user},
+        result_summary=f"session={'ok' if success else 'failed'}",
+    )
 
     if success:
         return JSONResponse(
@@ -271,25 +291,50 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
     )
 
 
+_persist_lock = threading.Lock()
+
+
 def _persist_config_fields(cfg: WintoolsConfig, updates: dict) -> None:
-    """Update specific fields in config.yaml without overwriting the entire file."""
+    """Update specific fields in config.yaml atomically."""
+    import tempfile
+
     import yaml
 
     config_path = getattr(cfg, "_config_file", None)
     if not config_path:
+        logger.warning("No config file path -- changes will not survive restart")
         return
     from pathlib import Path
 
     p = Path(config_path)
     if not p.exists():
         return
-    try:
-        doc = yaml.safe_load(p.read_text()) or {}
-        doc.update(updates)
-        p.write_text(yaml.dump(doc, default_flow_style=False))
-        logger.info("Config updated: %s", list(updates.keys()))
-    except Exception as e:
-        logger.warning("Failed to persist config update: %s", e)
+    with _persist_lock:
+        try:
+            doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            doc.update(updates)
+            # Atomic write: temp file + rename
+            fd, tmp = tempfile.mkstemp(
+                dir=str(p.parent), suffix=".tmp", prefix=".config-"
+            )
+            try:
+                os.write(fd, yaml.dump(doc, default_flow_style=False).encode())
+                os.fsync(fd)
+                os.close(fd)
+                os.replace(tmp, str(p))
+            except Exception:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            logger.info("Config updated: %s", list(updates.keys()))
+        except Exception as e:
+            logger.warning("Failed to persist config update: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -297,21 +342,8 @@ def _persist_config_fields(cfg: WintoolsConfig, updates: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _install_signal_handlers() -> None:
-    """Install signal handlers for graceful shutdown (ST-3)."""
-    import signal
-
-    def _handle_shutdown(signum: int, frame: Any) -> None:
-        logger.info("Shutdown signal %s received, exiting cleanly", signum)
-        raise SystemExit(0)
-
-    signal.signal(signal.SIGINT, _handle_shutdown)
-    signal.signal(signal.SIGTERM, _handle_shutdown)
-
-
 def create_http_app(config: WintoolsConfig) -> Starlette:
     """Build a Starlette app with /mcp (Streamable HTTP MCP) + /health + auth."""
-    _install_signal_handlers()
 
     # Establish SMB session if share_root is a UNC path
     if config.share_root.startswith("\\\\"):

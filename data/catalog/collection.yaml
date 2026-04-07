@@ -4,6 +4,7 @@ tools:
     binary: kape.exe
     description: "Kroll Artifact Parser and Extractor — automated evidence collection and processing"
     input_style: flag
+    input_flag: "--tsource"
     output_format: text
     timeout_seconds: 1800
     fk_tool_name: KAPE

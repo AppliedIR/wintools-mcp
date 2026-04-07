@@ -71,7 +71,7 @@ class TestSanitizeExtraArgs:
 
     def test_response_file_blocked(self):
         """Backlog #11: @file response-file syntax blocked."""
-        with pytest.raises(ValueError, match="metacharacter"):
+        with pytest.raises(ValueError, match="response file"):
             sanitize_extra_args(["@args.txt"])
 
     def test_tool_specific_blocked_flags(self):

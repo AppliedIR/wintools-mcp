@@ -36,7 +36,7 @@ class TestAuditIds:
         assert parts[0] == "wintools"
         assert parts[1] == "jane"
         assert len(parts[2]) == 8  # YYYYMMDD
-        assert len(parts[3]) == 3  # NNN
+        assert len(parts[3]) == 6  # NNNNNN
 
     def test_audit_id_sequential(self, monkeypatch):
         monkeypatch.setenv("VHIR_EXAMINER", "jane")
@@ -45,17 +45,17 @@ class TestAuditIds:
         id2 = audit._next_audit_id()
         id3 = audit._next_audit_id()
         # Sequence numbers increase
-        assert id1.endswith("-001")
-        assert id2.endswith("-002")
-        assert id3.endswith("-003")
+        assert id1.endswith("-000001")
+        assert id2.endswith("-000002")
+        assert id3.endswith("-000003")
 
     def test_audit_id_per_process(self, monkeypatch):
         monkeypatch.setenv("VHIR_EXAMINER", "steve")
         a1 = AuditWriter()
         a2 = AuditWriter()
         # Different instances get independent counters
-        assert a1._next_audit_id().endswith("-001")
-        assert a2._next_audit_id().endswith("-001")
+        assert a1._next_audit_id().endswith("-000001")
+        assert a2._next_audit_id().endswith("-000001")
 
 
 class TestAuditWriting:

@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 _MAX_CMD_ARG = 10_000
 _MAX_TEXT = 10_000
-_MAX_SHORT = 500
 
 
 def _validate_str_length(value: str | None, field: str, max_len: int) -> None:
@@ -75,25 +74,44 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
     @server.tool()
     def list_windows_tools(category: str = "") -> dict:
         """List forensic tools available on this Windows system."""
-        from wintools_mcp.tools.discovery import list_available_tools as _list
+        try:
+            from wintools_mcp.tools.discovery import list_available_tools as _list
 
-        tools = _list(category=category or None)
-        return {"tools": tools, "count": len(tools)}
+            tools = _list(category=category or None)
+            audit.log(
+                tool="list_windows_tools",
+                params={"category": category},
+                result_summary=f"{len(tools)} tools",
+            )
+            return {"tools": tools, "count": len(tools)}
+        except Exception as e:
+            return {"error": f"Discovery failed: {e}"}
 
     @server.tool()
     def list_missing_windows_tools() -> dict:
         """List Windows tools that are not installed, with installation guidance."""
-        from wintools_mcp.tools.discovery import list_missing_tools as _list
+        try:
+            from wintools_mcp.tools.discovery import list_missing_tools as _list
 
-        missing = _list()
-        return {"tools": missing, "count": len(missing)}
+            missing = _list()
+            audit.log(
+                tool="list_missing_windows_tools",
+                params={},
+                result_summary=f"{len(missing)} missing",
+            )
+            return {"tools": missing, "count": len(missing)}
+        except Exception as e:
+            return {"error": f"Discovery failed: {e}"}
 
     @server.tool()
     def check_windows_tools(tool_names: list[str] | None = None) -> dict:
         """Check which Windows tools are installed and available."""
-        from wintools_mcp.tools.discovery import check_tools as _check
+        try:
+            from wintools_mcp.tools.discovery import check_tools as _check
 
-        return _check(tool_names=tool_names)
+            return _check(tool_names=tool_names)
+        except Exception as e:
+            return {"error": f"Tool check failed: {e}"}
 
     @server.tool()
     def get_windows_tool_help(tool_name: str) -> dict:
@@ -134,11 +152,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             result["case_dir"] = config.case_dir
             result["evidence_dir"] = f"{config.case_dir}\\evidence"
             result["extractions_dir"] = f"{config.case_dir}\\extractions"
-        elif config.share_root and config.active_case:
-            case_path = f"{config.share_root}\\{config.active_case}"
-            result["case_dir"] = case_path
-            result["evidence_dir"] = f"{case_path}\\evidence"
-            result["extractions_dir"] = f"{case_path}\\extractions"
         else:
             result["note"] = (
                 "No active case. Activate a case via the gateway "
@@ -223,7 +236,14 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         import os
         import time as _time
 
+        from wintools_mcp.security import validate_input_path
         from wintools_mcp.tools.generic import run_command as _run
+
+        # Validate directory against blocked paths
+        try:
+            validate_input_path(directory)
+        except ValueError as e:
+            return {"error": str(e)}
 
         # Safety caps
         tool_lower = tool.lower()
@@ -265,6 +285,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                         "file": filepath,
                         "exit_code": r.get("exit_code"),
                         "stdout_bytes": r.get("stdout_total_bytes", 0),
+                        "preview": (r.get("stdout") or "")[:500],
                     }
                 )
             except Exception as e:
@@ -398,7 +419,12 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 command=command,
                 fk_tool_name=fk_name,
                 extractions=exec_result.get("extractions"),
-                output_files=[exec_result["output_file"]]
+                output_files=[
+                    {
+                        "path": exec_result["output_file"],
+                        "sha256": exec_result.get("output_sha256", ""),
+                    }
+                ]
                 if exec_result.get("output_file")
                 else None,
             )
@@ -408,7 +434,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 response["full_output_path"] = exec_result["output_file"]
                 response["full_output_sha256"] = exec_result.get("output_sha256")
                 response["full_output_bytes"] = exec_result.get("stdout_total_bytes")
-            audit.log(
+            logged = audit.log(
                 tool="run_windows_command",
                 params={"command": command, "purpose": purpose},
                 result_summary={
@@ -424,6 +450,18 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 input_sha256s=list(input_hashes.values()) if input_hashes else None,
                 input_detection_method=detection_method,
             )
+            if not logged:
+                response.setdefault("warnings", []).append(
+                    "Audit trail unavailable -- execution not logged"
+                )
+            # Warn if save_output requested but no case dir
+            if save_output and not config.case_dir:
+                response.setdefault("warnings", []).append(
+                    "save_output=True but no active case. Output not saved to disk."
+                )
+            # Surface save errors from executor
+            if exec_result.get("save_error"):
+                response.setdefault("warnings", []).append(exec_result["save_error"])
             if detection_method == "none":
                 response["input_files_warning"] = (
                     "Could not detect input files — pass input_files parameter "

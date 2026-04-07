@@ -137,8 +137,12 @@ class ToolDefinition:
         return exit_code in self.success_exit_codes
 
 
+_catalog_loaded = False
+
+
 def load_catalog() -> dict[str, ToolDefinition]:
-    if _catalog_cache:
+    global _catalog_loaded
+    if _catalog_loaded:
         return _catalog_cache
 
     catalog_dir = _find_catalog_dir()
@@ -209,6 +213,7 @@ def load_catalog() -> dict[str, ToolDefinition]:
             )
             _catalog_cache[name.lower()] = td
 
+    _catalog_loaded = True
     return _catalog_cache
 
 
@@ -297,6 +302,7 @@ def _is_valid_ps_exception(cmd: list[str]) -> bool:
 
 
 def clear_catalog_cache() -> None:
-    global _CATALOG_DIR
+    global _CATALOG_DIR, _catalog_loaded
     _catalog_cache.clear()
     _CATALOG_DIR = None
+    _catalog_loaded = False

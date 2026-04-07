@@ -27,7 +27,7 @@ class WintoolsConfig:
     # Paths
     tool_paths: list[Path] = field(default_factory=list)
     hayabusa_dir: Path = Path("C:\\Tools\\Hayabusa")
-    catalog_dir: Path | None = None
+    # catalog_dir removed — _find_catalog_dir uses env var / source-relative only
 
     # AIR integration
     case_dir: str = ""
@@ -75,8 +75,7 @@ class WintoolsConfig:
             and (Path(env_case) / "CASE.yaml").exists()
         ):
             cfg.case_dir = env_case
-        elif not env_case:
-            cfg.case_dir = cfg.case_dir  # Keep YAML default
+        # If env_case is empty, keep YAML default (already set by _load_yaml)
         cfg.active_case = os.environ.get("VHIR_ACTIVE_CASE", cfg.active_case)
         cfg.share_root = os.environ.get("VHIR_SHARE_ROOT", cfg.share_root)
         cfg.audit_dir = os.environ.get("VHIR_AUDIT_DIR", cfg.audit_dir)
@@ -156,8 +155,23 @@ class WintoolsConfig:
         if not doc or not isinstance(doc, dict):
             logger.warning("Empty or invalid config file %s, skipping", path)
             return
-        self.default_timeout = doc.get("default_timeout", self.default_timeout)
-        self.max_output_bytes = doc.get("max_output_bytes", self.max_output_bytes)
+        # Numeric fields: type-check to catch YAML typos (e.g., timeout: "sixty")
+        for num_field, num_attr in (
+            ("default_timeout", "default_timeout"),
+            ("max_output_bytes", "max_output_bytes"),
+            ("max_upload_bytes", "max_upload_bytes"),
+        ):
+            val = doc.get(num_field)
+            if val is not None:
+                if isinstance(val, (int, float)) and val > 0:
+                    setattr(self, num_attr, int(val))
+                else:
+                    logger.warning(
+                        "Invalid %s %r in config, keeping default %d",
+                        num_field,
+                        val,
+                        getattr(self, num_attr),
+                    )
         self.http_host = doc.get("http_host", self.http_host)
         port = doc.get("http_port", self.http_port)
         if isinstance(port, int) and 1 <= port <= 65535:
@@ -169,21 +183,30 @@ class WintoolsConfig:
         self.file_transfer_enabled = doc.get(
             "file_transfer_enabled", self.file_transfer_enabled
         )
-        self.working_dir = doc.get("working_dir", self.working_dir)
-        self.share_root = doc.get("share_root", self.share_root)
-        self.smb_user = doc.get("smb_user", self.smb_user)
-        self.smb_password = doc.get("smb_password", self.smb_password)
-        self.audit_dir = doc.get("audit_dir", self.audit_dir)
-        self.max_upload_bytes = doc.get("max_upload_bytes", self.max_upload_bytes)
+        # String fields: coerce to str to prevent None.startswith() crashes
+        for str_field in (
+            "working_dir",
+            "share_root",
+            "smb_user",
+            "smb_password",
+            "audit_dir",
+        ):
+            val = doc.get(str_field)
+            if val is not None:
+                setattr(self, str_field, str(val))
         hayabusa = doc.get("hayabusa_dir")
         if hayabusa:
             self.hayabusa_dir = Path(hayabusa)
-        catalog = doc.get("catalog_dir")
-        if catalog:
-            self.catalog_dir = Path(catalog)
+        # api_keys must be a dict (token -> {examiner, role})
         keys = doc.get("api_keys")
         if keys:
-            self.api_keys = keys
+            if isinstance(keys, dict):
+                self.api_keys = keys
+            else:
+                logger.error(
+                    "api_keys in config must be a dict, got %s -- ignoring",
+                    type(keys).__name__,
+                )
         paths = doc.get("tool_paths", [])
         for p in paths:
             self.tool_paths.append(Path(p))

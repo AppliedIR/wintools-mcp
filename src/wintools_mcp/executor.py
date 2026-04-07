@@ -95,17 +95,30 @@ def _looks_like_utf16le(raw: bytes) -> bool:
     return null_ratio > 0.5
 
 
+def _close_pipes(proc) -> None:
+    """Close process pipes to unblock reader threads after kill."""
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+
 def _read_pipe(pipe, chunks: list[bytes], limit: int, total: list[int]) -> None:
     """Read from a pipe incrementally, respecting byte limit."""
-    while True:
-        remaining = limit - total[0]
-        if remaining <= 0:
-            break
-        data = pipe.read(min(65536, remaining))
-        if not data:
-            break
-        chunks.append(data)
-        total[0] += len(data)
+    try:
+        while True:
+            remaining = limit - total[0]
+            if remaining <= 0:
+                break
+            data = pipe.read(min(65536, remaining))
+            if not data:
+                break
+            chunks.append(data)
+            total[0] += len(data)
+    except (OSError, ValueError):
+        pass  # Pipe closed after proc.kill() -- expected
 
 
 def execute(
@@ -164,10 +177,12 @@ def execute(
         stdout_thread = threading.Thread(
             target=_read_pipe,
             args=(proc.stdout, stdout_chunks, max_bytes, total),
+            daemon=True,
         )
         stderr_thread = threading.Thread(
             target=_read_pipe,
             args=(proc.stderr, stderr_chunks, max_bytes, total),
+            daemon=True,
         )
         stdout_thread.start()
         stderr_thread.start()
@@ -178,6 +193,7 @@ def execute(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 proc.kill()
+                _close_pipes(proc)
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
@@ -186,6 +202,7 @@ def execute(
             if total[0] >= max_bytes:
                 truncated = True
                 proc.kill()
+                _close_pipes(proc)
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
@@ -285,12 +302,19 @@ def _save_output(
                     out_dir.mkdir(parents=True, exist_ok=True)
                 except OSError as retry_err:
                     logger.error("SMB retry failed for %s: %s", save_dir, retry_err)
+                    response["save_error"] = (
+                        f"Output lost: SMB retry failed ({retry_err})"
+                    )
                     return
             else:
                 logger.error(
-                    "SMB session failed — cannot write to %s. "
+                    "SMB session failed -- cannot write to %s. "
                     "Check credentials or re-run 'vhir setup join'.",
                     save_dir,
+                )
+                response["save_error"] = (
+                    "Output lost: SMB session failed. "
+                    "Check health endpoint for smb_session status."
                 )
                 return
         else:

@@ -1,8 +1,11 @@
 """Generic run_command: catalog-gated execution of any approved tool."""
 
+import copy
 import hashlib
 import logging
+import threading
 import time as _time
+from collections import OrderedDict
 from pathlib import Path
 
 from wintools_mcp.catalog import PS_SCRIPT_EXCEPTIONS, get_tool_def, validate_command
@@ -16,21 +19,29 @@ logger = logging.getLogger(__name__)
 
 # --- Result caching (Feature 4) ---
 _CACHE_TTL = 86400  # 24 hours
-_result_cache: dict[str, tuple[float, dict]] = {}  # key -> (timestamp, result)
+_CACHE_MAX = 256
+_cache_lock = threading.Lock()
+_result_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 
 
-def _cache_key(command: list[str], input_files: list[str] | None = None) -> str:
-    """Build cache key from command + input file hashes."""
+def _cache_key(
+    command: list[str],
+    input_files: list[str] | None = None,
+    cwd: str | None = None,
+) -> str:
+    """Build cache key from command + input file hashes + cwd."""
     h = hashlib.sha256()
     h.update("|".join(command).encode())
+    if cwd:
+        h.update(f"cwd:{cwd}".encode())
     for path in sorted(input_files or []):
         try:
             p = Path(path)
             if p.is_file():
-                # Hash first 64KB for speed on large files
+                st = p.stat()
                 with open(p, "rb") as f:
                     h.update(f.read(65536))
-                h.update(str(p.stat().st_mtime_ns).encode())
+                h.update(f"{st.st_size}:{st.st_mtime_ns}".encode())
         except OSError:
             h.update(path.encode())
     return h.hexdigest()
@@ -38,21 +49,28 @@ def _cache_key(command: list[str], input_files: list[str] | None = None) -> str:
 
 def _cache_get(key: str) -> dict | None:
     """Return cached result if still valid, else None."""
-    entry = _result_cache.get(key)
-    if entry is None:
-        return None
-    ts, result = entry
-    if _time.monotonic() - ts > _CACHE_TTL:
-        del _result_cache[key]
-        return None
-    result = dict(result)  # shallow copy
+    with _cache_lock:
+        entry = _result_cache.get(key)
+        if entry is None:
+            logger.debug("Cache miss for key %s", key[:12])
+            return None
+        ts, result = entry
+        if _time.monotonic() - ts > _CACHE_TTL:
+            del _result_cache[key]
+            logger.debug("Cache expired for key %s", key[:12])
+            return None
+        _result_cache.move_to_end(key)  # LRU touch
+        result = copy.deepcopy(result)
     result["_cached"] = True
     return result
 
 
 def _cache_put(key: str, result: dict) -> None:
-    """Store result in cache."""
-    _result_cache[key] = (_time.monotonic(), result)
+    """Store result in cache with LRU eviction."""
+    with _cache_lock:
+        _result_cache[key] = (_time.monotonic(), copy.deepcopy(result))
+        while len(_result_cache) > _CACHE_MAX:
+            _result_cache.popitem(last=False)  # evict oldest
 
 
 def _expand_script_command(command: list[str]) -> list[str]:
@@ -67,7 +85,7 @@ def _expand_script_command(command: list[str]) -> list[str]:
         return command
 
     # Find the .ps1 script file from install_paths
-    # Use only the filename stem — strip any path traversal from user input
+    # Use only the filename stem -- strip any path traversal from user input
     script_name = Path(command[0]).name
     script_file = f"{script_name}.ps1"
     # Check if it's a known PS exception (case-insensitive)
@@ -79,19 +97,23 @@ def _expand_script_command(command: list[str]) -> list[str]:
         search_resolved = Path(search_dir).resolve()
         candidate = (search_resolved / script_file).resolve()
         # Verify resolved path stays within the search directory
-        if not str(candidate).startswith(str(search_resolved)):
-            continue
+        try:
+            candidate.relative_to(search_resolved)
+        except ValueError:
+            continue  # candidate is outside search_dir
         if candidate.exists():
             script_path = str(candidate)
             break
 
     if not script_path:
-        searched = (
-            ", ".join(td.install_paths) if td.install_paths else "no install_paths"
+        searched_display = (
+            ", ".join(Path(p).name for p in td.install_paths)
+            if td.install_paths
+            else "no install_paths"
         )
         raise ToolNotInCatalogError(
-            f"Script not found: {script_file} (searched: {searched}). "
-            f"Download from: {td.install_methods[0].url if td.install_methods else 'see catalog'}"
+            f"Script not found: {script_file} (searched: {searched_display}). "
+            f"Use list_missing_windows_tools() for install guidance."
         )
 
     return [
@@ -119,7 +141,7 @@ def run_command(
     if not command:
         raise ValueError("Empty command")
 
-    # Script auto-expansion — must happen BEFORE validate_command()
+    # Script auto-expansion -- must happen BEFORE validate_command()
     # so the expanded PowerShell invocation passes the PS exception check
     command = _expand_script_command(command)
 
@@ -130,7 +152,7 @@ def run_command(
             raise DenylistError(error)
         raise ToolNotInCatalogError(error)
 
-    # Resolve binary path — refuse to proceed if binary is not found
+    # Resolve binary path -- refuse to proceed if binary is not found
     binary_name = Path(command[0]).name
     resolved = find_tool(binary_name)
     if not resolved:
@@ -140,10 +162,10 @@ def run_command(
         )
     command = [resolved] + command[1:]
 
-    # Cache lookup (Feature 4) — after validation + resolution
+    # Cache lookup (Feature 4) -- after validation + resolution
     cache_key = None
     if not no_cache and not save_output:
-        cache_key = _cache_key(command, input_files)
+        cache_key = _cache_key(command, input_files, cwd=cwd)
         cached = _cache_get(cache_key)
         if cached is not None:
             logger.info("Cache hit for %s", command[0])
@@ -156,8 +178,22 @@ def run_command(
     for arg in command[1:]:
         if arg.startswith("-"):
             continue  # Skip flags (e.g. -o, --format=csv)
-        if arg.startswith("/") and "=" in arg:
-            continue  # Skip Windows-style flags (e.g. /format:csv)
+        # Windows-style flags: /flag:value or /flag=value -- extract and validate path
+        if arg.startswith("/"):
+            for sep in ("=", ":"):
+                if sep in arg:
+                    value = arg.split(sep, 1)[1]
+                    if value and (
+                        (
+                            len(value) >= 3
+                            and value[1] == ":"
+                            and value[2] in ("/", "\\")
+                        )
+                        or value.startswith("\\\\")
+                    ):
+                        validate_input_path(value)
+                    break
+            continue
         # Validate anything that looks like a path: drive-letter, relative, or UNC
         if (
             (len(arg) >= 3 and arg[1] == ":" and arg[2] in ("/", "\\"))
@@ -190,7 +226,7 @@ def run_command(
                         if not establish_smb_session(cfg):
                             return {
                                 "error": (
-                                    "SMB session expired — cannot write to case directory. "
+                                    "SMB session expired -- cannot write to case directory. "
                                     "Check health endpoint for smb_session status."
                                 )
                             }
@@ -216,20 +252,20 @@ def run_command(
     td = get_tool_def(binary_name)
     output_format = td.output_format if td else "text"
 
-    # Small output — return as-is
+    # Small output -- return as-is
     if stdout_bytes <= cfg.response_byte_budget:
         exec_result["_output_format"] = output_format
         if cache_key and exec_result.get("exit_code", 1) == 0:
             _cache_put(cache_key, exec_result)
         return exec_result
 
-    # Large output — parse with byte budget
+    # Large output -- parse with byte budget
     from wintools_mcp.parsers import csv_parser, json_parser, text_parser
 
     if output_format == "csv":
         parsed = csv_parser.parse_csv(stdout, byte_budget=cfg.response_byte_budget)
         if parsed.get("parse_error"):
-            # CSV parse failed — fall back to text instead of losing data
+            # CSV parse failed -- fall back to text instead of losing data
             parsed = text_parser.parse_text(
                 stdout, byte_budget=cfg.response_byte_budget
             )

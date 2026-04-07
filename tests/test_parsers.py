@@ -4,7 +4,7 @@ import json
 
 from wintools_mcp.parsers.csv_parser import parse_csv, parse_csv_file
 from wintools_mcp.parsers.json_parser import parse_json, parse_jsonl
-from wintools_mcp.parsers.text_parser import extract_lines, parse_text
+from wintools_mcp.parsers.text_parser import parse_text
 
 
 class TestCsvParser:
@@ -75,8 +75,8 @@ class TestTextParser:
         assert len(result["lines"]) == 50
         assert result["truncated"] is True
 
-    def test_extract_lines(self):
+    def test_parse_text_total_lines_count(self):
         text = "\n".join(f"line{i}" for i in range(100))
-        lines = extract_lines(text, start=10, count=5)
-        assert len(lines) == 5
-        assert lines[0] == "line10"
+        result = parse_text(text, max_lines=5)
+        assert result["preview_lines"] == 5
+        assert result["total_lines"] == 100

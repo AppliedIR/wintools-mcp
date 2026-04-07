@@ -5,6 +5,7 @@ tools:
     description: "Sigma-based Windows event log analysis and threat hunting"
     input_style: flag
     input_flag: "-d"
+    output_flag: "--json-output"
     output_format: json
     timeout_seconds: 1800
     fk_tool_name: Hayabusa

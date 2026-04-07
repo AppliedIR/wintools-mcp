@@ -80,6 +80,7 @@ def parse_csv(
     rows = []
     used_bytes = 0
     budget_hit = False
+    total_offset = 0
     parse_error = None
     try:
         for row in reader:
@@ -96,6 +97,7 @@ def parse_csv(
                 )
                 if used_bytes + row_bytes > byte_budget and rows:
                     budget_hit = True
+                    total_offset = 1  # count the row we're skipping
                     break
                 used_bytes += row_bytes
             rows.append(row_dict)
@@ -103,7 +105,7 @@ def parse_csv(
         logger.warning("CSV parsing error after %d rows: %s", len(rows), e)
         parse_error = str(e)
 
-    total = len(rows)
+    total = len(rows) + total_offset
     if budget_hit or len(rows) == max_rows:
         try:
             for _ in reader:

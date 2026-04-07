@@ -5,10 +5,6 @@ class WintoolsError(Exception):
     pass
 
 
-class ToolNotFoundError(WintoolsError):
-    pass
-
-
 class ToolNotInCatalogError(WintoolsError):
     pass
 

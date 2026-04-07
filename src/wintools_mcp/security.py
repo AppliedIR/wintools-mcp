@@ -19,7 +19,7 @@ _DANGEROUS_FLAGS = {
     "--invoke",
 }
 
-_DANGEROUS_PATTERNS = [";", "&&", "||", "`", "$(", "${", "@"]
+_DANGEROUS_PATTERNS = [";", "&&", "||", "`", "$(", "${"]
 
 # Per-tool blocked flags: flags that are dangerous for specific tools.
 # Keys must match binary_name as returned by Path(command[0]).name.
@@ -66,6 +66,11 @@ def sanitize_extra_args(extra_args: list[str], tool_name: str = "") -> list[str]
                 raise ValueError(
                     f"Blocked shell metacharacter in extra_args for {tool_name}"
                 )
+        # Block @file response-file syntax (prefix only, not @ in values)
+        if arg.startswith("@") and len(arg) > 1:
+            raise ValueError(
+                f"Blocked response file syntax (@file) in extra_args for {tool_name}"
+            )
         sanitized.append(arg)
     return sanitized
 

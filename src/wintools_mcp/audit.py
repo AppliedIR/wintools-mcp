@@ -122,15 +122,15 @@ class AuditWriter:
 
     def _next_audit_id(self) -> str:
         """Generate next audit ID: {prefix}-{examiner}-{date}-{seq}."""
-        today = datetime.now(timezone.utc).strftime("%Y%m%d")
         with self._lock:
+            today = datetime.now(timezone.utc).strftime("%Y%m%d")
             if today != self._date_str:
                 self._date_str = today
                 self._sequence = self._resume_sequence(today)
             self._sequence += 1
             seq = self._sequence
         prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
-        return f"{prefix}-{self.examiner}-{today}-{seq:03d}"
+        return f"{prefix}-{self.examiner}-{today}-{seq:06d}"
 
     def _resume_sequence(self, date_str: str) -> int:
         """Scan existing audit JSONL for highest sequence on this date.

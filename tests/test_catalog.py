@@ -212,7 +212,7 @@ class TestSysinternalsCatalog:
         td = get_tool_def("autorunsc")
         assert td is not None
         assert td.binary == "autorunsc.exe"
-        assert td.fk_tool_name == "autorunsc"
+        assert td.fk_tool_name == "autoruns"
         assert td.output_format == "csv"
 
     def test_sigcheck_in_catalog(self):

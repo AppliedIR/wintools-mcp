@@ -1957,6 +1957,14 @@ share_root: $($script:shareRootForConfig)
                 }
 
                 $content | Set-Content -Path $wintoolsConfigPath -Encoding UTF8
+                # Validate key fields survive the regex edit
+                $verify = Get-Content $wintoolsConfigPath -Raw
+                if ($script:smbPasswordForConfig -and $verify -notmatch 'smb_password:') {
+                    Write-Warn "Config validation failed: smb_password missing after update"
+                }
+                if ($wintoolsApiKey -and $verify -notmatch 'api_keys:') {
+                    Write-Warn "Config validation failed: api_keys missing after update"
+                }
                 Write-Ok "Updated connection settings in config: $($updated -join ', ')"
 
                 # Restart running wintools process so new config takes effect

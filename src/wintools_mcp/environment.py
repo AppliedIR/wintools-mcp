@@ -41,6 +41,14 @@ DEFAULT_TOOL_PATHS = [
 ]
 
 
+_binary_cache: dict[str, str | None] = {}
+
+
+def clear_binary_cache() -> None:
+    """Clear cached binary paths. Called from scan_tools()."""
+    _binary_cache.clear()
+
+
 def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
     """Find a binary on the system.
 
@@ -49,8 +57,13 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
     2. Default tool paths
     3. Extra paths from config
     """
+    cache_key = f"{name}|{'|'.join(str(p) for p in (extra_paths or []))}"
+    if cache_key in _binary_cache:
+        return _binary_cache[cache_key]
+
     found = shutil.which(name)
     if found:
+        _binary_cache[cache_key] = found
         return found
 
     search = list(DEFAULT_TOOL_PATHS)
@@ -95,6 +108,7 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
         except OSError:
             continue
 
+    _binary_cache[cache_key] = None
     return None
 
 

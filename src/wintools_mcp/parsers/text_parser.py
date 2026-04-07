@@ -9,8 +9,13 @@ def parse_text(stdout: str, *, max_lines: int = 50000, byte_budget: int = 0) -> 
         max_lines: Maximum lines to return (secondary safety limit).
         byte_budget: If > 0, fill complete lines until budget exhausted.
     """
-    all_lines = stdout.split("\n")
-    total_lines = len(all_lines)
+    # Count total without full allocation
+    total_lines = stdout.count("\n") + 1
+    # Split only up to max_lines + 1 to avoid allocating full list
+    split_limit = max_lines + 1 if max_lines else 0
+    all_lines = (
+        stdout.split("\n", maxsplit=split_limit) if split_limit else stdout.split("\n")
+    )
 
     preview = []
     used_bytes = 0
@@ -31,8 +36,3 @@ def parse_text(stdout: str, *, max_lines: int = 50000, byte_budget: int = 0) -> 
         "preview_bytes": used_bytes,
         "truncated": total_lines > len(preview),
     }
-
-
-def extract_lines(stdout: str, *, start: int = 0, count: int = 50) -> list[str]:
-    lines = stdout.split("\n")
-    return lines[start : start + count]
