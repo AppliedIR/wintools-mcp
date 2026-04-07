@@ -69,12 +69,15 @@ class WintoolsConfig:
         except ValueError:
             pass  # Keep YAML or default value
         env_case = os.environ.get("VHIR_CASE_DIR", "").strip()
-        if (
-            env_case
-            and Path(env_case).is_dir()
-            and (Path(env_case) / "CASE.yaml").exists()
-        ):
-            cfg.case_dir = env_case
+        try:
+            if (
+                env_case
+                and Path(env_case).is_dir()
+                and (Path(env_case) / "CASE.yaml").exists()
+            ):
+                cfg.case_dir = env_case
+        except (PermissionError, OSError):
+            pass  # UNC path may be inaccessible at boot (SYSTEM has no SMB creds)
         # If env_case is empty, keep YAML default (already set by _load_yaml)
         cfg.active_case = os.environ.get("VHIR_ACTIVE_CASE", cfg.active_case)
         cfg.share_root = os.environ.get("VHIR_SHARE_ROOT", cfg.share_root)
