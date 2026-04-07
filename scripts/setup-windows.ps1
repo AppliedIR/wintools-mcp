@@ -431,6 +431,14 @@ if ($Uninstall) {
 # =============================================================================
 
 if ($Update) {
+    # Require admin — update restarts the scheduled task which runs as SYSTEM
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Err "Update requires Administrator privileges (scheduled task runs as SYSTEM)."
+        Write-Host "  Right-click PowerShell -> Run as Administrator, then retry." -ForegroundColor Yellow
+        exit 1
+    }
+
     Write-Header "wintools-mcp Update"
 
     # Resolve install dir. Running from inside an installed repo takes priority
