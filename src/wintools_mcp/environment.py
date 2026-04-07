@@ -81,30 +81,21 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
             candidate_exe = d / f"{name}.exe"
             if candidate_exe.is_file():
                 return str(candidate_exe)
-        # Two-level subdirectory walk (catches layouts like
-        # ZimmermanTools/net9/bstrings.exe, Malware_Analysis/capa/capa.exe)
+        # Subdirectory walk via os.walk with depth limit (catches arbitrary
+        # layouts like ZimmermanTools/net9/RECmd/RECmd.exe)
         try:
-            for sub in d.iterdir():
-                if not sub.is_dir():
+            d_str = str(d)
+            d_depth = d_str.count(os.sep)
+            for root, dirs, files in os.walk(d):
+                # Max 4 levels deep from search root
+                if root.count(os.sep) - d_depth >= 4:
+                    dirs.clear()
                     continue
-                candidate = sub / name
-                if candidate.is_file():
-                    return str(candidate)
-                if not name.lower().endswith(".exe"):
-                    candidate_exe = sub / f"{name}.exe"
-                    if candidate_exe.is_file():
-                        return str(candidate_exe)
-                # Second level
-                for sub2 in sub.iterdir():
-                    if not sub2.is_dir():
-                        continue
-                    candidate = sub2 / name
-                    if candidate.is_file():
-                        return str(candidate)
-                    if not name.lower().endswith(".exe"):
-                        candidate_exe = sub2 / f"{name}.exe"
-                        if candidate_exe.is_file():
-                            return str(candidate_exe)
+                for f in files:
+                    if f.lower() == name.lower():
+                        return str(Path(root) / f)
+                    if not name.lower().endswith(".exe") and f.lower() == f"{name}.exe".lower():
+                        return str(Path(root) / f)
         except OSError:
             continue
 
