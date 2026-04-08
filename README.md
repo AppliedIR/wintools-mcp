@@ -278,6 +278,24 @@ Alternatively, `vhir setup` prompts for the Windows VM address and token during 
 
 LLM clients can also connect directly to wintools-mcp without going through the gateway, using the same bearer token in their MCP client configuration.
 
+### Evidence Access via SMB
+
+wintools-mcp accesses the case directory on the SIFT workstation via an authenticated SMB share. The Valhuntir installer (`vhir join --wintools`) configures this automatically. The SMB share gives wintools-mcp:
+
+- **Read access** to evidence files (disk images, registry hives, event logs, prefetch, etc.)
+- **Write access** to the extractions directory (parsed output: CSVs, timelines, JSON)
+- **Write access** to the audit directory (per-tool execution logs)
+
+Set `VHIR_SHARE_ROOT` to the SMB mount point on Windows:
+
+```powershell
+$env:VHIR_SHARE_ROOT = "E:\cases\SRL2\"
+```
+
+The share must use authenticated connections. Restrict access to the Valhuntir components that need it. See [SETUP.md](SETUP.md) for detailed SMB configuration including share creation, user credentials, and firewall rules.
+
+**Network requirements:** The SIFT gateway connects to wintools-mcp over HTTPS with Bearer token authentication (port 4624). The Windows workstation connects to SIFT over SMB (port 445). Both connections must be permitted by the firewall on the isolated forensic network. No connections should be allowed from outside the forensic environment.
+
 ### Audit Trail
 
 Every tool execution is logged to the audit directory. Resolution order: explicit `audit_dir` constructor parameter > `VHIR_AUDIT_DIR` env var > `VHIR_CASE_DIR/audit/`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
