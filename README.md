@@ -9,10 +9,11 @@ Catalog-gated Windows forensic tool execution with knowledge-enriched response e
 **[Platform Documentation](https://appliedir.github.io/Valhuntir/)** ·
 [Deployment Guide](https://appliedir.github.io/Valhuntir/deployment/)
 
-> **Public Beta** — This project is undergoing active feature development.
-> Backward compatibility with future releases is not guaranteed. Consider
-> this a public beta for feature testing and evaluation rather than a
-> production-ready tool for real case data.
+> **Important Note** — While extensively tested, this is a new platform.
+> ALWAYS verify results and guide the investigative process. If you just
+> tell Valhuntir to "Find Evil" it will more than likely hallucinate
+> rather than provide meaningful results. The AI can accelerate, but the
+> human must guide it and review all decisions.
 
 ## Architecture
 
@@ -104,7 +105,7 @@ Then run the installer:
 
 See [SETUP.md](SETUP.md) for detailed deployment options and SMB configuration.
 
-## MCP Tools (7 total)
+## MCP Tools (10 total)
 
 ### Discovery (6 tools)
 
@@ -117,25 +118,45 @@ See [SETUP.md](SETUP.md) for detailed deployment options and SMB configuration.
 | `get_windows_tool_help` | Get tool-specific help, flags, caveats, and interpretation guidance |
 | `suggest_windows_tools` | Given an artifact type, suggest relevant tools and check availability |
 
+### Evidence Access (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `get_share_info` | Get SMB share paths for evidence access (share_root, case_dir, evidence_dir, extractions_dir) |
+
+### KAPE Discovery (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `list_kape_targets` | List available KAPE targets or modules in structured categories. KAPE is for parsing already-collected evidence, not live collection. |
+
+### Batch Execution (1 tool)
+
+| Tool | Description |
+|------|-------------|
+| `batch_scan` | Run a tool against all files in a directory with safety bounds (max_files cap, timeout, per-tool limits like 100 for capa) |
+
 ### Generic Execution (1 tool)
 
 | Tool | Description |
 |------|-------------|
 | `run_windows_command` | Execute any cataloged tool with arguments (catalog-gated) |
 
-All per-tool wrappers (Zimmerman suite, Hayabusa, mactime) are consolidated into `run_windows_command`. The tool catalog still defines each binary's input flags, output format, and FK knowledge mapping.
+All per-tool wrappers (Zimmerman suite, Hayabusa, mactime) are consolidated into `run_windows_command`. The tool catalog defines each binary's input flags, output format, and FK knowledge mapping. `batch_scan` extends this to directory-level operations with safety caps.
 
 ## Tool Catalog
 
 Tools are defined in YAML catalog files under `data/catalog/`. The catalog currently contains **31 tool entries** across 7 files:
 
-- `zimmerman.yaml` -- 14 tools (AmcacheParser, AppCompatCacheParser, EvtxECmd, JLECmd, LECmd, MFTECmd, PECmd, RBCmd, RECmd, SBECmd, SQLECmd, SrumECmd, WxTCmd, bstrings)
-- `sysinternals.yaml` -- 5 tools (autorunsc, sigcheck, strings, handle, procdump)
-- `memory.yaml` -- 4 tools (winpmem, dumpit, moneta, hollows_hunter)
-- `timeline.yaml` -- 3 tools (Hayabusa, chainsaw, mactime)
-- `analysis.yaml` -- 3 tools (capa, yara, densityscout)
-- `collection.yaml` -- 1 tool (KAPE)
-- `scripts.yaml` -- 1 tool (Get-InjectedThreadEx)
+| File | Count | Tools |
+|------|-------|-------|
+| `zimmerman.yaml` | 14 | AmcacheParser, AppCompatCacheParser, EvtxECmd, JLECmd, LECmd, MFTECmd, PECmd, RBCmd, RECmd, SBECmd, SQLECmd, SrumECmd, WxTCmd, bstrings |
+| `sysinternals.yaml` | 5 | autorunsc, sigcheck, strings, handle, procdump |
+| `memory.yaml` | 4 | winpmem, dumpit, moneta, hollows_hunter |
+| `timeline.yaml` | 3 | Hayabusa, chainsaw, mactime |
+| `analysis.yaml` | 3 | capa, yara, densityscout |
+| `collection.yaml` | 1 | KAPE |
+| `scripts.yaml` | 1 | Get-InjectedThreadEx |
 
 Each entry defines the binary name, input style, output format, timeout, FK knowledge name, install methods, and search paths:
 
