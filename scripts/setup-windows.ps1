@@ -335,7 +335,7 @@ if ($Uninstall) {
     }
     Write-Info "Install directory: $InstallDir"
 
-    # 1. Remove scheduled task (check all historical names)
+    # 1. Remove scheduled tasks (check all historical names + watchdog)
     $task = $null
     $taskName = $null
     foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
@@ -352,6 +352,12 @@ if ($Uninstall) {
             }
         } else {
             Write-Info "No scheduled task found"
+        }
+        # Remove watchdog task
+        $watchdog = Get-ScheduledTask -TaskName "Valhuntir wintools-mcp watchdog" -ErrorAction SilentlyContinue
+        if ($watchdog) {
+            Unregister-ScheduledTask -TaskName "Valhuntir wintools-mcp watchdog" -Confirm:$false -ErrorAction Stop
+            Write-Ok "Watchdog task removed"
         }
     } catch {
         Write-Warn "Could not check/remove scheduled task: $_"
@@ -2225,6 +2231,79 @@ try {
     Write-Warn "Could not write startup script"
 }
 
+# Generate watchdog script (health check + restart if unresponsive)
+$watchdogPath = Join-Path $InstallDir "watchdog-wintools.ps1"
+$watchdogScheme = "http"
+if (Test-Path $wintoolsConfigPath) {
+    $cfg = Get-Content $wintoolsConfigPath -Raw -ErrorAction SilentlyContinue
+    if ($cfg -match 'tls_certfile:' -or $cfg -match 'ssl_certfile:') {
+        $watchdogScheme = "https"
+    }
+}
+try {
+    $watchdogLines = @(
+        "# Watchdog: restart wintools-mcp if not responding",
+        "`$port = $Port",
+        "`$scheme = `"$watchdogScheme`"",
+        "`$startupScript = `"$startupPath`"",
+        "`$logFile = `"$logDir\watchdog.log`"",
+        "",
+        "# PS 5.1: ICertificatePolicy for self-signed cert bypass (matches installer pattern)",
+        "if (`$scheme -eq `"https`") {",
+        "    if (-not ([System.Management.Automation.PSTypeName]'VhirTrustLocalCert').Type) {",
+        "        Add-Type @`"",
+        "using System.Net;",
+        "using System.Security.Cryptography.X509Certificates;",
+        "public class VhirTrustLocalCert : ICertificatePolicy {",
+        "    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert,",
+        "        WebRequest req, int problem) { return true; }",
+        "}",
+        "`"@",
+        "    }",
+        "    [System.Net.ServicePointManager]::CertificatePolicy = New-Object VhirTrustLocalCert",
+        "}",
+        "",
+        "try {",
+        "    `$response = Invoke-WebRequest -Uri `"`${scheme}://localhost:`${port}/health`" ``",
+        "        -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop",
+        "    # Healthy -- do nothing",
+        "    exit 0",
+        "} catch {",
+        "    # Not responding -- check if something is already listening (startup in progress)",
+        "    # Get-NetTCPConnection requires NetTCPIP module; always available to SYSTEM account",
+        "    `$listening = Get-NetTCPConnection -LocalPort `$port -State Listen -ErrorAction SilentlyContinue",
+        "    if (`$listening) {",
+        "        # Port is bound but health check failed -- server starting up, give it time",
+        "        exit 0",
+        "    }",
+        "",
+        "    # Check if startup script is already running (PS 5.1 compatible via WMI)",
+        "    # Get-WmiObject is deprecated in PS 7+ but required on PS 5.1 for CommandLine access",
+        "    # Assumes startup script runs via powershell.exe (scheduled task uses powershell.exe)",
+        "    `$running = Get-WmiObject Win32_Process -Filter `"Name='powershell.exe'`" |",
+        "        Where-Object { `$_.CommandLine -like `"*start-wintools*`" }",
+        "    if (`$running) {",
+        "        exit 0",
+        "    }",
+        "",
+        "    # Log and restart",
+        "    `$ts = Get-Date -Format `"yyyy-MM-dd HH:mm:ss`"",
+        "    if (-not (Test-Path `$logFile)) {",
+        "        New-Item -ItemType File -Path `$logFile -Force | Out-Null",
+        "    }",
+        "    Add-Content -Path `$logFile -Value `"`$ts -- wintools not responding on port `$port, restarting`"",
+        "",
+        "    # Start the startup script (which has its own restart loop)",
+        "    Start-Process -FilePath `"powershell.exe`" ``",
+        "        -ArgumentList `"-ExecutionPolicy Bypass -WindowStyle Hidden -File ```"`$startupScript```"`" ``",
+        "        -WindowStyle Hidden",
+        "}"
+    )
+    ($watchdogLines -join "`r`n") | Set-Content -Path $watchdogPath -Encoding UTF8
+} catch {
+    Write-Warn "Could not write watchdog script"
+}
+
 if ($startChoice -eq "1" -and -not $skipServerStart) {
     # Register scheduled task for auto-start
     $taskName = "Valhuntir wintools-mcp"
@@ -2263,6 +2342,37 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
 
             Write-Ok "Scheduled task registered: $taskName"
             Write-Ok "Will auto-start at boot"
+
+            # Register watchdog task (health check every 5 minutes)
+            $watchdogTaskName = "Valhuntir wintools-mcp watchdog"
+            try {
+                $old = Get-ScheduledTask -TaskName $watchdogTaskName -ErrorAction SilentlyContinue
+                if ($old) { Unregister-ScheduledTask -TaskName $watchdogTaskName -Confirm:$false }
+
+                $watchdogAction = New-ScheduledTaskAction `
+                    -Execute "powershell.exe" `
+                    -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchdogPath`""
+                $watchdogTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+                    -RepetitionInterval (New-TimeSpan -Minutes 5) `
+                    -RepetitionDuration (New-TimeSpan -Days 9999)
+                $watchdogSettings = New-ScheduledTaskSettingsSet `
+                    -AllowStartIfOnBatteries `
+                    -DontStopIfGoingOnBatteries `
+                    -StartWhenAvailable
+
+                Register-ScheduledTask `
+                    -TaskName $watchdogTaskName `
+                    -Action $watchdogAction `
+                    -Trigger $watchdogTrigger `
+                    -Settings $watchdogSettings `
+                    -RunLevel Highest `
+                    -User "SYSTEM" `
+                    -Description "Valhuntir wintools-mcp watchdog -- restarts server if unresponsive" -ErrorAction Stop | Out-Null
+
+                Write-Ok "Watchdog task registered (health check every 5 minutes)"
+            } catch {
+                Write-Warn "Could not register watchdog task: $_"
+            }
         } catch {
             Write-Warn "Could not register scheduled task (run as Administrator)"
             Write-Host "  To register manually (as Administrator):"
