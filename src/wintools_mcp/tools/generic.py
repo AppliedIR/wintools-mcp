@@ -206,6 +206,7 @@ def run_command(
 
     # Auto-inject output directory when catalog specifies output_flag
     # and user didn't provide one (e.g., --csv, --json, -o)
+    _csv_output_rel = None
     td = get_tool_def(binary_name)
     if td and td.output_flag:
         user_has_output = any(
@@ -235,6 +236,9 @@ def run_command(
                         raise
                 command.extend([td.output_flag, output_dir])
                 logger.info("Auto-injected output: %s %s", td.output_flag, output_dir)
+                from wintools_mcp.output import to_share_relative
+
+                _csv_output_rel = to_share_relative(output_dir, cfg.share_root)
 
     exec_result = execute(
         command,
@@ -243,6 +247,10 @@ def run_command(
         save_output=save_output,
         save_dir=save_dir,
     )
+
+    # Attach share-relative CSV output dir (for cross-MCP consumption)
+    if _csv_output_rel:
+        exec_result["csv_output_dir"] = _csv_output_rel
 
     # Parse output based on catalog format when output exceeds byte budget
     cfg = get_config()

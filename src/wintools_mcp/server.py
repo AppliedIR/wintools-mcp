@@ -434,6 +434,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 response["full_output_path"] = exec_result["output_file"]
                 response["full_output_sha256"] = exec_result.get("output_sha256")
                 response["full_output_bytes"] = exec_result.get("stdout_total_bytes")
+            if exec_result.get("csv_output_dir"):
+                response["csv_output_dir"] = exec_result["csv_output_dir"]
             logged = audit.log(
                 tool="run_windows_command",
                 params={"command": command, "purpose": purpose},
