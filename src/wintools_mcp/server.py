@@ -367,6 +367,20 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             else:
                 detection_method = "none"
 
+        # Validate input files are accessible
+        for fpath in detected_inputs:
+            p = Path(fpath)
+            if not p.exists():
+                return {
+                    "success": False,
+                    "error": f"Evidence path not accessible: {fpath}",
+                    "suggestions": [
+                        "Verify the SMB share is mounted and the case is activated",
+                        "If evidence is inside a VHDX/E01 mount, it needs to be "
+                        "staged to the case extractions directory first",
+                    ],
+                }
+
         # Hash input files (chunked, 1GB cap)
         input_hashes: dict[str, str] = {}
         for fpath in detected_inputs:
