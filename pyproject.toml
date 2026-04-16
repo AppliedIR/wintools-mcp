@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wintools-mcp"
-version = "0.6.0"
+version = "0.6.1"
 description = "Windows forensic MCP: CLI tool execution with dynamic discovery and installation guidance"
 requires-python = ">=3.10"
 license = {text = "MIT"}
