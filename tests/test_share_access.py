@@ -58,6 +58,9 @@ def test_health_answers_and_names_the_denied_share(denied, monkeypatch):
     cfg = WintoolsConfig()
     cfg.case_dir = str(denied)
     monkeypatch.setattr(http_server, "get_config", lambda: cfg)
+    audit_mod.AuditWriter().log(
+        tool="t", params={}, result_summary="x"
+    )  # a call meets it
     app = create_http_app(cfg)
     with TestClient(app, raise_server_exceptions=False) as client:
         resp = client.get("/health")
@@ -92,6 +95,61 @@ def test_a_run_says_why_it_wasnt_audited(denied, tmp_path, monkeypatch):
         w.startswith("Audit trail unavailable") and "evidence share not accessible" in w
         for w in resp.get("warnings", [])
     ), resp
+
+
+def test_a_hanging_share_never_delays_health(tmp_path, monkeypatch):
+    import time
+
+    from wintools_mcp import http_server
+
+    case = tmp_path / "case"
+    case.mkdir()
+    (case / "CASE.yaml").write_text("case_id: c1\n")
+    monkeypatch.setenv("VHIR_CASE_DIR", str(case))
+    real = Path.is_dir
+
+    def is_dir(self, *a, **k):
+        if str(self).startswith(str(case)):
+            time.sleep(5)  # a share that doesn't answer
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    cfg = WintoolsConfig()
+    cfg.case_dir = str(case)
+    monkeypatch.setattr(http_server, "get_config", lambda: cfg)
+    with TestClient(create_http_app(cfg), raise_server_exceptions=False) as client:
+        t0 = time.monotonic()
+        assert client.get("/health").status_code == 200
+        assert time.monotonic() - t0 < 1.0
+
+
+def test_a_failed_append_shows_in_health(tmp_path, monkeypatch):
+    import builtins
+
+    from wintools_mcp import http_server
+
+    audit_dir = tmp_path / "audit"
+    audit_dir.mkdir()
+    real_open = builtins.open
+
+    def failing_open(file, mode="r", *a, **k):
+        if str(file).startswith(str(audit_dir)) and "a" in mode:
+            raise OSError(64, "The specified network name is no longer available")
+        return real_open(file, mode, *a, **k)
+
+    writer = audit_mod.AuditWriter(audit_dir=str(audit_dir))
+    monkeypatch.setattr(builtins, "open", failing_open)
+    try:
+        assert writer.log(tool="t", params={}, result_summary="x") is None
+    finally:
+        monkeypatch.setattr(builtins, "open", real_open)
+    cfg = WintoolsConfig()
+    monkeypatch.setattr(http_server, "get_config", lambda: cfg)
+    with TestClient(create_http_app(cfg), raise_server_exceptions=False) as client:
+        body = client.get("/health").json()
+    assert "no longer available" in body["evidence_share"]
+    assert writer.log(tool="t", params={}, result_summary="x")  # the share is back
+    assert audit_mod.share_error() == ""
 
 
 # -- a mapping that's already there

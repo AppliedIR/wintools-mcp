@@ -142,11 +142,11 @@ async def health(request: Request) -> JSONResponse:
         fk_available = True
     except ImportError:
         pass
-    from wintools_mcp.audit import AuditWriter, share_error
+    from wintools_mcp.audit import share_error
 
     cfg = get_config()
-    if cfg.case_dir:
-        AuditWriter()._get_audit_dir()  # the share as it is now, not at the last call
+    # No filesystem I/O here: the share as the last call found it (a hanging
+    # share must never hang the health check)
     body = {
         "status": "ok",
         "service": "wintools-mcp",

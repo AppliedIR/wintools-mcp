@@ -164,7 +164,8 @@ class AuditWriter:
         try:
             if not log_file.exists():
                 return 0
-        except OSError:  # the share went away since: start over, never fail
+        except OSError as e:  # the share went away since: start over, never fail
+            _set_share_error(f"evidence share not accessible: {e}")
             return 0
         prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
         pattern = f"{prefix}-{self.examiner}-{date_str}-"
@@ -172,6 +173,7 @@ class AuditWriter:
         try:
             text = log_file.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
+            _set_share_error(f"evidence share not accessible: {e}")
             logger.warning(
                 "Failed to read audit log for sequence resume %s: %s", log_file, e
             )
@@ -261,8 +263,10 @@ class AuditWriter:
                 f.write(json.dumps(entry, default=str) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
+            _set_share_error("")
             return True
         except OSError as e:
+            _set_share_error(f"evidence share not accessible: {e}")
             logger.warning(
                 "Failed to write audit entry for audit_id=%s tool=%s: %s "
                 "(this audit_id was NOT recorded to the audit trail)",
@@ -283,7 +287,8 @@ class AuditWriter:
         try:
             if not log_file.exists():
                 return []
-        except OSError:
+        except OSError as e:
+            _set_share_error(f"evidence share not accessible: {e}")
             return []
         entries = []
         try:
@@ -303,6 +308,7 @@ class AuditWriter:
                         continue
                     entries.append(entry)
         except OSError as e:
+            _set_share_error(f"evidence share not accessible: {e}")
             logger.warning("Failed to read audit entries from %s: %s", log_file, e)
         return entries
 
