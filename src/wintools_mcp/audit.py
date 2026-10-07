@@ -263,8 +263,7 @@ class AuditWriter:
                 f.write(json.dumps(entry, default=str) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
-            _set_share_error("")
-            return True
+            return True  # (the share's error was cleared when its folder was found)
         except OSError as e:
             _set_share_error(f"evidence share not accessible: {e}")
             logger.warning(

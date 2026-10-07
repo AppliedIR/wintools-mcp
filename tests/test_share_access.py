@@ -234,3 +234,26 @@ def test_a_session_that_worked_before_and_now_fails_is_reported_down(net, monkey
     net.answers += [ALREADY, (2, "System error 53")]
     assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is False
     assert smb.is_smb_session_ok() is False
+
+
+def test_a_failed_log_read_is_noted_too(tmp_path, monkeypatch):
+    import builtins
+
+    audit_dir = tmp_path / "audit"
+    audit_dir.mkdir()
+    writer = audit_mod.AuditWriter(audit_dir=str(audit_dir))
+    assert writer.log(tool="t", params={}, result_summary="x")
+    real_open = builtins.open
+
+    def failing_open(file, mode="r", *a, **k):
+        if str(file).startswith(str(audit_dir)) and "r" in mode:
+            raise OSError(59, "An unexpected network error occurred")
+        return real_open(file, mode, *a, **k)
+
+    monkeypatch.setattr(builtins, "open", failing_open)
+    try:
+        assert writer.get_entries() == []
+    finally:
+        monkeypatch.setattr(builtins, "open", real_open)
+    assert "unexpected network error" in audit_mod.share_error()
+    audit_mod._set_share_error("")
