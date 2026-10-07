@@ -142,17 +142,22 @@ async def health(request: Request) -> JSONResponse:
         fk_available = True
     except ImportError:
         pass
+    from wintools_mcp.audit import AuditWriter, share_error
+
     cfg = get_config()
-    return JSONResponse(
-        {
-            "status": "ok",
-            "service": "wintools-mcp",
-            "fk_available": fk_available,
-            "smb_session": is_smb_session_ok(),
-            "active_case": cfg.active_case,
-            "case_dir": cfg.case_dir,
-        }
-    )
+    if cfg.case_dir:
+        AuditWriter()._get_audit_dir()  # the share as it is now, not at the last call
+    body = {
+        "status": "ok",
+        "service": "wintools-mcp",
+        "fk_available": fk_available,
+        "smb_session": is_smb_session_ok(),
+        "active_case": cfg.active_case,
+        "case_dir": cfg.case_dir,
+    }
+    if share_error():  # the service answers; its evidence share doesn't
+        body["evidence_share"] = share_error()
+    return JSONResponse(body)
 
 
 # ---------------------------------------------------------------------------

@@ -467,8 +467,11 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 input_detection_method=detection_method,
             )
             if not logged:
+                from wintools_mcp.audit import share_error
+
                 response.setdefault("warnings", []).append(
                     "Audit trail unavailable -- execution not logged"
+                    + (f" ({share_error()})" if share_error() else "")
                 )
             # Warn if save_output requested but no case dir
             if save_output and not config.case_dir:

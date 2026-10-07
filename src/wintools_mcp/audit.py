@@ -18,6 +18,23 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_share_error = ""  # why the case folder's share can't be read, or ""
+_share_lock = threading.Lock()
+
+
+def _set_share_error(reason: str) -> None:
+    global _share_error
+    with _share_lock:
+        _share_error = reason
+
+
+def share_error() -> str:
+    """Why the evidence share can't be read now ("" when it can): for the
+    call's warnings and /health."""
+    with _share_lock:
+        return _share_error
+
+
 _EXAMINER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
 
 
@@ -79,46 +96,48 @@ class AuditWriter:
         """Get the audit directory.
 
         Priority: explicit audit_dir > VHIR_AUDIT_DIR env > VHIR_CASE_DIR/audit/.
+        A case folder on a share this process can't read (access denied,
+        a dropped session) is reported through share_error(), never raised:
+        one denied share must not fail every call.
         """
-        if self._explicit_audit_dir:
-            audit_dir = Path(self._explicit_audit_dir)
-        else:
-            env_audit = os.environ.get("VHIR_AUDIT_DIR")
-            if env_audit:
-                audit_dir = Path(env_audit)
-            else:
-                case_dir = os.environ.get("VHIR_CASE_DIR", "").strip()
-                # Validate: must be a directory with CASE.yaml
-                if case_dir:
-                    path = Path(case_dir)
-                    if path.is_dir() and (path / "CASE.yaml").exists():
-                        audit_dir = path / "audit"
-                    else:
-                        case_dir = ""  # set-but-wrong, try active_case
-                if not case_dir:
-                    # Fallback: read active case pointer file
-                    try:
-                        case_dir = (
-                            (Path.home() / ".vhir" / "active_case").read_text().strip()
-                        )
-                    except OSError:
-                        return None
-                    if not case_dir:
-                        return None
-                    path = Path(case_dir)
-                    if not path.is_dir() or not (path / "CASE.yaml").exists():
-                        logger.warning(
-                            "VHIR_CASE_DIR=%s is not a case directory, skipping audit",
-                            case_dir,
-                        )
-                        return None
-                    audit_dir = path / "audit"
         try:
+            audit_dir = self._find_audit_dir()
+            if audit_dir is None:
+                return None
             audit_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            logger.warning("Failed to create audit directory %s: %s", audit_dir, e)
+            _set_share_error(f"evidence share not accessible: {e}")
+            logger.warning("Audit directory not accessible: %s", e)
             return None
+        _set_share_error("")
         return audit_dir
+
+    def _find_audit_dir(self) -> Path | None:
+        if self._explicit_audit_dir:
+            return Path(self._explicit_audit_dir)
+        env_audit = os.environ.get("VHIR_AUDIT_DIR")
+        if env_audit:
+            return Path(env_audit)
+        case_dir = os.environ.get("VHIR_CASE_DIR", "").strip()
+        # Validate: must be a directory with CASE.yaml
+        if case_dir:
+            path = Path(case_dir)
+            if path.is_dir() and (path / "CASE.yaml").exists():
+                return path / "audit"
+        # Set-but-wrong or unset: read the active case pointer file
+        try:  # (a local file: unreadable means no active case)
+            case_dir = (Path.home() / ".vhir" / "active_case").read_text().strip()
+        except OSError:
+            return None
+        if not case_dir:
+            return None
+        path = Path(case_dir)
+        if not path.is_dir() or not (path / "CASE.yaml").exists():
+            logger.warning(
+                "VHIR_CASE_DIR=%s is not a case directory, skipping audit", case_dir
+            )
+            return None
+        return path / "audit"
 
     def _next_audit_id(self) -> str:
         """Generate next audit ID: {prefix}-{examiner}-{date}-{seq}."""
@@ -142,7 +161,10 @@ class AuditWriter:
         if not audit_dir:
             return 0
         log_file = audit_dir / f"{self.mcp_name}.jsonl"
-        if not log_file.exists():
+        try:
+            if not log_file.exists():
+                return 0
+        except OSError:  # the share went away since: start over, never fail
             return 0
         prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
         pattern = f"{prefix}-{self.examiner}-{date_str}-"
@@ -258,7 +280,10 @@ class AuditWriter:
         if not audit_dir:
             return []
         log_file = audit_dir / f"{self.mcp_name}.jsonl"
-        if not log_file.exists():
+        try:
+            if not log_file.exists():
+                return []
+        except OSError:
             return []
         entries = []
         try:

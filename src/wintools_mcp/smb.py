@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import subprocess
 import threading
 
@@ -13,8 +14,49 @@ _smb_lock = threading.Lock()
 _smb_session_ok = False
 
 
+def _probe(share_root: str) -> str:
+    """Write, read back and remove a small file through the mapping; "" when
+    that works, else why not. "Already connected" says nothing about a
+    session that still works (a stale mapping after a re-join)."""
+    name = os.path.join(
+        share_root, f".wintools-probe-{os.getpid()}-{secrets.token_hex(4)}"
+    )
+    data = secrets.token_hex(8)
+    try:
+        with open(name, "w", encoding="ascii") as f:
+            f.write(data)
+        with open(name, encoding="ascii") as f:
+            if f.read() != data:
+                return "the probe read back different bytes"
+        return ""
+    except OSError as e:
+        return str(e)
+    finally:
+        try:
+            os.remove(name)
+        except OSError:
+            pass
+
+
+def _net_use(config):
+    return subprocess.run(
+        [
+            "net",
+            "use",
+            config.share_root,
+            f"/user:{config.smb_user}",
+            config.smb_password,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+
 def establish_smb_session(config) -> bool:
-    """Establish SMB session via net use. Returns True on success."""
+    """Establish SMB session via net use. Returns True on success: a mapping
+    a write/read probe went through. An existing mapping that fails the
+    probe (stale after a re-join) is deleted and mapped again."""
     global _smb_session_ok
     if not config.share_root.startswith("\\\\"):
         return True  # Not a UNC path, no SMB needed
@@ -22,46 +64,45 @@ def establish_smb_session(config) -> bool:
         logger.info("SMB credentials not configured, skipping session")
         return False
     with _smb_lock:
+        _smb_session_ok = False
         try:
-            result = subprocess.run(
-                [
-                    "net",
-                    "use",
-                    config.share_root,
-                    f"/user:{config.smb_user}",
-                    config.smb_password,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if result.returncode == 0:
-                _smb_session_ok = True
-                logger.info("SMB session established to %s", config.share_root)
-                return True
-            # Error 1219 (multiple connections) or "already connected" -- both fine
+            result = _net_use(config)
             combined = (result.stderr + result.stdout).lower()
-            if "already" in combined or "multiple connections" in combined:
-                _smb_session_ok = True
-                return True
-            # net use failed but share may be accessible via persistent mapping
-            if os.path.isdir(config.share_root):
+            existing = result.returncode != 0 and (
+                "already" in combined or "multiple connections" in combined
+            )
+            if result.returncode == 0 or existing:
+                why = _probe(config.share_root)
+                if why and existing:  # a stale mapping: drop it and map again
+                    subprocess.run(
+                        ["net", "use", config.share_root, "/delete", "/y"],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    again = _net_use(config)
+                    why = (
+                        _probe(config.share_root)
+                        if again.returncode == 0
+                        else (again.stderr or again.stdout).strip()
+                        or f"exit {again.returncode}"
+                    )
+                if not why:
+                    _smb_session_ok = True
+                    logger.info("SMB session established to %s", config.share_root)
+                    return True
+                err_msg = f"mapped, but the share can't be used: {why}"
+            elif os.path.isdir(config.share_root) and not _probe(config.share_root):
+                # net use failed, but a persistent mapping works end to end
                 _smb_session_ok = True
                 logger.info(
-                    "SMB share accessible via existing mapping: %s",
-                    config.share_root,
+                    "SMB share accessible via existing mapping: %s", config.share_root
                 )
                 return True
-            _smb_session_ok = False
-            err_msg = result.stderr.strip()
-            logger.error(
-                "SMB session failed (exit %d): %s",
-                result.returncode,
-                err_msg,
-            )
-            _audit_smb_failure(
-                config.share_root, f"exit {result.returncode}: {err_msg}"
-            )
+            else:
+                err_msg = f"exit {result.returncode}: {result.stderr.strip()}"
+            logger.error("SMB session failed: %s", err_msg)
+            _audit_smb_failure(config.share_root, err_msg)
             return False
         except Exception as e:
             _smb_session_ok = False
