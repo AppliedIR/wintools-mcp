@@ -168,3 +168,11 @@ def test_the_probe_writes_reads_back_and_leaves_nothing(tmp_path):
 def test_the_probe_says_why_a_folder_cant_be_written(tmp_path):
     missing = tmp_path / "gone"
     assert smb._probe(str(missing)) != ""
+
+
+def test_a_session_that_worked_before_and_now_fails_is_reported_down(net, monkeypatch):
+    monkeypatch.setattr(smb, "_smb_session_ok", True)  # an earlier success
+    monkeypatch.setattr(smb, "_probe", lambda share: "The network name cannot be found")
+    net.answers += [ALREADY, (2, "System error 53")]
+    assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is False
+    assert smb.is_smb_session_ok() is False
