@@ -7,11 +7,15 @@ import os
 import secrets
 import subprocess
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
 _smb_lock = threading.Lock()
 _smb_session_ok = False
+# The last finished attempt's (result, time.time()), read without the lock:
+# an attempt holds the lock across net use and the share's own I/O
+_smb_last: tuple[bool, float] | None = None
 
 
 def _probe(share_root: str, active_case: str) -> str:
@@ -89,63 +93,84 @@ def establish_smb_session(config) -> bool:
     with _smb_lock:
         _smb_session_ok = False
         try:
-            result = _net_use(config)
-            combined = (result.stderr + result.stdout).lower()
-            existing = result.returncode != 0 and (
-                "already" in combined or "multiple connections" in combined
-            )
-            if result.returncode == 0 or existing:
-                why = _probe(config.share_root, config.active_case)
-                if why and existing and not share_guard.is_refusal(why):
-                    # a stale mapping: drop it and map again
-                    subprocess.run(
-                        ["net", "use", config.share_root, "/delete", "/y"],
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                    )
-                    again = _net_use(config)
-                    why = (
-                        _probe(config.share_root, config.active_case)
-                        if again.returncode == 0
-                        else _net_use_reason(again)
-                    )
-                if not why:
-                    _smb_session_ok = True
-                    logger.info("SMB session established to %s", config.share_root)
-                    return True
-                err_msg = f"mapped, but the share can't be used: {why}"
-            elif os.path.isdir(config.share_root):
-                # net use failed: a persistent mapping counts if it works end to end
-                why = _probe(config.share_root, config.active_case)
-                if not why:
-                    _smb_session_ok = True
-                    logger.info(
-                        "SMB share accessible via existing mapping: %s",
-                        config.share_root,
-                    )
-                    return True
-                err_msg = f"mapped, but the share can't be used: {why}"
-            else:
-                err_msg = f"net use failed: {_net_use_reason(result)}"
-            logger.error("SMB session failed: %s", err_msg)
-            _note_smb_failure(config.share_root, err_msg)
-            return False
+            return _finished(_attempt(config, share_guard))
         except Exception as e:
-            _smb_session_ok = False
             from wintools_mcp.audit import share_reason
 
             # never the error's text: net use's argv holds the password
             reason = share_reason(e)
             logger.error("SMB session error: %s", reason)
             _note_smb_failure(config.share_root, reason)
-            return False
+            return _finished(False)
+
+
+def _finished(ok: bool) -> bool:
+    """Record an attempt's result, and when it finished."""
+    global _smb_session_ok, _smb_last
+    _smb_session_ok = ok
+    _smb_last = (ok, time.time())
+    return ok
+
+
+def _attempt(config, share_guard) -> bool:
+    """One session attempt, under the lock (see establish_smb_session)."""
+    result = _net_use(config)
+    combined = (result.stderr + result.stdout).lower()
+    existing = result.returncode != 0 and (
+        "already" in combined or "multiple connections" in combined
+    )
+    if result.returncode == 0 or existing:
+        why = _probe(config.share_root, config.active_case)
+        if why and existing and not share_guard.is_refusal(why):
+            # a stale mapping: drop it and map again
+            subprocess.run(
+                ["net", "use", config.share_root, "/delete", "/y"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            again = _net_use(config)
+            why = (
+                _probe(config.share_root, config.active_case)
+                if again.returncode == 0
+                else _net_use_reason(again)
+            )
+        if not why:
+            logger.info("SMB session established to %s", config.share_root)
+            return True
+        err_msg = f"mapped, but the share can't be used: {why}"
+    elif os.path.isdir(config.share_root):
+        # net use failed: a persistent mapping counts if it works end to end
+        why = _probe(config.share_root, config.active_case)
+        if not why:
+            logger.info(
+                "SMB share accessible via existing mapping: %s",
+                config.share_root,
+            )
+            return True
+        err_msg = f"mapped, but the share can't be used: {why}"
+    else:
+        err_msg = f"net use failed: {_net_use_reason(result)}"
+    logger.error("SMB session failed: %s", err_msg)
+    _note_smb_failure(config.share_root, err_msg)
+    return False
 
 
 def is_smb_session_ok() -> bool:
-    """Check if the last SMB session establishment succeeded."""
-    with _smb_lock:
-        return _smb_session_ok
+    """Whether the last SMB session attempt succeeded (False while one runs).
+    Never waits for the lock: an attempt can hang on the share."""
+    return _smb_session_ok
+
+
+def smb_session_state() -> dict:
+    """For /health, without the lock: the last finished attempt's result and
+    its age in seconds (None before the first), and whether one is running."""
+    last = _smb_last
+    return {
+        "ok": last[0] if last else False,
+        "age_seconds": round(time.time() - last[1]) if last else None,
+        "checking": _smb_lock.locked(),
+    }
 
 
 def _note_smb_failure(share_root: str, error: str) -> None:

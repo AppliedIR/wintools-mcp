@@ -161,6 +161,47 @@ class TestHTTPApp:
             assert "fk_available" in data
             assert isinstance(data["fk_available"], bool)
 
+    def test_health_answers_at_once_while_a_session_attempt_holds_the_lock(
+        self, config, monkeypatch
+    ):
+        """A session attempt holds the SMB lock across net use and the share's
+        own I/O, which can hang: /health reports the last attempt's result and
+        its age without waiting for it."""
+        import threading
+        import time
+
+        from wintools_mcp import smb
+
+        monkeypatch.setattr(smb, "_smb_last", (True, time.time() - 30), raising=False)
+        got = {}
+
+        def ask():
+            with TestClient(
+                create_http_app(config), raise_server_exceptions=False
+            ) as c:
+                got["body"] = c.get("/health").json()
+
+        assert smb._smb_lock.acquire(timeout=5)  # the attempt, stalled on the share
+        try:
+            asker = threading.Thread(target=ask, daemon=True)
+            asker.start()
+            asker.join(10)
+        finally:
+            smb._smb_lock.release()
+        body = got["body"]  # answered while the lock was held
+        assert body["smb_session"] is True and body["smb_session_checking"] is True
+        assert 29 <= body["smb_session_age_seconds"] <= 60
+
+    def test_health_says_when_no_session_attempt_has_finished(
+        self, config, monkeypatch
+    ):
+        from wintools_mcp import smb
+
+        monkeypatch.setattr(smb, "_smb_last", None)
+        with TestClient(create_http_app(config), raise_server_exceptions=False) as c:
+            body = c.get("/health").json()
+        assert body["smb_session"] is False and body["smb_session_age_seconds"] is None
+
     def _mcp_headers(self, extra: dict | None = None) -> dict:
         """Standard headers for MCP requests (includes Host for DNS rebinding protection)."""
         h = {

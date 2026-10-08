@@ -264,3 +264,25 @@ def test_a_failed_log_read_is_noted_too(tmp_path, monkeypatch):
         monkeypatch.setattr(builtins, "open", real_open)
     assert audit_mod.share_error().endswith(": network error")
     audit_mod._set_share_error("")
+
+
+def test_each_session_attempt_records_its_result_and_when_it_ended(monkeypatch):
+    """What /health reads: set at the end of every attempt, failed ones too."""
+    import time
+
+    from wintools_mcp import smb
+
+    monkeypatch.setattr(smb, "_smb_last", None)
+    cfg = SimpleNamespace(
+        share_root=r"\\sift\cases", smb_user="u", smb_password="p", active_case="C-1"
+    )
+
+    def refused(*a, **k):
+        raise OSError("net use can't run here")
+
+    monkeypatch.setattr(smb, "_net_use", refused)
+    before = time.time()
+    assert smb.establish_smb_session(cfg) is False
+    ok, at = smb._smb_last
+    assert ok is False and before <= at <= time.time()
+    assert smb.smb_session_state()["checking"] is False

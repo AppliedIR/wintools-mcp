@@ -133,7 +133,7 @@ def _extract_bearer_token(scope: dict) -> str | None:
 
 
 async def health(request: Request) -> JSONResponse:
-    from wintools_mcp.smb import is_smb_session_ok
+    from wintools_mcp.smb import smb_session_state
 
     fk_available = False
     try:
@@ -145,13 +145,17 @@ async def health(request: Request) -> JSONResponse:
     from wintools_mcp.audit import share_error
 
     cfg = get_config()
-    # No filesystem I/O here: the share as the last call found it (a hanging
-    # share must never hang the health check)
+    # No filesystem I/O and no SMB lock here: the share as the last call found
+    # it, and the session as its last attempt ended (a hanging share must
+    # never hang the health check)
+    smb = smb_session_state()
     body = {
         "status": "ok",
         "service": "wintools-mcp",
         "fk_available": fk_available,
-        "smb_session": is_smb_session_ok(),
+        "smb_session": smb["ok"],
+        "smb_session_age_seconds": smb["age_seconds"],
+        "smb_session_checking": smb["checking"],
         "active_case": cfg.active_case,
         "case_dir": cfg.case_dir,
     }
