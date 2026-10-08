@@ -1092,7 +1092,8 @@ $githubOrg = "https://github.com/AppliedIR"
 $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
 $wintoolsConfigPath = Join-Path $wintoolsDir "config.yaml"
 
-# Helper: download a repo as ZIP (no git required)
+$keptConfigPath = Join-Path $InstallDir "config.yaml.keep"
+
 function Stop-WintoolsProcesses {
     # The running wintools-mcp's python processes; returns whether any was stopped
     $procs = Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
@@ -1103,20 +1104,96 @@ function Stop-WintoolsProcesses {
     return $true
 }
 
-function Stop-WintoolsService {
-    # The scheduled tasks' running instances (the server and its watchdog),
-    # then the processes: a folder whose files are in use can't be replaced
+$wintoolsWatchdogTask = "Valhuntir wintools-mcp watchdog"
+$script:wintoolsPaused = $null
+
+function Suspend-WintoolsService {
+    # Right before the folder is replaced: the scheduled tasks (the server and
+    # its watchdog) are disabled, so the watchdog's trigger can't start the
+    # server mid-replace, and their running instances are stopped, then the
+    # processes: a folder whose files are in use can't be replaced.
+    # Resume-WintoolsService undoes it.
+    $paused = @{ Disabled = @(); Running = @(); Processes = $false }
+    $script:wintoolsPaused = $paused
     foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp",
-                        "Valhuntir wintools-mcp watchdog")) {
-        if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+                        $wintoolsWatchdogTask)) {
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if (-not $task) { continue }
+        if ($task.State -ne "Disabled") {
+            try {
+                $null = Disable-ScheduledTask -TaskName $name -ErrorAction Stop
+                $paused.Disabled += $name
+            } catch {
+                Write-Warn "Could not disable the scheduled task '$name' for the update: $_"
+            }
+        }
+        if ($task.State -eq "Running") {
             Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            $paused.Running += $name
         }
     }
-    $null = Stop-WintoolsProcesses
+    $paused.Processes = Stop-WintoolsProcesses
 }
 
+function Resume-WintoolsService {
+    # Re-enables what Suspend-WintoolsService disabled; with -Restart (the
+    # update failed), also starts the server it stopped
+    param([switch]$Restart)
+    $paused = $script:wintoolsPaused
+    if (-not $paused) { return }
+    $script:wintoolsPaused = $null
+    foreach ($name in $paused.Disabled) {
+        try {
+            $null = Enable-ScheduledTask -TaskName $name -ErrorAction Stop
+        } catch {
+            Write-Warn "Could not re-enable the scheduled task '$name': $_. Enable it in Task Scheduler."
+        }
+    }
+    if (-not $Restart) { return }
+    $servers = @($paused.Running | Where-Object { $_ -ne $wintoolsWatchdogTask })
+    foreach ($name in $servers) {
+        try {
+            Start-ScheduledTask -TaskName $name -ErrorAction Stop
+            Write-Info "wintools-mcp restarted (scheduled task '$name')"
+        } catch {
+            Write-Warn "Could not restart the scheduled task '$name': $_"
+        }
+    }
+    if (-not $servers -and $paused.Processes) {
+        $startup = Join-Path $InstallDir "start-wintools.ps1"
+        if (Test-Path $startup) {
+            Start-Process -FilePath "powershell.exe" -WindowStyle Hidden `
+                -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startup`""
+            Write-Info "wintools-mcp restarted ($startup)"
+        } else {
+            Write-Warn "wintools-mcp was stopped for the update and isn't running; start it again."
+        }
+    }
+}
+
+function Restore-KeptConfig {
+    # Puts the saved config.yaml in the folder (with -Replace, over the one
+    # there). The saved copy is removed only once the folder's config.yaml
+    # matches it. Returns whether it did.
+    param([switch]$Replace)
+    try {
+        if ($Replace -or -not (Test-Path $wintoolsConfigPath)) {
+            $null = New-Item -ItemType Directory -Force -Path $wintoolsDir
+            Copy-Item $keptConfigPath $wintoolsConfigPath -Force -ErrorAction Stop
+        }
+        if ((Get-FileHash $keptConfigPath -ErrorAction Stop).Hash -eq
+            (Get-FileHash $wintoolsConfigPath -ErrorAction Stop).Hash) {
+            Remove-Item $keptConfigPath -Force -ErrorAction SilentlyContinue
+            return $true
+        }
+    } catch { }
+    return $false
+}
+
+# Helper: download a repo as ZIP (no git required). $BeforeReplace runs once
+# the new tree is extracted, right before an existing $DestDir is replaced
 function Get-RepoAsZip {
-    param([string]$RepoName, [string]$DestDir)
+    param([string]$RepoName, [string]$DestDir, [scriptblock]$BeforeReplace)
     $zipUrl = "$githubOrg/$RepoName/archive/refs/heads/main.zip"
     $zipPath = Join-Path $InstallDir "$RepoName.zip"
     $extractedDir = Join-Path $InstallDir "$RepoName-main"
@@ -1135,10 +1212,22 @@ function Get-RepoAsZip {
     }
     Remove-Item $zipPath -ErrorAction SilentlyContinue
     if (Test-Path $extractedDir) {
+        if ($BeforeReplace -and (Test-Path $DestDir)) { & $BeforeReplace }
         if (Test-Path $DestDir) { Remove-Item $DestDir -Recurse -Force }
         Rename-Item $extractedDir $DestDir
     } else {
         throw "Expected directory $extractedDir not found after extraction"
+    }
+}
+
+# A config.yaml an earlier run saved but couldn't put back goes back first
+if (Test-Path $keptConfigPath) {
+    if (Restore-KeptConfig) {
+        Write-Ok "Put back the config.yaml an earlier run saved"
+    } else {
+        Write-Err "An earlier run saved config.yaml at $keptConfigPath, and it differs from $wintoolsConfigPath or can't be put back"
+        Write-Host "  Keep the one you want as $wintoolsConfigPath, remove $keptConfigPath, and re-run." -ForegroundColor Yellow
+        exit 1
     }
 }
 
@@ -1181,32 +1270,40 @@ if ($hasGit) {
 }
 if (-not $cloneOk) {
     # The download replaces the folder; only config.yaml (its API key and
-    # share settings) is the user's, so it is kept outside and put back
-    $keptConfig = $null
+    # share settings) is the user's. It's saved outside the folder first, and
+    # the saved copy is removed only once the new folder's config.yaml matches it
+    $saved = $false
     if (Test-Path $wintoolsDir) {
         Write-Info "Directory exists, re-downloading..."
-        Stop-WintoolsService
         if (Test-Path $wintoolsConfigPath) {
-            $keptConfig = Join-Path $InstallDir "config.yaml.keep"
-            Copy-Item $wintoolsConfigPath $keptConfig -Force
+            try {
+                Copy-Item $wintoolsConfigPath $keptConfigPath -Force -ErrorAction Stop
+            } catch {
+                Write-Err "Could not save config.yaml before the update: $_"
+                exit 1
+            }
+            $saved = $true
         }
     }
     try {
-        Get-RepoAsZip "wintools-mcp" $wintoolsDir
-        if ($keptConfig) { Copy-Item $keptConfig $wintoolsConfigPath -Force }
+        Get-RepoAsZip "wintools-mcp" $wintoolsDir -BeforeReplace { Suspend-WintoolsService }
+        if ($saved -and -not (Restore-KeptConfig -Replace)) {
+            throw "config.yaml could not be put back in $wintoolsDir"
+        }
         Write-Ok "wintools-mcp downloaded"
     } catch {
-        if ($keptConfig) {
-            $null = New-Item -ItemType Directory -Force -Path $wintoolsDir
-            Copy-Item $keptConfig $wintoolsConfigPath -Force
-            Write-Err "Failed to download wintools-mcp: $_"
-            Write-Host "  Your config.yaml was put back in $wintoolsDir. Re-run once GitHub can be reached." -ForegroundColor Yellow
-        } else {
-            Write-Err "Failed to download wintools-mcp: $_"
+        Write-Err "Failed to download wintools-mcp: $_"
+        if ($saved) {
+            if (Restore-KeptConfig -Replace) {
+                Write-Host "  Your config.yaml was put back in $wintoolsDir." -ForegroundColor Yellow
+            } else {
+                Write-Host "  Your config.yaml is saved at $keptConfigPath; the next run puts it back." -ForegroundColor Yellow
+            }
         }
+        Resume-WintoolsService -Restart
         exit 1
     } finally {
-        if ($keptConfig) { Remove-Item $keptConfig -Force -ErrorAction SilentlyContinue }
+        Resume-WintoolsService
     }
 }
 
