@@ -127,9 +127,9 @@
         -GatewayHost 10.0.0.1 -JoinCode "ABCD-EFGH" -Examiner "analyst1"
 
 .EXAMPLE
-    # Deployment: Air-gapped lab
-    #   Pre-stage: clone wintools-mcp repo to USB, transfer to lab
-    #   Then run installer pointing to pre-staged directory
+    # Standalone, in another install directory. The installer downloads
+    # wintools-mcp from GitHub and its packages from PyPI, so it needs
+    # internet access to both: it can't install in an air-gapped lab.
     .\setup-windows.ps1 -Standalone -InstallDir "E:\vhir"
 #>
 [CmdletBinding()]
@@ -1093,6 +1093,28 @@ $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
 $wintoolsConfigPath = Join-Path $wintoolsDir "config.yaml"
 
 # Helper: download a repo as ZIP (no git required)
+function Stop-WintoolsProcesses {
+    # The running wintools-mcp's python processes; returns whether any was stopped
+    $procs = Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -like "*wintools*" }
+    if (-not $procs) { return $false }
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    return $true
+}
+
+function Stop-WintoolsService {
+    # The scheduled tasks' running instances (the server and its watchdog),
+    # then the processes: a folder whose files are in use can't be replaced
+    foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp",
+                        "Valhuntir wintools-mcp watchdog")) {
+        if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+            Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        }
+    }
+    $null = Stop-WintoolsProcesses
+}
+
 function Get-RepoAsZip {
     param([string]$RepoName, [string]$DestDir)
     $zipUrl = "$githubOrg/$RepoName/archive/refs/heads/main.zip"
@@ -1158,15 +1180,33 @@ if ($hasGit) {
     }
 }
 if (-not $cloneOk) {
-    try {
-        if (Test-Path $wintoolsDir) {
-            Write-Info "Directory exists, re-downloading..."
+    # The download replaces the folder; only config.yaml (its API key and
+    # share settings) is the user's, so it is kept outside and put back
+    $keptConfig = $null
+    if (Test-Path $wintoolsDir) {
+        Write-Info "Directory exists, re-downloading..."
+        Stop-WintoolsService
+        if (Test-Path $wintoolsConfigPath) {
+            $keptConfig = Join-Path $InstallDir "config.yaml.keep"
+            Copy-Item $wintoolsConfigPath $keptConfig -Force
         }
+    }
+    try {
         Get-RepoAsZip "wintools-mcp" $wintoolsDir
+        if ($keptConfig) { Copy-Item $keptConfig $wintoolsConfigPath -Force }
         Write-Ok "wintools-mcp downloaded"
     } catch {
-        Write-Err "Failed to download wintools-mcp"
+        if ($keptConfig) {
+            $null = New-Item -ItemType Directory -Force -Path $wintoolsDir
+            Copy-Item $keptConfig $wintoolsConfigPath -Force
+            Write-Err "Failed to download wintools-mcp: $_"
+            Write-Host "  Your config.yaml was put back in $wintoolsDir. Re-run once GitHub can be reached." -ForegroundColor Yellow
+        } else {
+            Write-Err "Failed to download wintools-mcp: $_"
+        }
         exit 1
+    } finally {
+        if ($keptConfig) { Remove-Item $keptConfig -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -2101,11 +2141,7 @@ share_root: $($script:shareRootForConfig)
                 Write-Ok "Updated connection settings in config: $($updated -join ', ')"
 
                 # Restart running wintools process so new config takes effect
-                $wintoolsProcs = Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
-                    Where-Object { $_.Path -and $_.Path -like "*wintools*" }
-                if ($wintoolsProcs) {
-                    $wintoolsProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-                    Start-Sleep -Seconds 2
+                if (Stop-WintoolsProcesses) {
                     # Check if scheduled task exists to auto-restart
                     $hasTask = $false
                     foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp")) {
