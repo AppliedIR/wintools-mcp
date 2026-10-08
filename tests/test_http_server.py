@@ -233,6 +233,47 @@ class TestHTTPApp:
             updating.join(10)
         assert got["update"] == 503  # it ran once the lock was free: failed, saved
 
+    def test_two_credentials_updates_at_once_run_and_save_the_same_credentials(
+        self, config, monkeypatch
+    ):
+        """A's attempt stalls on the share while B arrives: whatever the order,
+        the credentials in use are the ones saved last (one update at a time)."""
+        import threading
+
+        from wintools_mcp import http_server, smb
+
+        monkeypatch.setattr(http_server, "get_config", lambda: config)
+        saved = []
+        monkeypatch.setattr(
+            http_server,
+            "_persist_config_fields",
+            lambda cfg, f: saved.append(f["smb_password"]),
+        )
+        entered = threading.Event()
+
+        def attempt(cfg):
+            if not entered.is_set():  # the first attempt stalls on the share
+                entered.set()
+                threading.Event().wait(1.0)
+            return False
+
+        monkeypatch.setattr(smb, "establish_smb_session", attempt)
+        app = create_http_app(WintoolsConfig())
+        with TestClient(app, raise_server_exceptions=False) as client:
+
+            def update(password):
+                client.post("/config/update-smb", json={"smb_password": password})
+
+            first = threading.Thread(target=update, args=("A",), daemon=True)
+            first.start()
+            assert entered.wait(5)
+            second = threading.Thread(target=update, args=("B",), daemon=True)
+            second.start()
+            first.join(10)
+            second.join(10)
+        assert saved and config.smb_password == saved[-1]
+        assert saved == ["A", "B"]
+
     def test_health_says_when_no_session_attempt_has_finished(
         self, config, monkeypatch
     ):

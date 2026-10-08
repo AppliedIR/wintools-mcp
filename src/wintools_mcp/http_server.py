@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hmac
 import json
@@ -275,23 +276,25 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
         return JSONResponse({"error": "smb_password required"}, status_code=400)
     smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
 
-    cfg.smb_user = smb_user
-    cfg.smb_password = smb_password
-
-    import asyncio
-
     from wintools_mcp.smb import establish_smb_session
 
-    # off the event loop: an attempt waits on net use and the share's own I/O
-    success = await asyncio.to_thread(establish_smb_session, cfg)
+    # One update at a time: two interleaved would run with one request's
+    # credentials and save the other's. The attempt itself runs off the event
+    # loop, since it waits on net use and the share.
+    async with request.app.state.smb_update_lock:
+        cfg.smb_user = smb_user
+        cfg.smb_password = smb_password
+        success = await asyncio.to_thread(establish_smb_session, cfg)
 
-    # Persist to config.yaml so it survives restart
-    _persist_config_fields(cfg, {"smb_user": smb_user, "smb_password": smb_password})
-    _control_audit.log(
-        tool="update_smb_credentials",
-        params={"smb_user": smb_user},
-        result_summary=f"session={'ok' if success else 'failed'}",
-    )
+        # Persist to config.yaml so it survives restart
+        _persist_config_fields(
+            cfg, {"smb_user": smb_user, "smb_password": smb_password}
+        )
+        _control_audit.log(
+            tool="update_smb_credentials",
+            params={"smb_user": smb_user},
+            result_summary=f"session={'ok' if success else 'failed'}",
+        )
 
     if success:
         return JSONResponse(
@@ -400,7 +403,10 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
         Route("/mcp", endpoint=auth_wrapped),
     ]
 
-    return Starlette(routes=routes, lifespan=lifespan)
+    app = Starlette(routes=routes, lifespan=lifespan)
+    # one credentials update at a time (an asyncio lock is its app's: its loop)
+    app.state.smb_update_lock = asyncio.Lock()
+    return app
 
 
 def _extract_mcp_route(mcp_starlette_app: Starlette) -> Any:
