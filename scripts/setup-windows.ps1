@@ -161,6 +161,9 @@ $serverHealthy = $false
 $joinSucceeded = $false
 
 trap {
+    if ($script:wintoolsPaused) {  # an update disabled the tasks: enabled again
+        try { Resume-WintoolsService } catch { }
+    }
     if ($process -and -not $process.HasExited) {
         try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch { }
     }
@@ -1092,28 +1095,54 @@ $githubOrg = "https://github.com/AppliedIR"
 $wintoolsDir = Join-Path $InstallDir "wintools-mcp"
 $wintoolsConfigPath = Join-Path $wintoolsDir "config.yaml"
 
-$keptConfigPath = Join-Path $InstallDir "config.yaml.keep"
+$wintoolsOldDir = "$wintoolsDir.old"
+
+function Get-ChildProcesses {
+    # The processes `$Parents` started (a venv's python.exe is a launcher
+    # that starts the base interpreter)
+    param($Parents)
+    $ids = @($Parents | ForEach-Object { $_.Id })
+    @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $ids -contains $_.ParentProcessId } |
+        ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+}
 
 function Stop-WintoolsProcesses {
-    # The running wintools-mcp's python processes; returns whether any was stopped
-    $procs = Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -and $_.Path -like "*wintools*" }
+    # The running wintools-mcp's python processes and the ones they started,
+    # waited on until they exit; returns whether any was stopped
+    $procs = @(Get-Process python*, pythonw* -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -like "*wintools*" })
     if (-not $procs) { return $false }
-    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    $all = @($procs) + @(Get-ChildProcesses $procs)
+    $all | Stop-Process -Force -ErrorAction SilentlyContinue
+    $all | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
+    return $true
+}
+
+function Stop-WintoolsLoop {
+    # A start-wintools.ps1 started by hand restarts the server whenever it
+    # exits, so it's stopped first; returns whether one was
+    $loops = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and
+                       $_.CommandLine -like "*start-wintools.ps1*" })
+    if (-not $loops) { return $false }
+    foreach ($l in $loops) { Stop-Process -Id $l.ProcessId -Force -ErrorAction SilentlyContinue }
+    foreach ($l in $loops) { Wait-Process -Id $l.ProcessId -Timeout 30 -ErrorAction SilentlyContinue }
     return $true
 }
 
 $wintoolsWatchdogTask = "Valhuntir wintools-mcp watchdog"
 $script:wintoolsPaused = $null
+$script:wintoolsSwap = $null
 
 function Suspend-WintoolsService {
-    # Right before the folder is replaced: the scheduled tasks (the server and
+    # Right before the folder is swapped: the scheduled tasks (the server and
     # its watchdog) are disabled, so the watchdog's trigger can't start the
-    # server mid-replace, and their running instances are stopped, then the
-    # processes: a folder whose files are in use can't be replaced.
+    # server, and stay so until Phase 7 registers them again; their running
+    # instances are stopped, then a hand-started loop, then the processes, each
+    # waited on: a folder whose files are in use can't be renamed.
     # Resume-WintoolsService undoes it.
-    $paused = @{ Disabled = @(); Running = @(); Processes = $false }
+    $paused = @{ Disabled = @(); Running = @(); Loop = $false; Processes = $false }
     $script:wintoolsPaused = $paused
     foreach ($name in @("Valhuntir wintools-mcp", "ValiHuntIR wintools-mcp", "AIIR wintools-mcp",
                         $wintoolsWatchdogTask)) {
@@ -1132,17 +1161,20 @@ function Suspend-WintoolsService {
             $paused.Running += $name
         }
     }
+    $paused.Loop = Stop-WintoolsLoop
     $paused.Processes = Stop-WintoolsProcesses
 }
 
 function Resume-WintoolsService {
-    # Re-enables what Suspend-WintoolsService disabled; with -Restart (the
-    # update failed), also starts the server it stopped
+    # Re-enables the tasks Suspend-WintoolsService disabled that still exist
+    # (Phase 7 may have registered them anew); with -Restart (the previous
+    # wintools-mcp is in place again), also starts the server it stopped
     param([switch]$Restart)
     $paused = $script:wintoolsPaused
     if (-not $paused) { return }
     $script:wintoolsPaused = $null
     foreach ($name in $paused.Disabled) {
+        if (-not (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue)) { continue }
         try {
             $null = Enable-ScheduledTask -TaskName $name -ErrorAction Stop
         } catch {
@@ -1159,7 +1191,7 @@ function Resume-WintoolsService {
             Write-Warn "Could not restart the scheduled task '$name': $_"
         }
     }
-    if (-not $servers -and $paused.Processes) {
+    if (-not $servers -and ($paused.Loop -or $paused.Processes)) {
         $startup = Join-Path $InstallDir "start-wintools.ps1"
         if (Test-Path $startup) {
             Start-Process -FilePath "powershell.exe" -WindowStyle Hidden `
@@ -1171,27 +1203,62 @@ function Resume-WintoolsService {
     }
 }
 
-function Restore-KeptConfig {
-    # Puts the saved config.yaml in the folder (with -Replace, over the one
-    # there). The saved copy is removed only once the folder's config.yaml
-    # matches it. Returns whether it did.
-    param([switch]$Replace)
-    try {
-        if ($Replace -or -not (Test-Path $wintoolsConfigPath)) {
-            $null = New-Item -ItemType Directory -Force -Path $wintoolsDir
-            Copy-Item $keptConfigPath $wintoolsConfigPath -Force -ErrorAction Stop
-        }
-        if ((Get-FileHash $keptConfigPath -ErrorAction Stop).Hash -eq
-            (Get-FileHash $wintoolsConfigPath -ErrorAction Stop).Hash) {
-            Remove-Item $keptConfigPath -Force -ErrorAction SilentlyContinue
-            return $true
-        }
-    } catch { }
-    return $false
+function Exit-Installer {
+    # An early exit once the update stopped wintools-mcp: its tasks are
+    # enabled again first
+    param([int]$Code)
+    Resume-WintoolsService
+    exit $Code
 }
 
-# Helper: download a repo as ZIP (no git required). $BeforeReplace runs once
-# the new tree is extracted, right before an existing $DestDir is replaced
+function Rename-WithRetry {
+    # A rename, tried again for a few seconds: an antivirus scan or a process
+    # that is slow to exit can hold a file briefly
+    param([string]$Path, [string]$NewName)
+    for ($i = 1; ; $i++) {
+        try {
+            Rename-Item -Path $Path -NewName $NewName -ErrorAction Stop
+            return
+        } catch {
+            if ($i -ge 5) { throw }
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
+function Undo-WintoolsSwap {
+    # The update failed before its environment was built: the new tree goes,
+    # the previous wintools-mcp comes back from .old, and its server starts again
+    $old = $script:wintoolsSwap
+    $script:wintoolsSwap = $null
+    try {
+        if (Test-Path $wintoolsDir) { Remove-Item $wintoolsDir -Recurse -Force -ErrorAction Stop }
+        Rename-WithRetry $old (Split-Path $wintoolsDir -Leaf)
+    } catch {
+        Write-Err "The update failed, and the previous wintools-mcp couldn't be put back: $_"
+        Write-Host "  It is at $old; the next run puts it back." -ForegroundColor Yellow
+        Resume-WintoolsService
+        return
+    }
+    Write-Warn "The update failed: the previous wintools-mcp is back in $wintoolsDir"
+    Resume-WintoolsService -Restart
+}
+
+function Complete-WintoolsSwap {
+    # The new wintools-mcp's environment is built: the previous one goes
+    $old = $script:wintoolsSwap
+    $script:wintoolsSwap = $null
+    try {
+        Remove-Item $old -Recurse -Force -ErrorAction Stop
+    } catch {
+        Write-Warn "Could not remove the previous wintools-mcp at ${old}: $_. Remove it before the next update."
+    }
+}
+
+# Helper: download a repo as ZIP (no git required). An existing $DestDir is
+# swapped, never deleted: once the new tree is extracted, $BeforeReplace runs,
+# $DestDir becomes "$DestDir.old" and the new tree takes its place. Returns
+# the old folder's path ("" when there was none).
 function Get-RepoAsZip {
     param([string]$RepoName, [string]$DestDir, [scriptblock]$BeforeReplace)
     $zipUrl = "$githubOrg/$RepoName/archive/refs/heads/main.zip"
@@ -1211,22 +1278,45 @@ function Get-RepoAsZip {
         throw "Extract failed for $RepoName`: $_"
     }
     Remove-Item $zipPath -ErrorAction SilentlyContinue
-    if (Test-Path $extractedDir) {
-        if ($BeforeReplace -and (Test-Path $DestDir)) { & $BeforeReplace }
-        if (Test-Path $DestDir) { Remove-Item $DestDir -Recurse -Force }
-        Rename-Item $extractedDir $DestDir
-    } else {
+    if (-not (Test-Path $extractedDir)) {
         throw "Expected directory $extractedDir not found after extraction"
     }
+    $leaf = Split-Path $DestDir -Leaf
+    if (-not (Test-Path $DestDir)) {
+        Rename-WithRetry $extractedDir $leaf
+        return ""
+    }
+    if ($BeforeReplace) { & $BeforeReplace }
+    $old = "$DestDir.old"
+    try {
+        Rename-WithRetry $DestDir (Split-Path $old -Leaf)
+    } catch {
+        Remove-Item $extractedDir -Recurse -Force -ErrorAction SilentlyContinue
+        throw "$DestDir is in use, so it was left as it is ($_)"
+    }
+    try {
+        Rename-WithRetry $extractedDir $leaf
+    } catch {
+        $why = $_
+        try {
+            Rename-WithRetry $old $leaf
+        } catch {
+            throw "the new $RepoName couldn't be put in place ($why), and the previous one is left at ${old}: the next run puts it back"
+        }
+        Remove-Item $extractedDir -Recurse -Force -ErrorAction SilentlyContinue
+        throw "the new $RepoName couldn't be put in place, so the previous one was kept ($why)"
+    }
+    return $old
 }
 
-# A config.yaml an earlier run saved but couldn't put back goes back first
-if (Test-Path $keptConfigPath) {
-    if (Restore-KeptConfig) {
-        Write-Ok "Put back the config.yaml an earlier run saved"
+# An update that stopped partway can leave the previous wintools-mcp as .old
+if (Test-Path $wintoolsOldDir) {
+    if (-not (Test-Path $wintoolsDir)) {
+        Rename-WithRetry $wintoolsOldDir (Split-Path $wintoolsDir -Leaf)
+        Write-Ok "Put back the wintools-mcp an earlier update left at $wintoolsOldDir"
     } else {
-        Write-Err "An earlier run saved config.yaml at $keptConfigPath, and it differs from $wintoolsConfigPath or can't be put back"
-        Write-Host "  Keep the one you want as $wintoolsConfigPath, remove $keptConfigPath, and re-run." -ForegroundColor Yellow
+        Write-Err "Both $wintoolsDir and $wintoolsOldDir exist: an earlier update didn't finish"
+        Write-Host "  Keep the one that works as $wintoolsDir, remove the other, and re-run." -ForegroundColor Yellow
         exit 1
     }
 }
@@ -1269,78 +1359,80 @@ if ($hasGit) {
     }
 }
 if (-not $cloneOk) {
-    # The download replaces the folder; only config.yaml (its API key and
-    # share settings) is the user's. It's saved outside the folder first, and
-    # the saved copy is removed only once the new folder's config.yaml matches it
-    $saved = $false
+    # The download swaps the folder: the previous one is kept as
+    # wintools-mcp.old until the new one's environment is built below
     if (Test-Path $wintoolsDir) {
         Write-Info "Directory exists, re-downloading..."
-        if (Test-Path $wintoolsConfigPath) {
-            try {
-                Copy-Item $wintoolsConfigPath $keptConfigPath -Force -ErrorAction Stop
-            } catch {
-                Write-Err "Could not save config.yaml before the update: $_"
-                exit 1
-            }
-            $saved = $true
-        }
     }
     try {
-        Get-RepoAsZip "wintools-mcp" $wintoolsDir -BeforeReplace { Suspend-WintoolsService }
-        if ($saved -and -not (Restore-KeptConfig -Replace)) {
-            throw "config.yaml could not be put back in $wintoolsDir"
-        }
+        $script:wintoolsSwap = Get-RepoAsZip "wintools-mcp" $wintoolsDir -BeforeReplace { Suspend-WintoolsService }
         Write-Ok "wintools-mcp downloaded"
     } catch {
         Write-Err "Failed to download wintools-mcp: $_"
-        if ($saved) {
-            if (Restore-KeptConfig -Replace) {
-                Write-Host "  Your config.yaml was put back in $wintoolsDir." -ForegroundColor Yellow
-            } else {
-                Write-Host "  Your config.yaml is saved at $keptConfigPath; the next run puts it back." -ForegroundColor Yellow
-            }
+        if (Test-Path $wintoolsDir) {
+            Resume-WintoolsService -Restart  # the previous one is in place: as it was
+        } else {
+            Resume-WintoolsService
         }
-        Resume-WintoolsService -Restart
         exit 1
-    } finally {
-        Resume-WintoolsService
     }
 }
 
-# Create venv and install
+# Create venv and install. After a swap, the rollback window: until the
+# environment is built (venv and pip), any failure puts the previous
+# wintools-mcp back and starts it again; after it, the previous one goes
 $venvDir = Join-Path $wintoolsDir ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
+$installed = $false
+try {
+    if ($script:wintoolsSwap) {  # the examiner's config.yaml (its API key) comes along
+        $oldConfig = Join-Path $script:wintoolsSwap "config.yaml"
+        if (Test-Path $oldConfig) {
+            try {
+                Copy-Item $oldConfig $wintoolsConfigPath -Force -ErrorAction Stop
+            } catch {
+                Write-Err "Could not carry config.yaml over to the new wintools-mcp: $_"
+                exit 1
+            }
+        }
+    }
 
-if (-not (Test-Path $venvDir)) {
-    try {
-        & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m venv $venvDir
-    } catch {
-        Write-Err "Failed to create Python virtual environment"
+    if (-not (Test-Path $venvDir)) {
+        try {
+            & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -m venv $venvDir
+        } catch {
+            Write-Err "Failed to create Python virtual environment"
+            exit 1
+        }
+    }
+    if (-not (Test-Path $venvPython)) {
+        Write-Err "Virtual environment created but python.exe not found at: $venvPython"
         exit 1
     }
-}
-if (-not (Test-Path $venvPython)) {
-    Write-Err "Virtual environment created but python.exe not found at: $venvPython"
-    exit 1
-}
-Assert-Venv64 $venvPython  # a .venv kept from an earlier install too
+    Assert-Venv64 $venvPython  # a .venv kept from an earlier install too
 
-$prevEAP = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-try { $null = & $venvPython -m pip install --progress-bar off --upgrade pip 2>&1 } catch { }
-finally { $ErrorActionPreference = $prevEAP }
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { $null = & $venvPython -m pip install --progress-bar off --upgrade pip 2>&1 } catch { }
+    finally { $ErrorActionPreference = $prevEAP }
 
-# Install wintools-mcp without FK first (always works)
-$prevEAP = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-try {
-    $null = & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
-} catch {
-    Write-Err "Failed to install wintools-mcp"
-    exit 1
+    # Install wintools-mcp without FK first (always works)
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $null = & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
+    } catch {
+        Write-Err "Failed to install wintools-mcp"
+        exit 1
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+    $installed = $true
 } finally {
-    $ErrorActionPreference = $prevEAP
+    if ($script:wintoolsSwap) {
+        if ($installed) { Complete-WintoolsSwap } else { Undo-WintoolsSwap }
+    }
 }
 
 # forensic-knowledge (FK) enrichment -- optional
@@ -1653,7 +1745,7 @@ if ($Standalone) {
             New-Item -ItemType Directory -Path $caseDir -Force | Out-Null
         } catch {
             Write-Err "Cannot create case directory: $caseDir"
-            exit 1
+            Exit-Installer 1
         }
     }
     Write-Ok "Case directory: $caseDir"
@@ -2662,6 +2754,11 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
     Write-Ok "Generated startup script: $startupPath"
     Write-Host "  Run it to start wintools-mcp: $startupPath"
 }
+
+# The tasks an update disabled are enabled again on every path through here:
+# registered anew above, or skipped (manual start, failed health check, port
+# taken)
+Resume-WintoolsService
 
 # =============================================================================
 # Summary

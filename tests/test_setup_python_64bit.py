@@ -141,9 +141,13 @@ def test_update_checks_the_existing_environment(tmp_path, bits, ok):
 @pytest.mark.parametrize("bits, ok", [("64", True), ("32", False)])
 def test_a_rerun_checks_the_environment_it_keeps(tmp_path, bits, ok):
     wintools = _venv(tmp_path, bits)
-    body = f"$wintoolsDir = '{wintools}'\n$pythonCmd = 'python'\n" + _cut(
-        "# Create venv and install", RERUN_CHECK, include_end=True
-    )
+    # the environment's paths, then its steps up to the check (inside the
+    # rollback window's try)
+    a = TEXT.index("# Create venv and install")
+    head = TEXT[a : TEXT.index("$installed = $false", a)]
+    s = TEXT.index("    if (-not (Test-Path $venvDir)) {", a)
+    steps = TEXT[s : TEXT.index(RERUN_CHECK, s) + len(RERUN_CHECK)]
+    body = f"$wintoolsDir = '{wintools}'\n$pythonCmd = 'python'\n" + head + steps
     p = _run(tmp_path, body, "REACHED PIP")
     if ok:
         assert p.returncode == 0 and "REACHED PIP" in p.stdout, p.stdout + p.stderr
