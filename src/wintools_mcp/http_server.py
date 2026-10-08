@@ -278,9 +278,12 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
     cfg.smb_user = smb_user
     cfg.smb_password = smb_password
 
+    import asyncio
+
     from wintools_mcp.smb import establish_smb_session
 
-    success = establish_smb_session(cfg)
+    # off the event loop: an attempt waits on net use and the share's own I/O
+    success = await asyncio.to_thread(establish_smb_session, cfg)
 
     # Persist to config.yaml so it survives restart
     _persist_config_fields(cfg, {"smb_user": smb_user, "smb_password": smb_password})

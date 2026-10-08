@@ -192,6 +192,47 @@ class TestHTTPApp:
         assert body["smb_session"] is True and body["smb_session_checking"] is True
         assert 29 <= body["smb_session_age_seconds"] <= 60
 
+    def test_a_credentials_update_waiting_on_the_share_leaves_the_server_answering(
+        self, config, monkeypatch
+    ):
+        """The update re-establishes the session, which waits for the SMB lock
+        and the share: off the event loop, so /health answers meanwhile."""
+        import threading
+
+        from wintools_mcp import http_server, smb
+
+        def unreachable(cfg):
+            raise OSError(53, "the network path was not found")
+
+        config.share_root = r"\\sift\cases"
+        monkeypatch.setattr(http_server, "get_config", lambda: config)
+        monkeypatch.setattr(http_server, "_persist_config_fields", lambda *a: None)
+        monkeypatch.setattr(smb, "_net_use", unreachable)
+        got = {}
+        app = create_http_app(WintoolsConfig())  # no session attempt at startup
+        with TestClient(app, raise_server_exceptions=False) as client:
+
+            def update():
+                got["update"] = client.post(
+                    "/config/update-smb", json={"smb_password": "pw"}
+                ).status_code
+
+            def health():
+                got["health"] = client.get("/health").json()
+
+            assert smb._smb_lock.acquire(timeout=5)  # an attempt stalled on the share
+            try:
+                updating = threading.Thread(target=update, daemon=True)
+                updating.start()
+                asker = threading.Thread(target=health, daemon=True)
+                asker.start()
+                asker.join(10)
+                assert got["health"]["smb_session_checking"] is True  # answered
+            finally:
+                smb._smb_lock.release()
+            updating.join(10)
+        assert got["update"] == 503  # it ran once the lock was free: failed, saved
+
     def test_health_says_when_no_session_attempt_has_finished(
         self, config, monkeypatch
     ):
