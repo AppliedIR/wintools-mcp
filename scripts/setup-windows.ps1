@@ -183,6 +183,20 @@ function Write-Warn   { param($msg) Write-Host "[WARN] " -ForegroundColor Yellow
 function Write-Err    { param($msg) Write-Host "[ERROR] " -ForegroundColor Red -NoNewline; Write-Host $msg }
 function Write-Header { param($msg) Write-Host "`n=== $msg ===`n" -ForegroundColor White }
 
+# 64-bit only: the cryptography package ships no 32-bit Windows build
+function Get-PythonBits {
+    param($exe, [string[]]$pre = @())
+    $bits = & $exe @pre -c "import struct; print(struct.calcsize('P') * 8)" 2>&1
+    return "$bits".Trim()
+}
+function Assert-Venv64 {
+    param($venvPython)
+    if ((Get-PythonBits $venvPython) -eq "32") {
+        Write-Err 'This wintools-mcp environment uses 32-bit Python. Install 64-bit Python 3.10+, remove `.venv`, and re-run.'
+        exit 1
+    }
+}
+
 function Mask-ApiKey {
     param([string]$Key)
     if ($Key.Length -le 12) { return "****" }
@@ -491,6 +505,7 @@ if ($Update) {
         Write-Err "Python venv not found at $venvDir"
         exit 1
     }
+    Assert-Venv64 $venvPython  # the environment pip will run in
 
     # 1. Update source
     $hasGit = Get-Command git -ErrorAction SilentlyContinue
@@ -912,38 +927,40 @@ Write-Header "Phase 1: Prerequisites"
 
 # Python 3.10+
 $pythonCmd = $null
+$not64 = $null  # a 3.10+ interpreter that isn't 64-bit
 foreach ($cmd in @("python", "python3", "py -3")) {
     try {
-        $ver = & ($cmd.Split(" ")[0]) @($cmd.Split(" ") | Select-Object -Skip 1) -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
+        $exe = $cmd.Split(" ")[0]
+        $pre = @($cmd.Split(" ") | Select-Object -Skip 1)
+        $ver = & $exe @pre -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1
         if ($ver) {
             $parts = $ver.Split(".")
             $major = [int]$parts[0]
             $minor = [int]$parts[1]
             if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 10)) {
-                $pythonCmd = $cmd
-                Write-Ok "Python $ver"
-                break
+                $bits = Get-PythonBits $exe $pre
+                if ($bits -eq "64") {
+                    $pythonCmd = $cmd
+                    Write-Ok "Python $ver (64-bit)"
+                    break
+                }
+                if (-not $not64) { $not64 = "Python $ver ($bits-bit, '$cmd')" }
             }
         }
     } catch { }
 }
 
 if (-not $pythonCmd) {
-    Write-Err "Python 3.10+ not found"
-    Write-Host "  Install from: https://www.python.org/downloads/"
+    if ($not64) {
+        Write-Err "64-bit Python 3.10+ required (found only $not64)"
+        Write-Host "  Install the 64-bit (x86-64) installer from: https://www.python.org/downloads/windows/"
+    } else {
+        Write-Err "Python 3.10+ not found"
+        Write-Host "  Install from: https://www.python.org/downloads/"
+    }
     Write-Host "  Or via winget: winget install Python.Python.3.12"
     exit 1
 }
-
-# 64-bit only: the cryptography package ships no 32-bit Windows build
-$bits = & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -c "import struct; print(struct.calcsize('P') * 8)" 2>&1
-if ("$bits".Trim() -ne "64") {
-    Write-Err "64-bit Python 3.10+ required (this Python is $("$bits".Trim())-bit)"
-    Write-Host "  Install the 64-bit (x86-64) installer from: https://www.python.org/downloads/windows/"
-    Write-Host "  Or via winget: winget install Python.Python.3.12"
-    exit 1
-}
-Write-Ok "Python is 64-bit"
 
 # pip
 $prevEAP = $ErrorActionPreference
@@ -1169,6 +1186,7 @@ if (-not (Test-Path $venvPython)) {
     Write-Err "Virtual environment created but python.exe not found at: $venvPython"
     exit 1
 }
+Assert-Venv64 $venvPython  # a .venv kept from an earlier install too
 
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
