@@ -27,6 +27,15 @@ def check(share_root: str, active_case: str) -> str:
         with open(os.path.join(share_root, MARKER), encoding="utf-8") as f:
             named = f.read(512).strip()
     except FileNotFoundError:
+        # no marker, or no share: Windows reports a network path it can't
+        # find (53, 67) as not found too, and that must stay a share fault
+        # (its mapping is recovered), never the no-marker refusal
+        try:
+            os.stat(share_root)
+        except OSError as e:
+            from wintools_mcp.audit import share_reason
+
+            return f"evidence share not accessible: {share_reason(e)}"
         named = ""
     except (OSError, ValueError) as e:
         from wintools_mcp.audit import share_reason

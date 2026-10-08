@@ -499,3 +499,48 @@ def test_a_net_use_timeout_never_shows_its_password(monkeypatch, tmp_path, caplo
 )
 def test_a_share_reason_is_a_category_never_the_errors_text(exc, reason):
     assert audit_mod.share_reason(exc) == reason
+
+
+def test_an_unreachable_share_is_a_fault_not_a_share_without_a_marker(
+    share, monkeypatch
+):
+    """Windows says "not found" (53, 67) for a network path it can't reach:
+    with the share itself gone, the reason is the share, never the
+    no-marker refusal, so its session is recovered."""
+    gone = share.root.parent / "unreachable"  # the mapping points nowhere now
+    why = share_guard.check(str(gone), "C-1")
+    assert why == "evidence share not accessible: not found"
+    assert not share_guard.is_refusal(why)
+
+    def unreachable(path, *a, **k):
+        e = FileNotFoundError(2, "The network path was not found")
+        e.winerror = 53
+        raise e
+
+    monkeypatch.setattr(share_guard.os, "stat", unreachable)
+    assert share_guard.check(str(gone), "C-1") == (
+        "evidence share not accessible: share not reachable"
+    )
+
+
+def test_a_write_to_an_unreachable_share_recovers_its_session_first(share, monkeypatch):
+    from wintools_mcp import smb
+
+    gone = share.root.parent / "unreachable"
+    share.cfg.share_root = str(gone)
+    tried = []
+
+    def recover(cfg):
+        tried.append(cfg.share_root)
+        share.cfg.share_root = str(share.root)  # mapped again: the share is back
+        share.mark("C-1")
+        return True
+
+    monkeypatch.setattr(smb, "establish_smb_session", recover)
+    share_guard.before_write(share.cfg)  # no ShareRefused: recovered, then passed
+    assert tried == [str(gone)]
+
+
+def test_a_reachable_share_without_a_marker_is_still_refused(share):
+    why = share_guard.check(str(share.root), "C-1")  # no marker written
+    assert share_guard.is_refusal(why) and "has no case marker" in why
