@@ -274,6 +274,59 @@ class TestHTTPApp:
         assert saved and config.smb_password == saved[-1]
         assert saved == ["A", "B"]
 
+    def test_a_password_only_update_queued_behind_a_user_change_keeps_the_new_user(
+        self, config, monkeypatch
+    ):
+        """A holds the update; B changes the user name; C (password only) waits
+        behind both: C runs and saves B's user name with its own password."""
+        import threading
+
+        from wintools_mcp import http_server, smb
+
+        config.smb_user = "old"
+        monkeypatch.setattr(http_server, "get_config", lambda: config)
+        saved = []
+        monkeypatch.setattr(
+            http_server,
+            "_persist_config_fields",
+            lambda cfg, f: saved.append((f["smb_user"], f["smb_password"])),
+        )
+        entered = threading.Event()
+
+        def attempt(cfg):
+            if not entered.is_set():  # A's attempt stalls on the share
+                entered.set()
+                threading.Event().wait(1.0)
+            return False
+
+        monkeypatch.setattr(smb, "establish_smb_session", attempt)
+        app = create_http_app(WintoolsConfig())
+        with TestClient(app, raise_server_exceptions=False) as client:
+
+            def update(body):
+                client.post("/config/update-smb", json=body)
+
+            a = threading.Thread(
+                target=update, args=({"smb_password": "A"},), daemon=True
+            )
+            a.start()
+            assert entered.wait(5)
+            b = threading.Thread(
+                target=update,
+                args=({"smb_user": "new", "smb_password": "B"},),
+                daemon=True,
+            )
+            b.start()
+            threading.Event().wait(0.2)  # B queues first
+            c = threading.Thread(
+                target=update, args=({"smb_password": "C"},), daemon=True
+            )
+            c.start()
+            for t in (a, b, c):
+                t.join(10)
+        assert saved == [("old", "A"), ("new", "B"), ("new", "C")]
+        assert (config.smb_user, config.smb_password) == ("new", "C")
+
     def test_health_says_when_no_session_attempt_has_finished(
         self, config, monkeypatch
     ):

@@ -274,14 +274,14 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
     smb_password = body.get("smb_password", "")
     if not smb_password:
         return JSONResponse({"error": "smb_password required"}, status_code=400)
-    smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
-
     from wintools_mcp.smb import establish_smb_session
 
     # One update at a time: two interleaved would run with one request's
     # credentials and save the other's. The attempt itself runs off the event
     # loop, since it waits on net use and the share.
     async with request.app.state.smb_update_lock:
+        # the user name, when not given, is the one in use after the update ahead
+        smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
         cfg.smb_user = smb_user
         cfg.smb_password = smb_password
         success = await asyncio.to_thread(establish_smb_session, cfg)
