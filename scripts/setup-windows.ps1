@@ -161,9 +161,6 @@ $serverHealthy = $false
 $joinSucceeded = $false
 
 trap {
-    if ($script:wintoolsPaused) {  # an update disabled the tasks: enabled again
-        try { Resume-WintoolsService } catch { }
-    }
     if ($process -and -not $process.HasExited) {
         try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch { }
     }
@@ -1138,7 +1135,7 @@ $script:wintoolsSwap = $null
 function Suspend-WintoolsService {
     # Right before the folder is swapped: the scheduled tasks (the server and
     # its watchdog) are disabled, so the watchdog's trigger can't start the
-    # server, and stay so until Phase 7 registers them again; their running
+    # server, and stay so until the new environment is built; their running
     # instances are stopped, then a hand-started loop, then the processes, each
     # waited on: a folder whose files are in use can't be renamed.
     # Resume-WintoolsService undoes it.
@@ -1166,9 +1163,9 @@ function Suspend-WintoolsService {
 }
 
 function Resume-WintoolsService {
-    # Re-enables the tasks Suspend-WintoolsService disabled that still exist
-    # (Phase 7 may have registered them anew); with -Restart (the previous
-    # wintools-mcp is in place again), also starts the server it stopped
+    # Re-enables the tasks Suspend-WintoolsService disabled that still exist;
+    # with -Restart (the previous wintools-mcp is in place again), also starts
+    # the server it stopped
     param([switch]$Restart)
     $paused = $script:wintoolsPaused
     if (-not $paused) { return }
@@ -1203,14 +1200,6 @@ function Resume-WintoolsService {
     }
 }
 
-function Exit-Installer {
-    # An early exit once the update stopped wintools-mcp: its tasks are
-    # enabled again first
-    param([int]$Code)
-    Resume-WintoolsService
-    exit $Code
-}
-
 function Rename-WithRetry {
     # A rename, tried again for a few seconds: an antivirus scan or a process
     # that is slow to exit can hold a file briefly
@@ -1236,7 +1225,11 @@ function Undo-WintoolsSwap {
         Rename-WithRetry $old (Split-Path $wintoolsDir -Leaf)
     } catch {
         Write-Err "The update failed, and the previous wintools-mcp couldn't be put back: $_"
-        Write-Host "  It is at $old; the next run puts it back." -ForegroundColor Yellow
+        if (Test-Path $wintoolsDir) {
+            Write-Host "  The new one is still at $wintoolsDir and the previous one at ${old}: keep the one that works as $wintoolsDir, remove the other, and re-run." -ForegroundColor Yellow
+        } else {
+            Write-Host "  It is at $old; the next run puts it back." -ForegroundColor Yellow
+        }
         Resume-WintoolsService
         return
     }
@@ -1364,23 +1357,30 @@ if (-not $cloneOk) {
     if (Test-Path $wintoolsDir) {
         Write-Info "Directory exists, re-downloading..."
     }
+    $handedOver = $false  # to the rollback window below
     try {
         $script:wintoolsSwap = Get-RepoAsZip "wintools-mcp" $wintoolsDir -BeforeReplace { Suspend-WintoolsService }
         Write-Ok "wintools-mcp downloaded"
+        $handedOver = $true
     } catch {
         Write-Err "Failed to download wintools-mcp: $_"
-        if (Test-Path $wintoolsDir) {
-            Resume-WintoolsService -Restart  # the previous one is in place: as it was
-        } else {
-            Resume-WintoolsService
-        }
         exit 1
+    } finally {
+        # a failure, or a Ctrl+C, before the window
+        if (-not $handedOver) {
+            if (Test-Path $wintoolsDir) {
+                Resume-WintoolsService -Restart  # the previous one is in place: as it was
+            } else {
+                Resume-WintoolsService
+            }
+        }
     }
 }
 
 # Create venv and install. After a swap, the rollback window: until the
-# environment is built (venv and pip), any failure puts the previous
-# wintools-mcp back and starts it again; after it, the previous one goes
+# environment is built (venv and pip), any failure (a Ctrl+C too) puts the
+# previous wintools-mcp back and starts it again; after it, the previous one
+# goes. Either way the tasks are enabled again as the window closes.
 $venvDir = Join-Path $wintoolsDir ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $installed = $false
@@ -1433,6 +1433,7 @@ try {
     if ($script:wintoolsSwap) {
         if ($installed) { Complete-WintoolsSwap } else { Undo-WintoolsSwap }
     }
+    Resume-WintoolsService  # the window has closed: the tasks are enabled again
 }
 
 # forensic-knowledge (FK) enrichment -- optional
@@ -1745,7 +1746,7 @@ if ($Standalone) {
             New-Item -ItemType Directory -Path $caseDir -Force | Out-Null
         } catch {
             Write-Err "Cannot create case directory: $caseDir"
-            Exit-Installer 1
+            exit 1
         }
     }
     Write-Ok "Case directory: $caseDir"
@@ -2754,11 +2755,6 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
     Write-Ok "Generated startup script: $startupPath"
     Write-Host "  Run it to start wintools-mcp: $startupPath"
 }
-
-# The tasks an update disabled are enabled again on every path through here:
-# registered anew above, or skipped (manual start, failed health check, port
-# taken)
-Resume-WintoolsService
 
 # =============================================================================
 # Summary

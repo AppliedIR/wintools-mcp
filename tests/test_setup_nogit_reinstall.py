@@ -3,17 +3,21 @@ fresh download: the previous one is kept as wintools-mcp.old until the new
 one's environment is built (venv and pip), and comes back, running, when
 anything fails before that. The examiner's config.yaml (its API key) comes
 along. The running server is stopped only once the new tree is extracted,
-waited on until it exits, and its tasks stay disabled until Phase 7
-registers them again, or are enabled again on any early exit. The
-installer's own lines run under PowerShell; the download, the archive, the
-scheduled tasks, the processes and Python are stand-ins that record what
-happens, in order.
+waited on until it exits, and its tasks stay disabled until the window
+closes, on any path out of it, a Ctrl+C included. The installer's own lines
+run under PowerShell; the download, the archive, the scheduled tasks, the
+processes and Python are stand-ins that record what happens, in order.
 """
 
 from __future__ import annotations
 
+import fcntl
+import os
+import select
 import shutil
 import subprocess
+import termios
+import time
 from pathlib import Path
 
 import pytest
@@ -76,7 +80,7 @@ function Stop-Process { param([Parameter(ValueFromPipeline=$true)]$InputObject, 
     process { Ev "stop-process:$(if ($Id) { $Id } else { $InputObject.Id })" } }
 function Wait-Process { param([Parameter(ValueFromPipeline=$true)]$InputObject, $Id, $Timeout)
     process { Ev "wait-process:$(if ($Id) { $Id } else { $InputObject.Id })" } }
-function Start-Sleep { param($Seconds) }
+function Start-Sleep { param($Seconds) if ($env:SLOW_RETRY) { Ev "retry-wait"; [System.Threading.Thread]::Sleep(500) } }
 function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing, $TimeoutSec)
     Ev "download"
     if ($env:FAIL_AT -eq "download") { throw "GitHub can't be reached" }
@@ -91,13 +95,16 @@ function Rename-Item { param($Path, $NewName, $ErrorAction)
     Ev "rename:$from"
     if ($env:FAIL_RENAME -eq $from) { throw "a file in $from is in use" }
     Microsoft.PowerShell.Management\Rename-Item -Path $Path -NewName $NewName }
+function Remove-Item { param($Path, [switch]$Recurse, [switch]$Force, $ErrorAction)
+    if ($env:FAIL_REMOVE -and (Split-Path $Path -Leaf) -eq "wintools-mcp") { throw "a file in it is in use" }
+    Microsoft.PowerShell.Management\Remove-Item -Path $Path -Recurse:$Recurse -Force:$Force -ErrorAction SilentlyContinue }
 function Assert-Venv64 { param($p) Ev "assert-64" }
 function Fake-Python {
     Ev "venv"
     if ($env:FAIL_AT -eq "venv") { throw "venv failed" }
     $py = Join-Path $args[-1] "Scripts\python.exe"
     New-Item -ItemType Directory -Force -Path (Join-Path $args[-1] "Scripts") | Out-Null
-    Set-Content -Path $py -Value "#!/bin/sh`necho pip >> `"$env:EVENTS`"`nexit `${PIP_EXIT:-0}"
+    Set-Content -Path $py -Value "#!/bin/sh`necho pip >> `"$env:EVENTS`"`n[ -n `"`$PIP_HANG`" ] && sleep 60`nexit `${PIP_EXIT:-0}"
     chmod +x $py }
 $pythonCmd = "Fake-Python"
 """
@@ -117,7 +124,7 @@ def _install(tmp_path, *, config=CONFIG, old=False, current=True):
     return install / "wintools-mcp"
 
 
-def _run(tmp_path, after="", **env):
+def _script(tmp_path, after, env):
     install = tmp_path / "vhir"
     folder = install / "wintools-mcp"
     events = tmp_path / "events.txt"
@@ -134,13 +141,51 @@ def _run(tmp_path, after="", **env):
         + after,
         encoding="utf-8",
     )
-    p = subprocess.run(
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "EVENTS": str(events),
+           **{k.upper(): v for k, v in env.items() if v}}  # fmt: skip
+    return (
         ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(script)],
-        capture_output=True, text=True, timeout=120,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "EVENTS": str(events),
-             **{k.upper(): v for k, v in env.items() if v}},
-    )  # fmt: skip
+        env,
+        folder,
+        events,
+    )
+
+
+def _run(tmp_path, after="", **env):
+    cmd, env, folder, events = _script(tmp_path, after, env)
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
     return p, folder, events.read_text().splitlines()
+
+
+def _interrupted(tmp_path, at: str, after="", **env):
+    """Runs the installer's lines in a terminal and presses Ctrl+C once the
+    event `at` is recorded: the events, and what the terminal showed."""
+    cmd, env, folder, events = _script(tmp_path, after, env)
+    master, slave = os.openpty()
+
+    def own_terminal():
+        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+    p = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave, env=env,
+                         start_new_session=True, preexec_fn=own_terminal)  # fmt: skip
+    os.close(slave)
+    shown, pressed, deadline = b"", False, time.monotonic() + 60
+    while time.monotonic() < deadline and p.poll() is None:
+        if select.select([master], [], [], 0.1)[0]:
+            try:
+                shown += os.read(master, 4096)
+            except OSError:
+                break
+        if not pressed and at in events.read_text().splitlines():
+            time.sleep(0.5)
+            os.write(master, b"\x03")
+            pressed = True
+    if p.poll() is None:
+        p.kill()
+    p.wait(10)
+    os.close(master)
+    assert pressed, events.read_text()
+    return folder, events.read_text().splitlines(), shown.decode(errors="replace")
 
 
 def _old(tmp_path) -> Path:
@@ -175,6 +220,18 @@ def test_a_failure_after_the_swap_before_pip_brings_the_previous_one_back_runnin
     back = events.index("rename:wintools-mcp.old")
     assert events.index(f"enable-task:{SERVER}") > back
     assert events.index(f"start-task:{SERVER}") > events.index(f"enable-task:{SERVER}")
+
+
+def test_a_rollback_that_cant_remove_the_new_tree_says_what_to_keep(tmp_path):
+    _install(tmp_path)
+    p, folder, _ = _run(tmp_path, pip_exit="1", fail_remove="1")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert folder.exists() and _old(tmp_path).exists()
+    assert (
+        f"The new one is still at {folder} and the previous one at {_old(tmp_path)}: "
+        f"keep the one that works as {folder}, remove the other, and re-run."
+    ) in p.stdout
+    assert "the next run puts it back" not in p.stdout
 
 
 @pytest.mark.parametrize("fail_at", ["download", "extract"])
@@ -241,40 +298,48 @@ def test_the_server_is_stopped_only_once_the_new_tree_is_ready_and_waited_on(tmp
     assert f"stop-task:{WATCHDOG}" not in events  # it wasn't running
 
 
-def test_the_tasks_stay_disabled_through_the_environments_build(tmp_path):
+def test_the_tasks_stay_disabled_until_the_environment_is_built(tmp_path):
     _install(tmp_path)
     _, _, events = _run(tmp_path)
     for task in (SERVER, WATCHDOG):
-        assert events.index(f"disable-task:{task}") < events.index(
-            "rename:wintools-mcp"
-        )
-        assert f"enable-task:{task}" not in events, events  # until Phase 7
+        assert (
+            events.index(f"disable-task:{task}")
+            < events.index("rename:wintools-mcp")
+            < events.index("pip")
+            < events.index(f"enable-task:{task}")
+        ), events
 
 
-@pytest.mark.parametrize(
-    "after",
-    ["Exit-Installer 3\n", 'throw "a later step failed"\n', "Resume-WintoolsService\n"],
-    ids=["an early exit", "an uncaught error", "Phase 7"],
-)
-def test_every_way_out_after_the_update_enables_the_tasks_again(tmp_path, after):
+def test_a_ctrl_c_at_a_later_prompt_leaves_the_tasks_enabled(tmp_path):
     _install(tmp_path)
-    p, _, events = _run(tmp_path, after=after)
-    assert f"enable-task:{SERVER}" in events and f"enable-task:{WATCHDOG}" in events
-    assert events.index(f"enable-task:{WATCHDOG}") > events.index("pip")
-    assert p.returncode == {"E": 3, "t": 1, "R": 0}[after[0]], p.stdout + p.stderr
-
-
-def test_the_installer_enables_them_on_its_own_way_out():
-    """Phase 5's exit goes through Exit-Installer, the trap enables the
-    tasks again, and the line after Phase 7's registration does it on every
-    path through it."""
-    assert (
-        'Write-Err "Cannot create case directory: $caseDir"\n            Exit-Installer 1'
-        in TEXT
+    folder, events, _ = _interrupted(
+        tmp_path, "asking", after='Ev "asking"\n$null = Read-Host "Examiner name"\n'
     )
-    assert "if ($script:wintoolsPaused) {" in _trap()
-    phase7 = _between('Write-Header "Phase 7', "# Summary")
-    assert phase7.rstrip("#= \n").endswith("Resume-WintoolsService")
+    assert f"enable-task:{SERVER}" in events and f"enable-task:{WATCHDOG}" in events
+    assert events.index(f"enable-task:{WATCHDOG}") < events.index("asking")
+    assert (folder / "pyproject.toml").read_text().strip() == "fresh"
+
+
+def test_a_ctrl_c_during_pip_rolls_back_and_enables_the_tasks(tmp_path):
+    _install(tmp_path)
+    folder, events, _ = _interrupted(tmp_path, "pip", pip_hang="1")
+    assert _is_previous(folder) and (folder / "config.yaml").read_text() == CONFIG
+    assert not _old(tmp_path).exists()
+    after = events[events.index("pip") :]
+    assert "rename:wintools-mcp.old" in after
+    assert after.index(f"enable-task:{SERVER}") < after.index(f"start-task:{SERVER}")
+    assert f"enable-task:{WATCHDOG}" in after
+
+
+def test_a_ctrl_c_before_the_window_puts_the_server_back_as_it_was(tmp_path):
+    _install(tmp_path)
+    folder, events, _ = _interrupted(
+        tmp_path, "retry-wait", fail_rename="wintools-mcp", slow_retry="1"
+    )
+    assert _is_previous(folder) and not _old(tmp_path).exists()
+    after = events[events.index("retry-wait") :]
+    assert after.index(f"enable-task:{SERVER}") < after.index(f"start-task:{SERVER}")
+    assert f"enable-task:{WATCHDOG}" in after
 
 
 def test_a_watchdog_caught_running_is_stopped_and_left_to_its_trigger(tmp_path):
@@ -292,6 +357,19 @@ def test_a_server_without_a_task_is_started_from_its_startup_script(tmp_path):
     assert p.returncode == 1, p.stdout + p.stderr
     assert events.index("stop-process:100") < events.index("rename:wintools-mcp")
     assert events.index("rename:wintools-mcp.old") < events.index("start-process")
+
+
+def test_the_whole_installer_parses():
+    """A line no row runs still has to parse: PowerShell reads the whole
+    file before it runs any of it."""
+    p = subprocess.run(
+        ["pwsh", "-NoProfile", "-NonInteractive", "-Command",
+         "$e = $null; $null = [System.Management.Automation.Language.Parser]::ParseFile("
+         f"'{SCRIPT}', [ref]$null, [ref]$e); $e | ForEach-Object {{ "
+         "\"$($_.Extent.StartLineNumber): $($_.Message)\" }"],
+        capture_output=True, text=True, timeout=120,
+    )  # fmt: skip
+    assert p.returncode == 0 and p.stdout.strip() == "", p.stdout + p.stderr
 
 
 def test_the_help_no_longer_offers_an_air_gapped_install():
