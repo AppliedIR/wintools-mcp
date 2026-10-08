@@ -309,3 +309,22 @@ class TestValidateOutputDir:
     def test_partial_name_not_blocked(self):
         """C:\\WindowsUpdate should NOT match C:\\Windows."""
         _validate_output_dir(self._win_path(r"C:\WindowsUpdate\output"))
+
+
+def test_a_normal_run_closes_both_pipes(monkeypatch):
+    import subprocess as sp
+
+    from wintools_mcp import executor
+
+    procs = []
+    real = sp.Popen
+
+    def popen(*a, **k):
+        procs.append(real(*a, **k))
+        return procs[-1]
+
+    monkeypatch.setattr(executor.subprocess, "Popen", popen)
+    result = executor.execute(["echo", "hello"])
+    assert result["exit_code"] == 0 and "hello" in result["stdout"]
+    (proc,) = procs
+    assert proc.stdout.closed and proc.stderr.closed
