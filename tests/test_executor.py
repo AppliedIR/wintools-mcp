@@ -187,6 +187,8 @@ class TestExecutor:
 
         save_dir = str(tmp_path / "extractions")
         monkeypatch.setenv("VHIR_SHARE_ROOT", str(tmp_path))
+        monkeypatch.setenv("VHIR_ACTIVE_CASE", "c1")
+        (tmp_path / ".vhir-share-case").write_text("c1")  # the share is the active case
 
         with patch("wintools_mcp.executor.subprocess.Popen", return_value=proc):
             result = execute(["EvtxECmd.exe"], save_output=True, save_dir=save_dir)

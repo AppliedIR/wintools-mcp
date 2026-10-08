@@ -331,7 +331,19 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 _validate_str_length(arg, f"command[{i}]", _MAX_CMD_ARG)
         from pathlib import Path
 
+        from wintools_mcp import share_guard
         from wintools_mcp.tools.generic import run_command as _run
+
+        refused = share_guard.refusal(config)
+        if refused:  # its output and its audit entry would land in another case
+            return {
+                "success": False,
+                "error": refused,
+                "suggestions": [
+                    "Activate the case again on SIFT (vhir case activate <case>)",
+                    "If the share was set up before vhir-cases, join wintools again",
+                ],
+            }
 
         start = time.monotonic()
         audit_id = audit._next_audit_id()

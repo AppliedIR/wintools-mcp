@@ -285,6 +285,12 @@ def _save_output(
 ) -> None:
     if not save_dir:
         return
+    from wintools_mcp import share_guard
+
+    refused = share_guard.refusal()
+    if refused:
+        response["save_error"] = f"Output not saved: {refused}"
+        return
     try:
         out_dir = Path(save_dir).resolve()
         _validate_output_dir(out_dir)

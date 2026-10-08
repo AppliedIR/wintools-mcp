@@ -156,7 +156,9 @@ def test_a_failed_append_shows_in_health(tmp_path, monkeypatch):
 
 
 def _cfg(share):
-    return SimpleNamespace(share_root=share, smb_user="vhir-smb", smb_password="pw")
+    return SimpleNamespace(
+        share_root=share, smb_user="vhir-smb", smb_password="pw", active_case="c1"
+    )
 
 
 @pytest.fixture
@@ -181,7 +183,7 @@ ALREADY = (2, "System error 1219 has occurred. Multiple connections ... already 
 
 
 def test_an_existing_mapping_that_works_is_a_session(net, monkeypatch):
-    monkeypatch.setattr(smb, "_probe", lambda share: "")
+    monkeypatch.setattr(smb, "_probe", lambda share, case: "")
     net.answers += [ALREADY]
     assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is True
     assert smb.is_smb_session_ok() is True
@@ -190,7 +192,7 @@ def test_an_existing_mapping_that_works_is_a_session(net, monkeypatch):
 
 def test_a_stale_mapping_is_dropped_and_mapped_again(net, monkeypatch):
     probes = iter(["The network name cannot be found", ""])
-    monkeypatch.setattr(smb, "_probe", lambda share: next(probes))
+    monkeypatch.setattr(smb, "_probe", lambda share, case: next(probes))
     net.answers += [ALREADY, (0, "")]
     assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is True
     assert [("/delete" in c) for c in net.calls] == [False, True, False]
@@ -198,14 +200,16 @@ def test_a_stale_mapping_is_dropped_and_mapped_again(net, monkeypatch):
 
 
 def test_a_mapping_that_still_fails_is_no_session(net, monkeypatch):
-    monkeypatch.setattr(smb, "_probe", lambda share: "The network name cannot be found")
+    monkeypatch.setattr(
+        smb, "_probe", lambda share, case: "The network name cannot be found"
+    )
     net.answers += [ALREADY, (0, "")]
     assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is False
     assert smb.is_smb_session_ok() is False  # /health says so
 
 
 def test_a_new_mapping_is_a_session_only_once_the_probe_works(net, monkeypatch):
-    monkeypatch.setattr(smb, "_probe", lambda share: "Access is denied")
+    monkeypatch.setattr(smb, "_probe", lambda share, case: "Access is denied")
     net.answers += [(0, "")]
     assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is False
     assert smb.is_smb_session_ok() is False
@@ -213,24 +217,27 @@ def test_a_new_mapping_is_a_session_only_once_the_probe_works(net, monkeypatch):
 
 def test_a_persistent_mapping_counts_only_when_the_probe_works(net, monkeypatch):
     monkeypatch.setattr(smb.os.path, "isdir", lambda p: True)
-    monkeypatch.setattr(smb, "_probe", lambda share: "Access is denied")
+    monkeypatch.setattr(smb, "_probe", lambda share, case: "Access is denied")
     net.answers += [(2, "System error 53")]
     assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is False
 
 
 def test_the_probe_writes_reads_back_and_leaves_nothing(tmp_path):
-    assert smb._probe(str(tmp_path)) == ""
-    assert list(tmp_path.iterdir()) == []
+    (tmp_path / ".vhir-share-case").write_text("c1")
+    assert smb._probe(str(tmp_path), "c1") == ""
+    assert [p.name for p in tmp_path.iterdir()] == [".vhir-share-case"]
 
 
 def test_the_probe_says_why_a_folder_cant_be_written(tmp_path):
     missing = tmp_path / "gone"
-    assert smb._probe(str(missing)) != ""
+    assert smb._probe(str(missing), "c1") != ""
 
 
 def test_a_session_that_worked_before_and_now_fails_is_reported_down(net, monkeypatch):
     monkeypatch.setattr(smb, "_smb_session_ok", True)  # an earlier success
-    monkeypatch.setattr(smb, "_probe", lambda share: "The network name cannot be found")
+    monkeypatch.setattr(
+        smb, "_probe", lambda share, case: "The network name cannot be found"
+    )
     net.answers += [ALREADY, (2, "System error 53")]
     assert smb.establish_smb_session(_cfg("\\\\sift\\cases")) is False
     assert smb.is_smb_session_ok() is False

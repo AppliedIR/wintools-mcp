@@ -118,6 +118,12 @@ class AuditWriter:
         env_audit = os.environ.get("VHIR_AUDIT_DIR")
         if env_audit:
             return Path(env_audit)
+        from wintools_mcp import share_guard
+
+        refused = share_guard.refusal()  # the case's own log, whichever way it's found
+        if refused:
+            _set_share_error(refused)
+            return None
         case_dir = os.environ.get("VHIR_CASE_DIR", "").strip()
         # Validate: must be a directory with CASE.yaml
         if case_dir:
