@@ -216,9 +216,6 @@ def execute(
 
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
-        _close_pipes(
-            proc
-        )  # every run: a service runs many, never leaving their handles open
 
         # Check truncation after threads finish (process may have
         # exited before the polling loop detected the byte limit)
