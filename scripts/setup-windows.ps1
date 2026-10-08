@@ -935,6 +935,16 @@ if (-not $pythonCmd) {
     exit 1
 }
 
+# 64-bit only: the cryptography package ships no 32-bit Windows build
+$bits = & ($pythonCmd.Split(" ")[0]) @($pythonCmd.Split(" ") | Select-Object -Skip 1) -c "import struct; print(struct.calcsize('P') * 8)" 2>&1
+if ("$bits".Trim() -ne "64") {
+    Write-Err "64-bit Python 3.10+ required (this Python is $("$bits".Trim())-bit)"
+    Write-Host "  Install the 64-bit (x86-64) installer from: https://www.python.org/downloads/windows/"
+    Write-Host "  Or via winget: winget install Python.Python.3.12"
+    exit 1
+}
+Write-Ok "Python is 64-bit"
+
 # pip
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
