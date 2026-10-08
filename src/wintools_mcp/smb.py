@@ -115,12 +115,12 @@ def establish_smb_session(config) -> bool:
             else:
                 err_msg = f"exit {result.returncode}: {result.stderr.strip()}"
             logger.error("SMB session failed: %s", err_msg)
-            _audit_smb_failure(config.share_root, err_msg)
+            _note_smb_failure(config.share_root, err_msg)
             return False
         except Exception as e:
             _smb_session_ok = False
             logger.error("SMB session error: %s", e)
-            _audit_smb_failure(config.share_root, str(e))
+            _note_smb_failure(config.share_root, str(e))
             return False
 
 
@@ -130,16 +130,11 @@ def is_smb_session_ok() -> bool:
         return _smb_session_ok
 
 
-def _audit_smb_failure(share_root: str, error: str) -> None:
-    """Best-effort audit log for SMB failures."""
-    try:
-        from wintools_mcp.audit import AuditWriter
+def _note_smb_failure(share_root: str, error: str) -> None:
+    """Keep why the session failed for /health, in memory only: a session
+    attempt never writes to the share, nor calls anything that can (an
+    audit entry there would run the share's own checks, and their recovery,
+    while this attempt holds the session lock)."""
+    from wintools_mcp.audit import _set_share_error
 
-        writer = AuditWriter()
-        writer.log(
-            tool="smb_session",
-            params={"share": share_root},
-            result_summary=f"SMB failed: {error}",
-        )
-    except Exception:
-        pass  # Audit itself may be unavailable
+    _set_share_error(f"SMB session to {share_root} failed: {error}")

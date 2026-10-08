@@ -284,9 +284,9 @@ def test_a_share_that_stays_unreadable_is_refused_without_a_loop(
 
     tries = []
 
-    def establish(cfg):  # as the real one, it audits its own failure
+    def establish(cfg):  # as the real one, it notes its own failure
         tries.append(1)
-        smb._audit_smb_failure(cfg.share_root, "Access is denied")
+        smb._note_smb_failure(cfg.share_root, "Access is denied")
         return False
 
     monkeypatch.setattr(builtins, "open", share_open)
@@ -348,3 +348,81 @@ def test_the_marker_must_name_the_active_case_exactly(share, text):
         assert share_guard.refusal() == ""
     else:
         assert share_guard.is_refusal(share_guard.refusal())
+
+
+# -- a session attempt never writes to the share
+
+
+def _unreachable(monkeypatch, tmp_path):
+    """A UNC share that can't be reached at all: net use fails, nothing under
+    it can be opened."""
+    import builtins
+    import os.path
+
+    root = "\\\\sift\\vhir-cases"
+    cfg = WintoolsConfig()
+    cfg.share_root = cfg.case_dir = root
+    cfg.active_case = "C-1"
+    cfg.smb_user, cfg.smb_password = "vhir-smb", "pw"
+    monkeypatch.setattr(config_mod, "_config", cfg)
+    monkeypatch.setenv("VHIR_CASE_DIR", root)
+    monkeypatch.delenv("VHIR_AUDIT_DIR", raising=False)
+    real_open = builtins.open
+
+    def no_share(file, *a, **k):
+        if str(file).startswith(root):
+            raise OSError(53, "[WinError 53] The network path was not found")
+        return real_open(file, *a, **k)
+
+    monkeypatch.setattr(builtins, "open", no_share)
+    failed = subprocess.CompletedProcess(
+        [], 2, stdout="", stderr="System error 53 has occurred."
+    )
+    monkeypatch.setattr(smb.subprocess, "run", lambda *a, **k: failed)
+    monkeypatch.setattr(os.path, "isdir", lambda p: False)
+    return cfg
+
+
+def _returns_within(fn, seconds=5.0):
+    import threading
+
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("r", fn()), daemon=True)
+    t.start()
+    t.join(seconds)
+    assert "r" in out, "no answer: the call hung"
+    return out["r"]
+
+
+def test_a_session_attempt_on_an_unreachable_share_answers_promptly(
+    monkeypatch, tmp_path
+):
+    cfg = _unreachable(monkeypatch, tmp_path)
+    assert _returns_within(lambda: smb.establish_smb_session(cfg)) is False
+    assert "System error 53" in audit_mod.share_error()  # kept for /health, in memory
+    audit_mod._set_share_error("")
+
+
+def test_startup_and_new_credentials_on_an_unreachable_share_answer_promptly(
+    monkeypatch, tmp_path
+):
+    """Startup maps the share, and the credentials endpoint maps it again:
+    both answer, the endpoint saying the session failed."""
+    from starlette.testclient import TestClient
+
+    from wintools_mcp import http_server
+
+    cfg = _unreachable(monkeypatch, tmp_path)
+    cfg.api_keys = {"k1": {"examiner": "ex1"}}
+    monkeypatch.setattr(http_server, "get_config", lambda: cfg)
+    monkeypatch.setattr(http_server, "_persist_config_fields", lambda *a, **k: None)
+
+    def startup_then_update():
+        app = http_server.create_http_app(cfg)  # maps the share at startup
+        with TestClient(app, raise_server_exceptions=False) as client:
+            return client.post("/config/update-smb", json={"smb_password": "pw2"},
+                               headers={"Authorization": "Bearer k1"})  # fmt: skip
+
+    resp = _returns_within(startup_then_update, seconds=10)
+    assert resp.status_code != 200 or resp.json().get("status") != "ok"
+    audit_mod._set_share_error("")
