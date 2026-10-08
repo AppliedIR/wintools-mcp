@@ -399,7 +399,7 @@ def test_a_session_attempt_on_an_unreachable_share_answers_promptly(
 ):
     cfg = _unreachable(monkeypatch, tmp_path)
     assert _returns_within(lambda: smb.establish_smb_session(cfg)) is False
-    assert "System error 53" in audit_mod.share_error()  # kept for /health, in memory
+    assert audit_mod.share_error().endswith("share not reachable")  # for /health
     audit_mod._set_share_error("")
 
 
@@ -426,3 +426,56 @@ def test_startup_and_new_credentials_on_an_unreachable_share_answer_promptly(
     resp = _returns_within(startup_then_update, seconds=10)
     assert resp.status_code != 200 or resp.json().get("status") != "ok"
     audit_mod._set_share_error("")
+
+
+# -- the share's state, /health and the log carry a reason, never the command
+
+
+def test_a_net_use_timeout_never_shows_its_password(monkeypatch, tmp_path, caplog):
+    """net use's command line holds the SMB password; a timeout's text holds
+    the command line. Neither reaches /health, the log or the audit."""
+    import logging
+
+    from starlette.testclient import TestClient
+
+    from wintools_mcp import http_server
+
+    cfg = _unreachable(monkeypatch, tmp_path)
+    cfg.smb_password = "SYNTH-pw-7c1e9b"
+
+    def timeout(cmd, **k):
+        raise subprocess.TimeoutExpired(cmd, 15)
+
+    monkeypatch.setattr(smb.subprocess, "run", timeout)
+    monkeypatch.setattr(http_server, "get_config", lambda: cfg)
+    caplog.set_level(logging.DEBUG)
+    with TestClient(
+        http_server.create_http_app(cfg), raise_server_exceptions=False
+    ) as client:
+        body = client.get("/health").text
+    assert smb.establish_smb_session(cfg) is False
+    seen = [body, audit_mod.share_error(), caplog.text]
+    seen += [f.read_text(errors="replace") for f in tmp_path.rglob("*") if f.is_file()]
+    assert not any("SYNTH-pw-7c1e9b" in text for text in seen)
+    assert audit_mod.share_error().endswith("timed out")
+    audit_mod._set_share_error("")
+
+
+@pytest.mark.parametrize(
+    "exc, reason",
+    [
+        (
+            subprocess.TimeoutExpired(["net", "use", "x", "/user:u", "pw"], 15),
+            "timed out",
+        ),
+        (OSError(13, "Permission denied: /secret/path"), "access denied"),
+        (
+            OSError(64, "The specified network name is no longer available"),
+            "share not reachable",
+        ),
+        (OSError(99, "something new"), "error 99"),
+        (ValueError("pw in a message"), "failed (ValueError)"),
+    ],
+)
+def test_a_share_reason_is_a_category_never_the_errors_text(exc, reason):
+    assert audit_mod.share_reason(exc) == reason

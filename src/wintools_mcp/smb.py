@@ -36,12 +36,27 @@ def _probe(share_root: str, active_case: str) -> str:
                 return "the probe read back different bytes"
         return ""
     except OSError as e:
-        return str(e)
+        from wintools_mcp.audit import share_reason
+
+        return share_reason(e)
     finally:
         try:
             os.remove(name)
         except OSError:
             pass
+
+
+def _net_use_reason(result) -> str:
+    """Why net use failed, as a fixed category: its error number, never its
+    output (nor its command line, which holds the password)."""
+    import re
+
+    from wintools_mcp.audit import share_reason
+
+    found = re.search(r"System error (\d+)", f"{result.stderr} {result.stdout}")
+    if found:
+        return share_reason(int(found.group(1)))
+    return f"net use exit {result.returncode}"
 
 
 def _net_use(config):
@@ -93,8 +108,7 @@ def establish_smb_session(config) -> bool:
                     why = (
                         _probe(config.share_root, config.active_case)
                         if again.returncode == 0
-                        else (again.stderr or again.stdout).strip()
-                        or f"exit {again.returncode}"
+                        else _net_use_reason(again)
                     )
                 if not why:
                     _smb_session_ok = True
@@ -113,14 +127,18 @@ def establish_smb_session(config) -> bool:
                     return True
                 err_msg = f"mapped, but the share can't be used: {why}"
             else:
-                err_msg = f"exit {result.returncode}: {result.stderr.strip()}"
+                err_msg = f"net use failed: {_net_use_reason(result)}"
             logger.error("SMB session failed: %s", err_msg)
             _note_smb_failure(config.share_root, err_msg)
             return False
         except Exception as e:
             _smb_session_ok = False
-            logger.error("SMB session error: %s", e)
-            _note_smb_failure(config.share_root, str(e))
+            from wintools_mcp.audit import share_reason
+
+            # never the error's text: net use's argv holds the password
+            reason = share_reason(e)
+            logger.error("SMB session error: %s", reason)
+            _note_smb_failure(config.share_root, reason)
             return False
 
 

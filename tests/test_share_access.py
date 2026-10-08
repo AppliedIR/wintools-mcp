@@ -49,7 +49,7 @@ def test_a_denied_share_is_said_and_no_call_fails(denied):
     writer = audit_mod.AuditWriter()
     assert writer.log(tool="t", params={}, result_summary="x") is None  # never raises
     assert audit_mod.share_error().startswith("evidence share not accessible: ")
-    assert "Access is denied" in audit_mod.share_error()
+    assert audit_mod.share_error().endswith(": access denied")
 
 
 def test_health_answers_and_names_the_denied_share(denied, monkeypatch):
@@ -147,7 +147,7 @@ def test_a_failed_append_shows_in_health(tmp_path, monkeypatch):
     monkeypatch.setattr(http_server, "get_config", lambda: cfg)
     with TestClient(create_http_app(cfg), raise_server_exceptions=False) as client:
         body = client.get("/health").json()
-    assert "no longer available" in body["evidence_share"]
+    assert body["evidence_share"].endswith(": share not reachable")
     assert writer.log(tool="t", params={}, result_summary="x")  # the share is back
     assert audit_mod.share_error() == ""
 
@@ -262,5 +262,5 @@ def test_a_failed_log_read_is_noted_too(tmp_path, monkeypatch):
         assert writer.get_entries() == []
     finally:
         monkeypatch.setattr(builtins, "open", real_open)
-    assert "unexpected network error" in audit_mod.share_error()
+    assert audit_mod.share_error().endswith(": network error")
     audit_mod._set_share_error("")

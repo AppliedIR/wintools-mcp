@@ -28,6 +28,41 @@ def _set_share_error(reason: str) -> None:
         _share_error = reason
 
 
+# Windows and POSIX error numbers, as fixed categories
+_REASONS = {
+    1: "not permitted",
+    2: "not found",
+    5: "access denied",
+    13: "access denied",
+    53: "share not reachable",
+    59: "network error",
+    64: "share not reachable",
+    67: "share not reachable",
+    86: "wrong password",
+    1219: "mapped already with other credentials",
+    1326: "wrong user name or password",
+}
+
+
+def share_reason(e: BaseException | int | None) -> str:
+    """A fixed category for why the share failed, from an exception or an
+    error number: never the exception's text, which can carry a command
+    line (net use's holds the SMB password), for the share state, /health
+    and the log."""
+    import subprocess
+
+    if isinstance(e, subprocess.TimeoutExpired):
+        return "timed out"
+    code = e
+    if isinstance(e, OSError):
+        code = getattr(e, "winerror", None) or e.errno
+    elif isinstance(e, BaseException):
+        return f"failed ({type(e).__name__})"
+    if not code:
+        return "failed"
+    return _REASONS.get(code, f"error {code}")
+
+
 def share_error() -> str:
     """Why the evidence share can't be read now ("" when it can): for the
     call's warnings and /health."""
@@ -106,8 +141,8 @@ class AuditWriter:
                 return None
             audit_dir.mkdir(parents=True, exist_ok=True)
         except OSError as e:
-            _set_share_error(f"evidence share not accessible: {e}")
-            logger.warning("Audit directory not accessible: %s", e)
+            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
+            logger.warning("Audit directory not accessible: %s", share_reason(e))
             return None
         _set_share_error("")
         return audit_dir
@@ -171,7 +206,7 @@ class AuditWriter:
             if not log_file.exists():
                 return 0
         except OSError as e:  # the share went away since: start over, never fail
-            _set_share_error(f"evidence share not accessible: {e}")
+            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
             return 0
         prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
         pattern = f"{prefix}-{self.examiner}-{date_str}-"
@@ -179,7 +214,7 @@ class AuditWriter:
         try:
             text = log_file.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
-            _set_share_error(f"evidence share not accessible: {e}")
+            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
             logger.warning(
                 "Failed to read audit log for sequence resume %s: %s", log_file, e
             )
@@ -271,7 +306,7 @@ class AuditWriter:
                 os.fsync(f.fileno())
             return True  # (the share's error was cleared when its folder was found)
         except OSError as e:
-            _set_share_error(f"evidence share not accessible: {e}")
+            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
             logger.warning(
                 "Failed to write audit entry for audit_id=%s tool=%s: %s "
                 "(this audit_id was NOT recorded to the audit trail)",
@@ -293,7 +328,7 @@ class AuditWriter:
             if not log_file.exists():
                 return []
         except OSError as e:
-            _set_share_error(f"evidence share not accessible: {e}")
+            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
             return []
         entries = []
         try:
@@ -313,8 +348,10 @@ class AuditWriter:
                         continue
                     entries.append(entry)
         except OSError as e:
-            _set_share_error(f"evidence share not accessible: {e}")
-            logger.warning("Failed to read audit entries from %s: %s", log_file, e)
+            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
+            logger.warning(
+                "Failed to read audit entries from %s: %s", log_file, share_reason(e)
+            )
         return entries
 
     def reset_counter(self) -> None:

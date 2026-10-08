@@ -29,7 +29,9 @@ def check(share_root: str, active_case: str) -> str:
     except FileNotFoundError:
         named = ""
     except (OSError, ValueError) as e:
-        return f"evidence share not accessible: {e}"
+        from wintools_mcp.audit import share_reason
+
+        return f"evidence share not accessible: {share_reason(e)}"
     if active_case and named == active_case:
         return ""
     held = f"it holds case {named!r}" if named else "it holds no case marker"
