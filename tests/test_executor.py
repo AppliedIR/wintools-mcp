@@ -1,6 +1,7 @@
 """Tests for executor module."""
 
 import io
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -309,3 +310,30 @@ class TestValidateOutputDir:
     def test_partial_name_not_blocked(self):
         """C:\\WindowsUpdate should NOT match C:\\Windows."""
         _validate_output_dir(self._win_path(r"C:\WindowsUpdate\output"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the grandchild here is a POSIX shell's")
+def test_a_normal_exit_returns_while_a_grandchild_holds_the_pipe(tmp_path):
+    """The command exits, but a process it started keeps its output pipe
+    open. The run returns once its readers give up, never waiting on the
+    grandchild."""
+    import signal
+    import threading
+
+    from wintools_mcp import executor
+
+    pidfile = tmp_path / "grandchild.pid"
+    cmd = ["sh", "-c", f"sleep 60 & echo $! > {pidfile}; echo hello"]
+    done: list = []
+    t = threading.Thread(target=lambda: done.append(executor.execute(cmd)), daemon=True)
+    t.start()
+    try:
+        t.join(25)
+        assert done, "the run waited on a grandchild holding its pipe"
+        assert done[0]["exit_code"] == 0
+    finally:
+        if pidfile.exists():
+            try:
+                os.kill(int(pidfile.read_text()), signal.SIGKILL)
+            except (ProcessLookupError, ValueError):
+                pass
