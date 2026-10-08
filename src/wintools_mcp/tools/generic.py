@@ -162,6 +162,12 @@ def run_command(
         )
     command = [resolved] + command[1:]
 
+    # Nothing runs into a share that isn't the active case: checked here,
+    # after the caller's own pre-work, right before anything is created
+    from wintools_mcp.share_guard import before_write
+
+    before_write()
+
     # Cache lookup (Feature 4) -- after validation + resolution
     cache_key = None
     if not no_cache and not save_output:

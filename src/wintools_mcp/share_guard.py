@@ -12,6 +12,11 @@ written there.
 from __future__ import annotations
 
 import os
+import threading
+
+from wintools_mcp.exceptions import WintoolsError
+
+_recovering = threading.local()  # a session recovery's own audit entry checks only
 
 MARKER = ".vhir-share-case"
 REFUSED = "the evidence share isn't the active case (re-join or re-activate)"
@@ -48,3 +53,35 @@ def refusal(config=None) -> str:
 
 def is_refusal(reason: str) -> bool:
     return reason.startswith(REFUSED)
+
+
+class ShareRefused(WintoolsError):
+    """Nothing may be written through the share now."""
+
+
+def before_write(config=None) -> None:
+    """Called immediately before every create or write under the share.
+    A share that can't be read first gets its SMB session re-established and
+    is checked again; a refusal is raised (ShareRefused) and kept for
+    /health, and a pass clears it."""
+    if config is None:
+        from wintools_mcp.config import get_config
+
+        config = get_config()
+    if not config.share_root:
+        return
+    from wintools_mcp.audit import _set_share_error
+
+    why = check(config.share_root, config.active_case)
+    if why and not is_refusal(why) and not getattr(_recovering, "on", False):
+        from wintools_mcp.smb import establish_smb_session
+
+        _recovering.on = True  # an expired session, say: recover it first
+        try:
+            if establish_smb_session(config):
+                why = check(config.share_root, config.active_case)
+        finally:
+            _recovering.on = False
+    _set_share_error(why)
+    if why:
+        raise ShareRefused(why)

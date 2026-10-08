@@ -90,16 +90,26 @@ def test_a_wintools_with_no_share_is_not_checked(share):
 # -- a tool run
 
 
-def _run(monkeypatch, tmp_path):
-    from wintools_mcp import server as srv
+def _stub_tools(monkeypatch, share):
+    """The real run path, with the tool found and its launch recorded: the
+    catalog's output folder is created and passed as for a real run."""
+    from wintools_mcp.tools import generic
 
     ran = []
-    monkeypatch.setattr(
-        "wintools_mcp.tools.generic.run_command",
-        lambda command, **k: (
-            ran.append(command) or {"exit_code": 0, "stdout": "ok", "stderr": ""}
-        ),
-    )
+    monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
+
+    def execute(command, **k):
+        ran.append(command)
+        return {"exit_code": 0, "stdout": "ok", "stderr": ""}
+
+    monkeypatch.setattr(generic, "execute", execute)
+    return ran
+
+
+def _run(monkeypatch, tmp_path, share):
+    from wintools_mcp import server as srv
+
+    ran = _stub_tools(monkeypatch, share)
     evidence = tmp_path / "evidence.bin"
     evidence.write_text("x")
     fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn
@@ -112,7 +122,7 @@ def test_a_run_on_a_share_that_isnt_the_active_case_is_refused_and_writes_nothin
 ):
     share.mark(text)
     before = _files(share.root)
-    resp, ran = _run(monkeypatch, tmp_path)
+    resp, ran = _run(monkeypatch, tmp_path, share)
     assert resp["success"] is False and share_guard.is_refusal(resp["error"])
     assert ran == [] and _files(share.root) == before
 
@@ -122,7 +132,7 @@ def test_sifts_repoint_before_wintools_is_told_is_refused(share, monkeypatch, tm
     C-1's lands in C-2."""
     share.mark("C-2")
     before = _files(share.root)
-    resp, ran = _run(monkeypatch, tmp_path)
+    resp, ran = _run(monkeypatch, tmp_path, share)
     assert resp["success"] is False and "it holds case 'C-2'" in resp["error"]
     assert ran == [] and _files(share.root) == before
 
@@ -131,7 +141,7 @@ def test_a_run_on_the_active_cases_share_runs_and_is_audited(
     share, monkeypatch, tmp_path
 ):
     share.mark("C-1")
-    resp, ran = _run(monkeypatch, tmp_path)
+    resp, ran = _run(monkeypatch, tmp_path, share)
     assert ran and resp.get("success", True) is not False
     assert "audit/wintools-mcp.jsonl" in _files(share.root)
 
@@ -201,3 +211,140 @@ def test_a_mapping_to_the_wrong_case_is_no_session_and_is_kept(share, monkeypatc
     )
     assert smb.establish_smb_session(cfg) is False
     assert not any("/delete" in c for c in calls)
+
+
+# -- every writer, right before it writes
+
+
+def _batch(share, tmp_path):
+    from wintools_mcp import server as srv
+
+    folder = tmp_path / "in"
+    folder.mkdir()
+    for n in ("a.exe", "b.exe"):
+        (folder / n).write_text("x")
+    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn
+    return fn(tool="sigcheck", directory=str(folder))
+
+
+@pytest.mark.parametrize("text", WRONG, ids=WRONG_IDS)
+def test_a_batch_scan_on_a_share_that_isnt_the_active_case_writes_nothing(
+    share, monkeypatch, tmp_path, text
+):
+    share.mark(text)
+    ran = _stub_tools(monkeypatch, share)
+    before = _files(share.root)
+    resp = _batch(share, tmp_path)
+    assert ran == [] and _files(share.root) == before
+    assert resp["files_processed"] == 0 and share_guard.is_refusal(resp["errors"][0])
+    assert not (share.root / "extractions").exists()
+
+
+def test_a_batch_scan_on_the_active_cases_share_runs_every_file(
+    share, monkeypatch, tmp_path
+):
+    share.mark("C-1")
+    ran = _stub_tools(monkeypatch, share)
+    assert _batch(share, tmp_path)["files_processed"] == 2 and len(ran) == 2
+
+
+def test_an_expired_session_is_recovered_before_the_check(share, monkeypatch, tmp_path):
+    """The share answers "Access is denied" until the session is mapped
+    again: the run maps it, then checks the marker, then runs."""
+    import builtins
+
+    share.mark("C-1")
+    mapped = []
+    real_open = builtins.open
+
+    def share_open(file, *a, **k):
+        if str(file).startswith(str(share.root)) and not mapped:
+            raise PermissionError(13, "[WinError 5] Access is denied", str(file))
+        return real_open(file, *a, **k)
+
+    monkeypatch.setattr(builtins, "open", share_open)
+    monkeypatch.setattr(
+        smb, "establish_smb_session", lambda cfg: mapped.append(1) or True
+    )
+    resp, ran = _run(monkeypatch, tmp_path, share)
+    assert mapped == [1] and ran and resp.get("success", True) is not False
+
+
+def test_a_share_that_stays_unreadable_is_refused_without_a_loop(
+    share, monkeypatch, tmp_path
+):
+    import builtins
+
+    real_open = builtins.open
+
+    def share_open(file, *a, **k):
+        if str(file).startswith(str(share.root)):
+            raise PermissionError(13, "[WinError 5] Access is denied", str(file))
+        return real_open(file, *a, **k)
+
+    tries = []
+
+    def establish(cfg):  # as the real one, it audits its own failure
+        tries.append(1)
+        smb._audit_smb_failure(cfg.share_root, "Access is denied")
+        return False
+
+    monkeypatch.setattr(builtins, "open", share_open)
+    monkeypatch.setattr(smb, "establish_smb_session", establish)
+    resp, ran = _run(monkeypatch, tmp_path, share)
+    assert ran == [] and resp["success"] is False and "not accessible" in resp["error"]
+    assert len(tries) <= 3  # the run's own check, and its audit's, each try once
+
+
+def test_a_repoint_while_the_inputs_are_hashed_is_caught(share, monkeypatch, tmp_path):
+    """SIFT moves the share to C-2 while the run is still hashing its input:
+    nothing is launched into C-2."""
+    import builtins
+
+    share.mark("C-1")
+    real_open = builtins.open
+
+    def hashing_open(file, mode="r", *a, **k):
+        if str(file).endswith("evidence.bin") and "b" in mode:
+            (share.root / share_guard.MARKER).write_text("C-2")
+        return real_open(file, mode, *a, **k)
+
+    monkeypatch.setattr(builtins, "open", hashing_open)
+    before = set(_files(share.root))
+    resp, ran = _run(monkeypatch, tmp_path, share)
+    assert (
+        ran == []
+        and resp["success"] is False
+        and "it holds case 'C-2'" in resp["error"]
+    )
+    assert set(_files(share.root)) == before
+
+
+def test_health_says_why_the_last_run_was_refused(share, monkeypatch, tmp_path):
+    from starlette.testclient import TestClient
+
+    from wintools_mcp import http_server
+    from wintools_mcp.http_server import create_http_app
+
+    share.mark("C-2")
+    _run(monkeypatch, tmp_path, share)
+    monkeypatch.setattr(http_server, "get_config", lambda: share.cfg)
+    with TestClient(
+        create_http_app(share.cfg), raise_server_exceptions=False
+    ) as client:
+        body = client.get("/health").json()
+    assert share_guard.is_refusal(body["evidence_share"])
+    share.mark("C-1")
+    _run(monkeypatch, tmp_path, share)
+    assert audit_mod.share_error() == ""
+
+
+@pytest.mark.parametrize(
+    "text", ["C-10", "c-1", "C-1 ", "C"], ids=["prefix", "case", "space", "short"]
+)
+def test_the_marker_must_name_the_active_case_exactly(share, text):
+    (share.root / share_guard.MARKER).write_text(text)
+    if text == "C-1 ":  # surrounding whitespace is the writer's newline, nothing else
+        assert share_guard.refusal() == ""
+    else:
+        assert share_guard.is_refusal(share_guard.refusal())

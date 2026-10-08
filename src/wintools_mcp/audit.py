@@ -120,10 +120,10 @@ class AuditWriter:
             return Path(env_audit)
         from wintools_mcp import share_guard
 
-        refused = share_guard.refusal()  # the case's own log, whichever way it's found
-        if refused:
-            _set_share_error(refused)
-            return None
+        try:  # the case's own log, whichever way it's found
+            share_guard.before_write()
+        except share_guard.ShareRefused:
+            return None  # noted for /health
         case_dir = os.environ.get("VHIR_CASE_DIR", "").strip()
         # Validate: must be a directory with CASE.yaml
         if case_dir:
