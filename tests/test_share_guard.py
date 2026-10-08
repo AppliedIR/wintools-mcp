@@ -68,6 +68,26 @@ def test_any_other_share_is_refused(share, text):
     assert share_guard.is_refusal(why) and "the active case is C-1" in why
 
 
+@pytest.mark.parametrize("text", [None, ""], ids=["no marker", "empty marker"])
+def test_a_share_without_a_marker_says_how_sift_marks_it(share, text):
+    """wintools updated before SIFT re-joined: SIFT re-joins, or activates the
+    case again, and the write is retried."""
+    share.mark(text)
+    why = share_guard.refusal()
+    assert share_guard.is_refusal(why) and "has no case marker" in why
+    assert "on SIFT, re-join ('vhir setup join-code', then setup-windows.ps1" in why
+    assert "'vhir case activate C-1'), then retry" in why
+
+
+def test_a_marker_naming_another_case_keeps_its_reason(share):
+    share.mark("C-2")
+    why = share_guard.refusal()
+    assert (
+        why.endswith("the active case is C-1, it holds case 'C-2'")
+        and "re-join (" not in why
+    )
+
+
 def test_no_active_case_refuses_even_a_marked_share(share):
     share.mark("C-1")
     share.cfg.active_case = ""

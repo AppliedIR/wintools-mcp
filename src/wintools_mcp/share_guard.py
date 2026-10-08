@@ -34,8 +34,16 @@ def check(share_root: str, active_case: str) -> str:
         return f"evidence share not accessible: {share_reason(e)}"
     if active_case and named == active_case:
         return ""
-    held = f"it holds case {named!r}" if named else "it holds no case marker"
-    return f"{REFUSED}: the active case is {active_case or 'none'}, {held}"
+    if named:
+        return f"{REFUSED}: the active case is {active_case or 'none'}, it holds case {named!r}"
+    # an updated wintools before SIFT has re-joined: SIFT marks the case
+    case = active_case or "<case>"
+    return (
+        f"{REFUSED}: the active case is {active_case or 'none'}, and the evidence share "
+        "has no case marker: on SIFT, re-join ('vhir setup join-code', then "
+        "setup-windows.ps1 with the new code) or activate the case again "
+        f"('vhir case activate {case}'), then retry"
+    )
 
 
 def refusal(config=None) -> str:

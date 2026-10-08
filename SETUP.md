@@ -59,6 +59,10 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 | `-StaticIP ADDR` | Static IP for this machine (skips prompt) |
 | `-NoAuth` | Skip API key generation (development only) |
 
+### Updating
+
+Update SIFT first, and re-join it before updating wintools on Windows: on SIFT run `vhir update`, then `vhir setup join-code`; then on Windows run `setup-windows.ps1` with the new join code. A wintools-mcp updated before SIFT re-joins writes nothing to the case ("the evidence share has no case marker") until SIFT re-joins, or until the case is activated again on SIFT (`vhir case activate <case>`).
+
 ### Scripted Examples
 
 ```powershell
@@ -313,3 +317,4 @@ python -m wintools_mcp --scan
 | SMB share not accessible | Firewall or credentials | Check `net use` status; verify SIFT Samba config |
 | Audit entries not recorded | `VHIR_CASE_DIR` not set | Set `VHIR_CASE_DIR` to active case path |
 | Health check fails | Port conflict or bind error | Check if another process uses port 4624 |
+| "the evidence share has no case marker" | wintools-mcp updated before SIFT re-joined | On SIFT, re-join (`vhir setup join-code`, then `setup-windows.ps1` with the new code) or run `vhir case activate <case>`, then retry |
