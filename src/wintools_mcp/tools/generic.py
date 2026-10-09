@@ -98,6 +98,22 @@ def _make_dir(path: str) -> str | None:
     return None
 
 
+def _new_folder(path: str) -> str:
+    """Make ``path`` as a new, empty folder and return it. A folder already
+    there (a run that stopped before its audit entry, whose id is then
+    used again) is never taken over: ``<path>-2``, ``-3`` … instead."""
+    import os
+
+    for n in range(1, 1000):
+        candidate = path if n == 1 else f"{path}-{n}"
+        try:
+            os.mkdir(candidate)
+            return candidate
+        except FileExistsError:
+            continue
+    raise OSError(f"no free folder name for {path}")
+
+
 def _expand_script_command(command: list[str]) -> list[str]:
     """Auto-expand script-type tools into PowerShell invocations.
 
@@ -244,9 +260,10 @@ def run_command(
             validate_input_path(arg)
     if op_dir:
         validate_input_path(op_dir)
-        error = _make_dir(op_dir)
+        error = _make_dir(str(Path(op_dir).parent))
         if error:
             return {"error": error}
+        op_dir = _new_folder(op_dir)
         cwd = cwd or op_dir
     if cwd:
         validate_input_path(cwd)
@@ -286,6 +303,8 @@ def run_command(
         keep_raw=bool(op_dir),
     )
     exec_result["tool_path"] = tool_path
+    if op_dir:
+        exec_result["op_dir"] = op_dir
 
     # Attach share-relative CSV output dir (for cross-MCP consumption)
     if _csv_output_rel:

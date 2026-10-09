@@ -53,6 +53,21 @@ Forensic methodology available via forensic-mcp resources.\
 """
 
 
+OUTSIDE_CASE = (
+    "outside the case: not hashed, not registrable until copied into the case"
+)
+
+
+def _inside(path: str, case_dir: str) -> bool:
+    import os
+
+    root = os.path.realpath(case_dir)
+    try:
+        return os.path.commonpath([os.path.realpath(path), root]) == root
+    except ValueError:  # another drive
+        return False
+
+
 def create_server(config: WintoolsConfig | None = None) -> FastMCP:
     """Create and configure the wintools MCP server with all tools."""
     if config is None:
@@ -352,23 +367,36 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         # lists that the reading didn't find is recorded as declared.
         binary = Path(command[0]).name if command else ""
         td = get_tool_def(binary)
+
+        def where(path: str) -> str:
+            """A path as the tool reads it: a relative one from its op folder."""
+            if op_dir and not Path(path).is_absolute():
+                return str(Path(op_dir) / path)
+            return path
+
         detection_method = ""
         parsed: list[str] = []
         if td and td.input_flag and td.input_flag in command:
             idx = command.index(td.input_flag)
             if idx + 1 < len(command):
-                parsed = [command[idx + 1]]
+                parsed = [where(command[idx + 1])]
                 detection_method = "catalog"
         if not parsed:
             parsed = [
-                t for t in command[1:] if not t.startswith("-") and Path(t).is_file()
+                where(t)
+                for t in command[1:]
+                if not t.startswith("-") and Path(where(t)).is_file()
             ]
             if parsed:
                 detection_method = "parsed"
             elif not (td and not td.input_flag):
                 detection_method = "none"
         found = {str(Path(p).resolve()) for p in parsed}
-        declared = [p for p in input_files or [] if str(Path(p).resolve()) not in found]
+        declared = [
+            where(p)
+            for p in input_files or []
+            if str(Path(where(p)).resolve()) not in found
+        ]
 
         # Validate input files are accessible
         for fpath in [*parsed, *declared]:
@@ -421,6 +449,14 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             for i in range(1, len(command) - 1)
             if command[i].lower() in out_flags and Path(command[i + 1]).is_absolute()
         }
+        if td and td.acquisition:  # its destination may be a bare absolute path
+            for arg in command[1:]:
+                if (
+                    not arg.startswith("-")
+                    and Path(arg).is_absolute()
+                    and arg not in watched
+                ):
+                    watched[arg] = operation.listing(arg)
 
         try:
             exec_result = _run(
@@ -434,20 +470,32 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
             fk_name = td.knowledge_name if td else binary
             effective = exec_result.get("command") or command
+            op_dir = exec_result.get("op_dir") or op_dir  # the folder made
 
             # Outputs: every file in the op folder, and what's new under a
             # user-given output flag
             outputs: list[dict] = []
             if op_dir:
-                paths = list(operation.listing(op_dir))
-                for target, before in watched.items():
-                    paths += operation.written(before, target)
+                try:
+                    paths = list(operation.listing(op_dir))
+                    for target, before in watched.items():
+                        paths += operation.written(before, target)
+                except OSError as e:  # recorded with the run, never instead of it
+                    paths = []
+                    outputs.append({"path": op_dir, "error": e.strerror or str(e)})
                 for fpath in sorted(set(paths)):
-                    outputs.append(path_record(fpath, ""))
+                    if td and td.acquisition and not _inside(fpath, cfg.case_dir):
+                        outputs.append({"path": fpath, "outside_case": True,
+                                        "note": OUTSIDE_CASE})  # fmt: skip
+                    else:
+                        outputs.append(path_record(fpath, ""))
             tool_path = exec_result.get("tool_path")
-            settings = operation.settings_record(
-                tool_path, td.settings_paths if td else [], op_dir or ""
-            )
+            try:
+                settings = operation.settings_record(
+                    tool_path, td.settings_paths if td else [], op_dir or ""
+                )
+            except OSError as e:
+                settings = [{"path": str(tool_path), "error": e.strerror or str(e)}]
 
             # Use parsed preview for large output, raw result for small
             if exec_result.get("_parsed"):

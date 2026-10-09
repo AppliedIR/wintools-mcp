@@ -302,3 +302,72 @@ def test_a_tools_own_output_flag_given_by_the_user_is_not_injected_again(case, t
     assert listed["work/hayabusa.jsonl"]["sha256"] == sha(out)
     folder = {Path(i["path"]).name: i for i in entry["inputs"]}["evidence"]
     assert folder["folder"] is True and "sha256" not in folder
+
+
+def test_a_folder_left_by_a_run_that_died_is_never_taken_over(case, tools, monkeypatch):
+    from wintools_mcp.audit import AuditWriter
+
+    monkeypatch.setattr(
+        AuditWriter, "_next_audit_id", lambda self, *a, **k: "wintools-row-000001"
+    )
+    dead = case / "extractions" / "wintools-row-000001"
+    dead.mkdir(parents=True)
+    (dead / "left-by-the-dead-run.raw").write_bytes(b"NOT THIS RUN'S")
+    ev = _evtx(case)
+    resp = _run(tools, "evtxecmd", _csv, command=["EvtxECmd", "-f", str(ev)])
+    (entry,) = _entries(case)
+    assert (
+        entry["op_folder"] == resp["op_folder"] == "extractions/wintools-row-000001-2"
+    )
+    names = {Path(o["path"]).name for o in entry["outputs"]}
+    assert "20261009_EvtxECmd_Output.csv" in names
+    assert "left-by-the-dead-run.raw" not in names
+    assert (dead / "left-by-the-dead-run.raw").read_bytes() == b"NOT THIS RUN'S"
+
+
+def test_a_settings_folder_that_cannot_be_read_still_records_the_run(
+    case, tools, monkeypatch
+):
+    def locked(*a, **k):
+        raise PermissionError(13, "The process cannot access the file")
+
+    monkeypatch.setattr("wintools_mcp.operation.settings_record", locked)
+    ev = _evtx(case)
+    _run(tools, "evtxecmd", _csv, command=["EvtxECmd", "-f", str(ev)])
+    (entry,) = _entries(case)
+    assert entry["result_summary"]["exit_code"] == 0
+    assert entry["outputs"] and entry["inputs"]
+    (rec,) = entry["settings"]
+    assert "cannot access" in rec["error"]
+
+
+def test_a_relative_input_in_a_case_is_read_from_the_runs_folder(
+    case, tools, monkeypatch
+):
+    monkeypatch.chdir(case / "evidence")
+    (case / "evidence" / "here.evtx").write_bytes(b"E")
+    calls = []
+    resp = _run(
+        tools, "evtxecmd", _csv, calls=calls, command=["EvtxECmd", "-f", "here.evtx"]
+    )
+    assert resp["success"] is False and "not accessible" in resp["error"], resp
+    assert calls == []  # never run against a file it wouldn't have read
+
+
+def test_an_acquisition_written_outside_the_case_is_recorded_unhashed(
+    case, tools, tmp_path
+):
+    outside = tmp_path / "elsewhere" / "mem.raw"
+    outside.parent.mkdir()
+
+    def dump(cmd, kw):
+        Path(cmd[-1]).write_bytes(b"FAKE-PHYSMEM")
+
+    _run(tools, "winpmem", dump, command=["winpmem", str(outside)])
+    (entry,) = _entries(case)
+    (rec,) = [o for o in entry["outputs"] if o["path"] == str(outside)]
+    assert rec["outside_case"] is True and "sha256" not in rec
+    assert rec["note"] == (
+        "outside the case: not hashed, not registrable until copied into the case"
+    )
+    assert entry["acquisition"] is True
