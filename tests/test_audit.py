@@ -1,6 +1,7 @@
 """Tests for audit module — evidence IDs, JSONL writing, examiner identity."""
 
 import json
+import re
 import threading
 from pathlib import Path
 
@@ -36,26 +37,24 @@ class TestAuditIds:
         assert parts[0] == "wintools"
         assert parts[1] == "jane"
         assert len(parts[2]) == 8  # YYYYMMDD
-        assert len(parts[3]) == 6  # NNNNNN
+        assert re.fullmatch(r"[0-9a-hjkmnp-tv-z]{26}", parts[3])  # a ULID
 
-    def test_audit_id_sequential(self, monkeypatch):
+    def test_each_audit_id_is_new(self, monkeypatch):
         monkeypatch.setenv("VHIR_EXAMINER", "jane")
         audit = AuditWriter()
-        id1 = audit._next_audit_id()
-        id2 = audit._next_audit_id()
-        id3 = audit._next_audit_id()
-        # Sequence numbers increase
-        assert id1.endswith("-000001")
-        assert id2.endswith("-000002")
-        assert id3.endswith("-000003")
+        ids = [audit._next_audit_id() for _ in range(50)]
+        assert len(set(ids)) == 50, ids
 
-    def test_audit_id_per_process(self, monkeypatch):
-        monkeypatch.setenv("VHIR_EXAMINER", "steve")
-        a1 = AuditWriter()
-        a2 = AuditWriter()
-        # Different instances get independent counters
-        assert a1._next_audit_id().endswith("-000001")
-        assert a2._next_audit_id().endswith("-000001")
+    def test_two_writers_on_one_case_never_repeat_an_id(self, case_dir, examiner):
+        """The server and the control endpoint each create a writer for the
+        same case: they used to count separately and repeat ids."""
+        w1, w2 = AuditWriter(), AuditWriter()
+        ids = [w1.log("a", {}, {}), w2.log("b", {}, {}), w1.log("c", {}, {})]
+        log_file = case_dir / "audit" / "wintools-mcp.jsonl"
+        logged = [
+            json.loads(line)["audit_id"] for line in log_file.read_text().splitlines()
+        ]
+        assert logged == ids and len(set(ids)) == 3, ids
 
 
 class TestAuditWriting:

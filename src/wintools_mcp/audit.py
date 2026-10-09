@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,7 @@ def share_error() -> str:
         return _share_error
 
 
+_ULID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"  # Crockford base32, lowercase
 _EXAMINER_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,19}$")
 
 
@@ -110,8 +112,8 @@ def resolve_examiner() -> str:
 class AuditWriter:
     """Writes audit entries to a per-MCP JSONL file.
 
-    Thread-safe: sequence counter protected by lock,
-    file writes wrapped in try/except with fsync for durability.
+    Ids need no counter or lock: each ends in a ULID. File writes are wrapped
+    in try/except with fsync for durability.
     """
 
     def __init__(
@@ -119,9 +121,6 @@ class AuditWriter:
     ) -> None:
         self.mcp_name = mcp_name
         self._explicit_audit_dir = audit_dir
-        self._sequence = 0
-        self._date_str = ""
-        self._lock = threading.Lock()
 
     @property
     def examiner(self) -> str:
@@ -181,59 +180,16 @@ class AuditWriter:
         return path / "audit"
 
     def _next_audit_id(self) -> str:
-        """Generate next audit ID: {prefix}-{examiner}-{date}-{seq}."""
-        with self._lock:
-            today = datetime.now(timezone.utc).strftime("%Y%m%d")
-            if today != self._date_str:
-                self._date_str = today
-                self._sequence = self._resume_sequence(today)
-            self._sequence += 1
-            seq = self._sequence
-        prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
-        return f"{prefix}-{self.examiner}-{today}-{seq:06d}"
+        """Generate the next audit ID: {prefix}-{examiner}-{date}-{ulid}.
 
-    def _resume_sequence(self, date_str: str) -> int:
-        """Scan existing audit JSONL for highest sequence on this date.
-
-        Prevents duplicate evidence IDs after server restart.
-        Must be called under self._lock.
+        The ULID (48-bit milliseconds, 80 random bits) makes the id unique
+        without a counter, across writers and processes.
         """
-        audit_dir = self._get_audit_dir()
-        if not audit_dir:
-            return 0
-        log_file = audit_dir / f"{self.mcp_name}.jsonl"
-        try:
-            if not log_file.exists():
-                return 0
-        except OSError as e:  # the share went away since: start over, never fail
-            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
-            return 0
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        n = (time.time_ns() // 1_000_000) << 80 | int.from_bytes(os.urandom(10), "big")
+        ulid = "".join(_ULID_ALPHABET[(n >> s) & 31] for s in range(125, -1, -5))
         prefix = self.mcp_name.replace("-mcp", "").replace("-", "")
-        pattern = f"{prefix}-{self.examiner}-{date_str}-"
-        max_seq = 0
-        try:
-            text = log_file.read_text(encoding="utf-8", errors="replace")
-        except OSError as e:
-            _set_share_error(f"evidence share not accessible: {share_reason(e)}")
-            logger.warning(
-                "Failed to read audit log for sequence resume %s: %s", log_file, e
-            )
-            return 0
-        for line in text.strip().split("\n"):
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-                eid = entry.get("audit_id", "")
-                if eid.startswith(pattern):
-                    try:
-                        seq = int(eid[len(pattern) :])
-                        max_seq = max(max_seq, seq)
-                    except ValueError:
-                        pass
-            except json.JSONDecodeError:
-                continue
-        return max_seq
+        return f"{prefix}-{self.examiner}-{today}-{ulid}"
 
     def log(
         self,
@@ -359,10 +315,7 @@ class AuditWriter:
         return entries
 
     def reset_counter(self) -> None:
-        """Reset the evidence ID counter. For testing only."""
-        with self._lock:
-            self._sequence = 0
-            self._date_str = ""
+        """Kept for callers' tests: ids no longer use a counter."""
 
 
 def _summarize(result: Any) -> Any:
