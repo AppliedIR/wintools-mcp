@@ -159,6 +159,7 @@ $process = $null
 $skipServerStart = $false
 $serverHealthy = $false
 $joinSucceeded = $false
+$smbMapped = $false
 
 trap {
     if ($process -and -not $process.HasExited) {
@@ -745,7 +746,7 @@ if ($Update) {
             $watchdogScheme = "http"
             if (Test-Path $wintoolsConfigPath) {
                 $cfg = Get-Content $wintoolsConfigPath -Raw -ErrorAction SilentlyContinue
-                if ($cfg -match 'tls_certfile:' -or $cfg -match 'ssl_certfile:') {
+                if ($cfg -match '(?m)^\s*(tls_|ssl_)?certfile:') {
                     $watchdogScheme = "https"
                 }
             }
@@ -1924,7 +1925,15 @@ $toolPathsYaml
 
             # Step 1: Ping (network layer)
             Write-Info "Testing network connectivity to $siftIp..."
-            $pingOk = Test-Connection -ComputerName $siftIp -Count 1 -Quiet -ErrorAction SilentlyContinue
+            # Just after a static-IP change the network can take a few seconds
+            # to settle: retry for about 30 s then
+            $pingTries = 1
+            if ($staticResult) { $pingTries = 6 }
+            $pingOk = $false
+            for ($try = 1; $try -le $pingTries -and -not $pingOk; $try++) {
+                if ($try -gt 1) { Start-Sleep -Seconds 5 }
+                $pingOk = Test-Connection -ComputerName $siftIp -Count 1 -Quiet -ErrorAction SilentlyContinue
+            }
             if ($pingOk) {
                 Write-Ok "Ping to $siftIp succeeded"
             } else {
@@ -2004,6 +2013,28 @@ $toolPathsYaml
     New-Item -ItemType Directory -Path $tlsDir -Force | Out-Null
     $keyPath = Join-Path $tlsDir "key.pem"
     $certPath = Join-Path $tlsDir "cert.pem"
+
+    # A cert that doesn't name this address can't be verified by SIFT: keep
+    # it aside (never deleted) and make one that does
+    if ((Test-Path $certPath) -and $localIp) {
+        $sanText = ""
+        try {
+            $existingCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $certPath
+            $san = $existingCert.Extensions | Where-Object { $_.Oid.Value -eq "2.5.29.17" }
+            if ($san) { $sanText = $san.Format($false) }
+        } catch { }
+        if ($sanText -notmatch ("IP Address[=:]\s*" + [regex]::Escape($localIp) + "(\D|$)")) {
+            $oldTls = Join-Path $InstallDir ("tls-old-" + (Get-Date -Format "yyyyMMddTHHmmss"))
+            try {
+                New-Item -ItemType Directory -Path $oldTls -Force -ErrorAction Stop | Out-Null
+                Move-Item -Path $certPath -Destination $oldTls -ErrorAction Stop
+                if (Test-Path $keyPath) { Move-Item -Path $keyPath -Destination $oldTls -ErrorAction Stop }
+                Write-Warn "The TLS certificate doesn't name $localIp; kept it in $oldTls and making a new one"
+            } catch {
+                Write-Warn "The TLS certificate doesn't name $localIp, and it couldn't be moved aside: $_"
+            }
+        }
+    }
 
     if (-not (Test-Path $certPath)) {
         Write-Info "Generating TLS certificate..."
@@ -2094,9 +2125,6 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                 if ($joinData.gateway_token) {
                     Write-Ok "Gateway token received: $(Mask-ApiKey $joinData.gateway_token)"
                 }
-                if ($joinData.restart_required) {
-                    Write-Info "Gateway restart required. Run 'vhir service restart' on SIFT."
-                }
             } catch {
                 $statusCode = $null
                 if ($_.Exception.Response) {
@@ -2166,6 +2194,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                 if ($LASTEXITCODE -ne 0) { throw $netResult }
 
                 Write-Ok "Mapped ${driveLetter}: to $uncPath"
+                $smbMapped = $true
             } catch {
                 Write-Warn "Drive mapping failed: $_"
                 Write-Host "  Map manually: net use ${driveLetter}: $uncPath /user:$smbUser <password> /persistent:yes"
@@ -2388,8 +2417,8 @@ $toolPathsYaml$tlsYaml$smbYaml
                 Write-Host "    scp $certPath sift:~/.vhir/tls/wintools-cert.pem" -ForegroundColor Gray
                 Write-Host ""
             }
-            Write-Host "  After pasting, restart the gateway:" -ForegroundColor White
-            Write-Host "    vhir service restart" -ForegroundColor Gray
+            Write-Host "  After pasting, load it on SIFT (no gateway restart needed):" -ForegroundColor White
+            Write-Host "    vhir service restart wintools-mcp" -ForegroundColor Gray
             Write-Host ""
             Write-Host "  Clients then access wintools via the gateway at:" -ForegroundColor White
             Write-Host "    http://SIFT_IP:4508/mcp/wintools-mcp" -ForegroundColor Gray
@@ -2440,7 +2469,7 @@ Write-Header "Phase 6: Starting wintools-mcp"
 
 # Check if port is already in use
 try {
-    $existing = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+    $existing = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if ($existing) {
         $existingPid = ($existing | Select-Object -First 1).OwningProcess
         $existingName = (Get-Process -Id $existingPid -ErrorAction SilentlyContinue).ProcessName
@@ -2581,7 +2610,7 @@ $watchdogPath = Join-Path $InstallDir "watchdog-wintools.ps1"
 $watchdogScheme = "http"
 if (Test-Path $wintoolsConfigPath) {
     $cfg = Get-Content $wintoolsConfigPath -Raw -ErrorAction SilentlyContinue
-    if ($cfg -match 'tls_certfile:' -or $cfg -match 'ssl_certfile:') {
+    if ($cfg -match '(?m)^\s*(tls_|ssl_)?certfile:') {
         $watchdogScheme = "https"
     }
 }
@@ -2762,6 +2791,47 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
 
 Write-Header "Installation Complete"
 
+# What didn't happen: the summary and the exit code come from these
+$notFinished = @()
+if (-not $Standalone) {
+    if ($joinCodeValue -and -not $joinSucceeded) {
+        $notFinished += "the join with SIFT didn't happen"
+    }
+    if ($joinSucceeded -and -not $smbMapped) {
+        if ($joinData.smb_share) {
+            $notFinished += "the SMB share isn't mapped"
+        } else {
+            $notFinished += "SIFT offered no SMB share (run 'vhir setup join-code' on SIFT to set it up)"
+        }
+    }
+}
+if ($skipServerStart -or -not $serverHealthy) {
+    $notFinished += "wintools-mcp isn't running here"
+}
+if ($joinSucceeded) {
+    # The gateway loads wintools-mcp once it answers: ask its public /health
+    $gatewayView = $null
+    for ($try = 1; $try -le 12; $try++) {
+        try {
+            $gatewayView = Invoke-RestMethod -Uri "${gatewayScheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+            if ($gatewayView -is [string]) { $gatewayView = $gatewayView | ConvertFrom-Json }
+            if ($gatewayView.backends.'wintools-mcp'.status -eq "ok") { break }
+        } catch { }
+        if ($try -lt 12) { Start-Sleep -Seconds 5 }
+    }
+    $wintoolsView = $null
+    if ($gatewayView) { $wintoolsView = $gatewayView.backends.'wintools-mcp' }
+    if ($wintoolsView -and $wintoolsView.status -eq "ok") {
+        Write-Ok "The SIFT gateway reaches wintools-mcp"
+    } else {
+        $why = "no answer from ${gatewayScheme}://${siftIp}:${siftPort}/health"
+        if ($wintoolsView -and $wintoolsView.error) { $why = "$($wintoolsView.error)" }
+        elseif ($gatewayView) { $why = "the gateway doesn't list wintools-mcp" }
+        Write-Warn "The SIFT gateway can't use wintools-mcp: $why"
+        $notFinished += "the SIFT gateway can't use wintools-mcp"
+    }
+}
+
 if ($skipServerStart) {
     Write-Warn "wintools-mcp installed but server not started (port conflict)"
 } elseif ($serverHealthy) {
@@ -2896,8 +2966,12 @@ if ($Standalone) {
     }
     Write-Host "  2. Start investigating (from SIFT or any configured LLM client)" -ForegroundColor White
     Write-Host ""
-    Write-Host "  SMB share mapped and gateway registered. Case activation" -ForegroundColor Gray
-    Write-Host "  is handled automatically when you init/activate a case." -ForegroundColor Gray
+    if ($smbMapped) {
+        Write-Host "  SMB share mapped and gateway registered. Case activation" -ForegroundColor Gray
+        Write-Host "  is handled automatically when you init/activate a case." -ForegroundColor Gray
+    } else {
+        Write-Host "  Gateway registered, but the SMB share is NOT mapped (see the warning above)." -ForegroundColor Yellow
+    }
     Write-Host ""
     Write-Host "  If you need an LLM client on this Windows machine:" -ForegroundColor Gray
     Write-Host "     vhir setup client --sift=${siftIp}:${siftPort} --windows=${localIp}:${Port}" -ForegroundColor Gray
@@ -2922,3 +2996,7 @@ if ($Standalone -and $startChoice -eq "1" -and $serverHealthy -and -not $skipSer
     Write-Host ""
 }
 Write-Host ""
+if ($notFinished.Count -gt 0) {
+    Write-Warn ("Not finished: " + ($notFinished -join "; "))
+    exit 2
+}
