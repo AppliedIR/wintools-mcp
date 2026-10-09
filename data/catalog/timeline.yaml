@@ -9,6 +9,7 @@ tools:
     output_format: json
     timeout_seconds: 1800
     fk_tool_name: Hayabusa
+    settings_paths: ["rules", "config"]
     version_flag: "--version"
     install_methods:
       - method: github

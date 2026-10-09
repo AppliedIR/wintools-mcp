@@ -327,8 +327,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             input_files: Files this command reads. Server auto-detects
                 as backup for cataloged tools.
         """
-        import hashlib
-
         _validate_str_length(purpose, "purpose", _MAX_TEXT)
         if command:
             for i, arg in enumerate(command):
@@ -340,39 +338,40 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         start = time.monotonic()
         audit_id = audit._next_audit_id()
 
-        # Detect input files: LLM-first, catalog-backup, parsed-fallback
+        from wintools_mcp import operation
+        from wintools_mcp.output import to_share_relative
+        from wintools_mcp.tools.generic import OUTPUT_FLAGS
+
+        cfg = get_config()
+        # A run in a case gets its own folder in the case, named by its audit id
+        op_dir = (
+            str(Path(cfg.case_dir) / "extractions" / audit_id) if cfg.case_dir else None
+        )
+
+        # Inputs: the server's own reading of the command. One the caller
+        # lists that the reading didn't find is recorded as declared.
         binary = Path(command[0]).name if command else ""
         td = get_tool_def(binary)
         detection_method = ""
-        detected_inputs: list[str] = []
-
-        if input_files:
-            detected_inputs = input_files
-            detection_method = "llm"
-        elif td and td.input_flag:
-            try:
-                idx = command.index(td.input_flag)
-                if idx + 1 < len(command):
-                    detected_inputs = [command[idx + 1]]
-                    detection_method = "catalog"
-            except ValueError:
-                pass
-        if not detected_inputs and not detection_method:
-            for token in command[1:]:
-                if token.startswith("-"):
-                    continue
-                p = Path(token)
-                if p.is_file():
-                    detected_inputs.append(str(p))
-            if detected_inputs:
+        parsed: list[str] = []
+        if td and td.input_flag and td.input_flag in command:
+            idx = command.index(td.input_flag)
+            if idx + 1 < len(command):
+                parsed = [command[idx + 1]]
+                detection_method = "catalog"
+        if not parsed:
+            parsed = [
+                t for t in command[1:] if not t.startswith("-") and Path(t).is_file()
+            ]
+            if parsed:
                 detection_method = "parsed"
-            elif td and not td.input_flag:
-                detection_method = ""
-            else:
+            elif not (td and not td.input_flag):
                 detection_method = "none"
+        found = {str(Path(p).resolve()) for p in parsed}
+        declared = [p for p in input_files or [] if str(Path(p).resolve()) not in found]
 
         # Validate input files are accessible
-        for fpath in detected_inputs:
+        for fpath in [*parsed, *declared]:
             p = Path(fpath)
             if not p.exists():
                 return {
@@ -385,22 +384,43 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     ],
                 }
 
-        # Hash input files (chunked, 1GB cap)
-        input_hashes: dict[str, str] = {}
-        for fpath in detected_inputs:
+        def path_record(fpath: str, how: str) -> dict:
+            p = Path(fpath).resolve()
             try:
-                p = Path(fpath).resolve()
                 if p.is_file():
-                    if p.stat().st_size > 1_000_000_000:
-                        input_hashes[str(p)] = "skipped:too_large"
-                    else:
-                        h = hashlib.sha256()
-                        with open(p, "rb") as hf:
-                            for chunk in iter(lambda: hf.read(65536), b""):
-                                h.update(chunk)
-                        input_hashes[str(p)] = h.hexdigest()
-            except OSError:
-                continue
+                    record = operation.file_record(p, cfg.share_root)
+                else:  # a folder is recorded without a hash
+                    rel = to_share_relative(str(p), cfg.share_root)
+                    record = {
+                        "path": str(p),
+                        "share_path": rel,
+                        "sift_path": rel.lstrip("/"),
+                        "folder": True,
+                    }
+            except OSError as e:
+                record = {"path": str(p), "error": e.strerror or str(e)}
+            if how:
+                record["found"] = how
+            return record
+
+        inputs = [path_record(p, detection_method or "parsed") for p in parsed]
+        inputs += [path_record(p, "declared") for p in declared]
+        # Kept for today's readers: the parsed input files and their hashes
+        input_hashes = {
+            r["path"]: r.get("sha256") or "pending"
+            for r in inputs
+            if r.get("found") != "declared" and "size" in r
+        }
+
+        # Folders named by a user-given output flag: what's new there is output
+        out_flags = set(OUTPUT_FLAGS)
+        if td and td.output_flag:
+            out_flags.add(td.output_flag.lower())
+        watched = {
+            command[i + 1]: operation.listing(command[i + 1])
+            for i in range(1, len(command) - 1)
+            if command[i].lower() in out_flags and Path(command[i + 1]).is_absolute()
+        }
 
         try:
             exec_result = _run(
@@ -408,10 +428,26 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 purpose=purpose,
                 timeout=timeout or None,
                 save_output=save_output,
+                op_dir=op_dir,
             )
             elapsed = time.monotonic() - start
 
             fk_name = td.knowledge_name if td else binary
+            effective = exec_result.get("command") or command
+
+            # Outputs: every file in the op folder, and what's new under a
+            # user-given output flag
+            outputs: list[dict] = []
+            if op_dir:
+                paths = list(operation.listing(op_dir))
+                for target, before in watched.items():
+                    paths += operation.written(before, target)
+                for fpath in sorted(set(paths)):
+                    outputs.append(path_record(fpath, ""))
+            tool_path = exec_result.get("tool_path")
+            settings = operation.settings_record(
+                tool_path, td.settings_paths if td else [], op_dir or ""
+            )
 
             # Use parsed preview for large output, raw result for small
             if exec_result.get("_parsed"):
@@ -454,21 +490,43 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 response["full_output_bytes"] = exec_result.get("stdout_total_bytes")
             if exec_result.get("csv_output_dir"):
                 response["csv_output_dir"] = exec_result["csv_output_dir"]
+            if op_dir:
+                response["op_folder"] = to_share_relative(op_dir, cfg.share_root)
+                response["outputs"] = outputs
+            response["inputs"] = inputs
+
+            extra = {
+                "requested_command": command,
+                "inputs": inputs,
+                "tool_path": tool_path or "",
+                "tool_sha256": operation.tool_sha256(tool_path),
+            }
+            if settings:
+                extra["settings"] = settings
+            if op_dir:
+                extra["op_folder"] = response["op_folder"]
+                extra["outputs"] = outputs
+            if td and td.acquisition:
+                extra["acquisition"] = True
+                extra["acquisition_tool"] = td.name
             logged = audit.log(
                 tool="run_windows_command",
-                params={"command": command, "purpose": purpose},
+                params={"command": effective, "purpose": purpose},
                 result_summary={
                     "exit_code": exec_result["exit_code"],
                     "output_file": exec_result.get("output_file", ""),
                     "output_sha256": exec_result.get("output_sha256", ""),
+                    "output_sha256_scope": exec_result.get("output_sha256_scope", ""),
+                    "stdout_encoding": exec_result.get("stdout_encoding", ""),
                     "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
                 },
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
-                input_files=list(input_hashes.keys()) if input_hashes else None,
-                input_sha256s=list(input_hashes.values()) if input_hashes else None,
+                input_files=list(input_hashes) or None,
+                input_sha256s=list(input_hashes.values()) or None,
                 input_detection_method=detection_method,
+                extra=extra,
             )
             if not logged:
                 from wintools_mcp.audit import share_error

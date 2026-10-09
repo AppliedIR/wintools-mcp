@@ -73,6 +73,31 @@ def _cache_put(key: str, result: dict) -> None:
             _result_cache.popitem(last=False)  # evict oldest
 
 
+# Flags that name where a tool writes (a folder or a file)
+OUTPUT_FLAGS = ("--csv", "--json", "-o", "--output", "--tdest", "--mdest")
+
+
+def _make_dir(path: str) -> str | None:
+    """Make ``path`` (a folder in the case), mapping the share again once if
+    Windows refuses it. Returns why it couldn't, or None."""
+    import os
+
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        if "Access is denied" not in str(e) and "WinError 5" not in str(e):
+            raise
+        from wintools_mcp.smb import establish_smb_session
+
+        if not establish_smb_session(get_config()):
+            return (
+                "SMB session expired -- cannot write to case directory. "
+                "Check health endpoint for smb_session status."
+            )
+        os.makedirs(path, exist_ok=True)
+    return None
+
+
 def _expand_script_command(command: list[str]) -> list[str]:
     """Auto-expand script-type tools into PowerShell invocations.
 
@@ -136,14 +161,22 @@ def run_command(
     cwd: str | None = None,
     no_cache: bool = False,
     input_files: list[str] | None = None,
+    op_dir: str | None = None,
 ) -> dict:
-    """Execute a catalog-approved command with denylist enforcement."""
+    """Execute a catalog-approved command with denylist enforcement.
+
+    With ``op_dir`` (a run in a case) the tool runs in that folder, made
+    empty first, its injected output goes there, and so does its stdout as
+    the bytes it wrote. The result names the tool's file (``tool_path``).
+    """
     if not command:
         raise ValueError("Empty command")
 
     # Script auto-expansion -- must happen BEFORE validate_command()
     # so the expanded PowerShell invocation passes the PS exception check
+    requested = command[0]
     command = _expand_script_command(command)
+    script_path = command[5] if command[0] != requested else None
 
     # Denylist + allowlist validation (always runs, even on cache hits)
     error = validate_command(command)
@@ -161,6 +194,7 @@ def run_command(
             f"Use list_missing_windows_tools() for installation guidance."
         )
     command = [resolved] + command[1:]
+    tool_path = script_path or resolved
 
     # Nothing runs into a share that isn't the active case: checked here,
     # after the caller's own pre-work, right before anything is created
@@ -168,9 +202,10 @@ def run_command(
 
     before_write()
 
-    # Cache lookup (Feature 4) -- after validation + resolution
+    # Cache lookup (Feature 4) -- after validation + resolution. Never in a
+    # case: a cached reply isn't a run, and every run is recorded
     cache_key = None
-    if not no_cache and not save_output:
+    if not no_cache and not save_output and not get_config().case_dir:
         cache_key = _cache_key(command, input_files, cwd=cwd)
         cached = _cache_get(cache_key)
         if cached is not None:
@@ -207,6 +242,12 @@ def run_command(
             or ".." in arg
         ):
             validate_input_path(arg)
+    if op_dir:
+        validate_input_path(op_dir)
+        error = _make_dir(op_dir)
+        if error:
+            return {"error": error}
+        cwd = cwd or op_dir
     if cwd:
         validate_input_path(cwd)
 
@@ -216,30 +257,20 @@ def run_command(
     td = get_tool_def(binary_name)
     if td and td.output_flag:
         user_has_output = any(
-            a.lower() in ("--csv", "--json", "-o", "--output") for a in command[1:]
+            a.lower() in (*OUTPUT_FLAGS, td.output_flag.lower()) for a in command[1:]
         )
         if not user_has_output:
             cfg = get_config()
             if cfg.case_dir:
                 import os
 
-                output_dir = os.path.join(cfg.case_dir, "extractions", td.name.lower())
-                try:
-                    os.makedirs(output_dir, exist_ok=True)
-                except OSError as e:
-                    if "Access is denied" in str(e) or "WinError 5" in str(e):
-                        from wintools_mcp.smb import establish_smb_session
-
-                        if not establish_smb_session(cfg):
-                            return {
-                                "error": (
-                                    "SMB session expired -- cannot write to case directory. "
-                                    "Check health endpoint for smb_session status."
-                                )
-                            }
-                        os.makedirs(output_dir, exist_ok=True)
-                    else:
-                        raise
+                output_dir = op_dir or os.path.join(
+                    cfg.case_dir, "extractions", td.name.lower()
+                )
+                if not op_dir:
+                    error = _make_dir(output_dir)
+                    if error:
+                        return {"error": error}
                 command.extend([td.output_flag, output_dir])
                 logger.info("Auto-injected output: %s %s", td.output_flag, output_dir)
                 from wintools_mcp.output import to_share_relative
@@ -251,8 +282,10 @@ def run_command(
         timeout=timeout,
         cwd=cwd,
         save_output=save_output,
-        save_dir=save_dir,
+        save_dir=op_dir or save_dir,
+        keep_raw=bool(op_dir),
     )
+    exec_result["tool_path"] = tool_path
 
     # Attach share-relative CSV output dir (for cross-MCP consumption)
     if _csv_output_rel:

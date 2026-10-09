@@ -128,6 +128,11 @@ class ToolDefinition:
     install_methods: list[InstallMethod] = field(default_factory=list)
     install_paths: list[str] = field(default_factory=list)
     alternatives: list[str] = field(default_factory=list)
+    # Settings the tool reads beside its binary (folders, relative to it):
+    # their hashes are recorded with each run
+    settings_paths: list[str] = field(default_factory=list)
+    # Its outputs are acquired evidence (a memory or disk image)
+    acquisition: bool = False
 
     @property
     def knowledge_name(self) -> str:
@@ -210,6 +215,8 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 install_methods=install_methods,
                 install_paths=tool_entry.get("install_paths", []),
                 alternatives=tool_entry.get("alternatives", []),
+                settings_paths=list(tool_entry.get("settings_paths", [])),
+                acquisition=bool(tool_entry.get("acquisition", False)),
             )
             _catalog_cache[name.lower()] = td
 

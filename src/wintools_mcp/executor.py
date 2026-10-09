@@ -62,20 +62,19 @@ def _validate_output_dir(resolved_path: Path) -> None:
             )
 
 
+def _stdout_encoding(raw: bytes) -> str:
+    """The encoding process output is read in: UTF-16 with a BOM, UTF-16LE
+    without one (Sysinternals tools), else UTF-8."""
+    if raw[:2] == b"\xff\xfe":
+        return "utf-16"  # auto-detects endianness and strips the BOM
+    if _looks_like_utf16le(raw):
+        return "utf-16-le"
+    return "utf-8"
+
+
 def _decode_output(raw: bytes) -> str:
     """Decode process output, detecting UTF-16LE from Sysinternals tools."""
-    if raw[:2] == b"\xff\xfe":
-        # BOM present — utf-16 auto-detects endianness and strips BOM
-        text = raw.decode("utf-16", errors="replace")
-    elif _looks_like_utf16le(raw):
-        # Likely UTF-16LE without BOM (common on Windows)
-        try:
-            text = raw.decode("utf-16-le", errors="replace")
-        except ValueError:
-            # Odd-length byte sequence
-            text = raw.decode("utf-8", errors="replace")
-    else:
-        text = raw.decode("utf-8", errors="replace")
+    text = raw.decode(_stdout_encoding(raw), errors="replace")
     return text.replace("\r\n", "\n")
 
 
@@ -128,8 +127,12 @@ def execute(
     cwd: str | None = None,
     save_output: bool = False,
     save_dir: str | None = None,
+    keep_raw: bool = False,
 ) -> dict[str, Any]:
     """Execute a command with safety controls.
+
+    With ``keep_raw`` (a run in a case) the output is always saved to
+    ``save_dir`` as the bytes the tool wrote, whatever its size.
 
     Uses Popen with incremental pipe reading to enforce max_output_bytes
     at capture time, preventing OOM from runaway processes.
@@ -229,6 +232,7 @@ def execute(
         stdout = _decode_output(stdout_raw)
         stderr = _decode_output(stderr_raw)
         stdout_byte_count = len(stdout_raw)
+        stdout_encoding = _stdout_encoding(stdout_raw)
 
         response: dict[str, Any] = {
             "exit_code": proc.returncode,
@@ -237,6 +241,7 @@ def execute(
             "elapsed_seconds": round(elapsed, 2),
             "command": cmd_list,
             "stdout_total_bytes": stdout_byte_count,
+            "stdout_encoding": stdout_encoding,
         }
         if truncated:
             response["truncated"] = True
@@ -245,16 +250,18 @@ def execute(
         case_dir = config.case_dir
         exceeds_budget = stdout_byte_count > config.response_byte_budget
 
-        if exceeds_budget and case_dir:
+        if keep_raw and save_dir:
+            _save_output(cmd_list, stdout_raw, stderr_raw, save_dir, response, True)
+        elif exceeds_budget and case_dir:
             _save_output(
                 cmd_list,
-                stdout,
-                stderr,
+                stdout_raw,
+                stderr_raw,
                 save_dir or os.path.join(case_dir, "extractions", "wintools"),
                 response,
             )
-        elif save_output and (stdout or stderr):
-            _save_output(cmd_list, stdout, stderr, save_dir, response)
+        elif save_output and (stdout_raw or stderr_raw):
+            _save_output(cmd_list, stdout_raw, stderr_raw, save_dir, response)
 
         return response
 
@@ -278,11 +285,14 @@ def _truncate(text: str, max_chars: int) -> str:
 
 def _save_output(
     cmd_list: list[str],
-    stdout: str,
-    stderr: str,
+    stdout: bytes,
+    stderr: bytes,
     save_dir: str | None,
     response: dict,
+    always: bool = False,
 ) -> None:
+    """Save the output as the bytes the tool wrote; ``always`` saves stdout
+    even when it is empty."""
     if not save_dir:
         return
     from wintools_mcp import share_guard
@@ -336,16 +346,16 @@ def _save_output(
 
     saved_paths: list[str] = []
 
-    if stdout:
+    if stdout or always:
         try:
             stdout_path = out_dir / f"{prefix}_stdout.txt"
-            stdout_bytes = stdout.encode("utf-8", errors="replace")
             with open(stdout_path, "wb") as f:
-                f.write(stdout_bytes)
+                f.write(stdout)
                 f.flush()
                 os.fsync(f.fileno())
             response["output_file"] = str(stdout_path).replace("\\", "/")
-            response["output_sha256"] = hashlib.sha256(stdout_bytes).hexdigest()
+            response["output_sha256"] = hashlib.sha256(stdout).hexdigest()
+            response["output_sha256_scope"] = "raw_stdout"
             saved_paths.append(str(stdout_path))
         except OSError as e:
             logger.warning("Failed to save stdout output to %s: %s", out_dir, e)
@@ -353,13 +363,12 @@ def _save_output(
     if stderr:
         try:
             stderr_path = out_dir / f"{prefix}_stderr.txt"
-            stderr_bytes = stderr.encode("utf-8", errors="replace")
             with open(stderr_path, "wb") as f:
-                f.write(stderr_bytes)
+                f.write(stderr)
                 f.flush()
                 os.fsync(f.fileno())
             response["stderr_file"] = str(stderr_path).replace("\\", "/")
-            response["stderr_sha256"] = hashlib.sha256(stderr_bytes).hexdigest()
+            response["stderr_sha256"] = hashlib.sha256(stderr).hexdigest()
             saved_paths.append(str(stderr_path))
         except OSError as e:
             logger.warning("Failed to save stderr output to %s: %s", out_dir, e)

@@ -46,6 +46,7 @@ tools:
     output_flag: "--csv"
     timeout_seconds: 600
     fk_tool_name: EvtxECmd
+    settings_paths: ["Maps"]
     install_methods:
       - method: direct
         url: "https://ericzimmerman.github.io/#!index.md"
@@ -148,6 +149,7 @@ tools:
     output_flag: "--csv"
     timeout_seconds: 600
     fk_tool_name: RECmd
+    settings_paths: ["BatchExamples"]
     install_methods:
       - method: direct
         url: "https://ericzimmerman.github.io/#!index.md"

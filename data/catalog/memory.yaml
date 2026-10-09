@@ -3,6 +3,7 @@ tools:
   - name: winpmem
     binary: winpmem.exe
     description: "Acquire physical memory dump for analysis"
+    acquisition: true
     input_style: positional
     output_format: text
     timeout_seconds: 600
@@ -21,6 +22,7 @@ tools:
   - name: dumpit
     binary: dumpit.exe
     description: "One-click physical memory acquisition"
+    acquisition: true
     input_style: positional
     output_format: text
     timeout_seconds: 600
