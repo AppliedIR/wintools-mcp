@@ -286,6 +286,8 @@ wintools-mcp accesses the case directory on the SIFT workstation via an authenti
 - **Write access** to the extractions directory (parsed output: CSVs, timelines, JSON)
 - **Write access** to the audit directory (per-tool execution logs)
 
+Before any write through the share, wintools-mcp checks the case marker SIFT writes at the case's root (`.vhir-share-case`) against its active case. A share still pointed at another case, or at no case, gets nothing written to it ("the evidence share isn't the active case (re-join or re-activate)").
+
 Set `VHIR_SHARE_ROOT` to the SMB mount point on Windows:
 
 ```powershell
