@@ -191,7 +191,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
   "data": {"output": {"rows": ["..."], "total_rows": 42}},
   "data_provenance": "tool_output_may_contain_untrusted_evidence",
   "output_format": "parsed_csv",
-  "audit_id": "wintools-steve-20260220-001",
+  "audit_id": "wintools-steve-20260220-01KHXQE4JR7WN9RMEGFD2ED8E8",
   "examiner": "steve",
   "caveats": [
     "Amcache entries indicate installation, not necessarily execution",
@@ -209,7 +209,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 
 | Field | Source | Description |
 |-------|--------|-------------|
-| `audit_id` | Audit | Unique identifier (`wintools-{examiner}-{YYYYMMDD}-{NNN}`) |
+| `audit_id` | Audit | Unique identifier (`wintools-{examiner}-{YYYYMMDD}-{ULID}`) |
 | `caveats` | forensic-knowledge | Artifact-specific limitations and interpretation warnings |
 | `advisories` | forensic-knowledge | Usage guidance and common misinterpretation corrections |
 | `corroboration` | forensic-knowledge | Suggested cross-reference artifacts and tools |
@@ -298,7 +298,7 @@ The share must use authenticated connections. Restrict access to the Valhuntir c
 
 ### Audit Trail
 
-Every tool execution is logged to the audit directory. Resolution order: explicit `audit_dir` constructor parameter > `VHIR_AUDIT_DIR` env var > `VHIR_CASE_DIR/audit/`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{NNN}` and resume sequence numbering across process restarts.
+Every tool execution is logged to the audit directory. Resolution order: explicit `audit_dir` constructor parameter > `VHIR_AUDIT_DIR` env var > `VHIR_CASE_DIR/audit/`. Evidence IDs follow the format `wintools-{examiner}-{YYYYMMDD}-{ULID}`, unique across process restarts and writers.
 
 ## Security Considerations
 
