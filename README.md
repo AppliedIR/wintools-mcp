@@ -191,7 +191,7 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
   "data": {"output": {"rows": ["..."], "total_rows": 42}},
   "data_provenance": "tool_output_may_contain_untrusted_evidence",
   "output_format": "parsed_csv",
-  "audit_id": "wintools-steve-20260220-01KHXQE4JR7WN9RMEGFD2ED8E8",
+  "audit_id": "wintools-steve-20260220-01khxqe4jr7wn9rmegfd2ed8e8",
   "examiner": "steve",
   "caveats": [
     "Amcache entries indicate installation, not necessarily execution",
@@ -286,7 +286,7 @@ wintools-mcp accesses the case directory on the SIFT workstation via an authenti
 - **Write access** to the extractions directory (parsed output: CSVs, timelines, JSON)
 - **Write access** to the audit directory (per-tool execution logs)
 
-Before any write through the share, wintools-mcp checks the case marker SIFT writes at the case's root (`.vhir-share-case`) against its active case. A share still pointed at another case, or at no case, gets nothing written to it ("the evidence share isn't the active case (re-join or re-activate)").
+Before any write through the share (tool output, and the audit log unless an audit directory is set by hand), wintools-mcp checks the case marker SIFT writes at the case's root (`.vhir-share-case`) against its active case. A share still pointed at another case, or at no case, gets nothing written to it ("the evidence share isn't the active case (re-join or re-activate)").
 
 Set `VHIR_SHARE_ROOT` to the SMB mount point on Windows:
 
