@@ -371,3 +371,53 @@ def test_an_acquisition_written_outside_the_case_is_recorded_unhashed(
         "outside the case: not hashed, not registrable until copied into the case"
     )
     assert entry["acquisition"] is True
+
+
+def test_a_relative_input_is_never_read_from_a_dead_runs_folder(
+    case, tools, monkeypatch
+):
+    from wintools_mcp.audit import AuditWriter
+
+    monkeypatch.setattr(
+        AuditWriter, "_next_audit_id", lambda self, *a, **k: "wintools-row-000002"
+    )
+    dead = case / "extractions" / "wintools-row-000002"
+    dead.mkdir(parents=True)
+    (dead / "here.evtx").write_bytes(b"LEFT BY THE DEAD RUN")
+    calls = []
+    resp = _run(
+        tools, "evtxecmd", _csv, calls=calls, command=["EvtxECmd", "-f", "here.evtx"]
+    )
+    assert resp["success"] is False and "not accessible" in resp["error"], resp
+    assert "wintools-row-000002-2" in resp["error"]
+    assert calls == [] and _entries(case) == []
+
+
+def test_one_output_folder_that_cannot_be_listed_keeps_the_others(
+    case, tools, monkeypatch
+):
+    from wintools_mcp import operation
+
+    ev = _evtx(case)
+    out = case / "work" / "evtx"
+    out.mkdir(parents=True)
+    real = operation.written
+
+    def written(before, folder):
+        if Path(folder) == out:
+            raise PermissionError(13, "The process cannot access the file")
+        return real(before, folder)
+
+    monkeypatch.setattr(operation, "written", written)
+    _run(
+        tools, "evtxecmd", _csv, command=["EvtxECmd", "-f", str(ev), "--csv", str(out)]
+    )
+    (entry,) = _entries(case)
+    errors = [o for o in entry["outputs"] if "error" in o]
+    assert [(o["path"], "cannot access" in o["error"]) for o in errors] == [
+        (str(out), True)
+    ]
+    kept = [o for o in entry["outputs"] if "sha256" in o]
+    assert kept and all(
+        o["sift_path"].startswith(entry["op_folder"] + "/") for o in kept
+    )

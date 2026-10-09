@@ -98,14 +98,24 @@ def _make_dir(path: str) -> str | None:
     return None
 
 
+def _names(path: str):
+    return (path if n == 1 else f"{path}-{n}" for n in range(1, 1000))
+
+
+def free_folder(path: str) -> str:
+    """The folder ``_new_folder`` makes for ``path`` now, before it is made."""
+    import os
+
+    return next((c for c in _names(path) if not os.path.lexists(c)), path)
+
+
 def _new_folder(path: str) -> str:
     """Make ``path`` as a new, empty folder and return it. A folder already
     there (a run that stopped before its audit entry, whose id is then
     used again) is never taken over: ``<path>-2``, ``-3`` … instead."""
     import os
 
-    for n in range(1, 1000):
-        candidate = path if n == 1 else f"{path}-{n}"
+    for candidate in _names(path):
         try:
             os.mkdir(candidate)
             return candidate

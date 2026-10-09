@@ -355,12 +355,15 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
         from wintools_mcp import operation
         from wintools_mcp.output import to_share_relative
-        from wintools_mcp.tools.generic import OUTPUT_FLAGS
+        from wintools_mcp.tools.generic import OUTPUT_FLAGS, free_folder
 
         cfg = get_config()
-        # A run in a case gets its own folder in the case, named by its audit id
+        # A run in a case gets its own new folder in the case, named by its
+        # audit id; named now, so a relative input is read from that folder
         op_dir = (
-            str(Path(cfg.case_dir) / "extractions" / audit_id) if cfg.case_dir else None
+            free_folder(str(Path(cfg.case_dir) / "extractions" / audit_id))
+            if cfg.case_dir
+            else None
         )
 
         # Inputs: the server's own reading of the command. One the caller
@@ -476,13 +479,13 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             # user-given output flag
             outputs: list[dict] = []
             if op_dir:
-                try:
-                    paths = list(operation.listing(op_dir))
-                    for target, before in watched.items():
+                paths: list[str] = []
+                # A folder that can't be listed is recorded with the run, never instead of it
+                for target, before in [(op_dir, {}), *watched.items()]:
+                    try:
                         paths += operation.written(before, target)
-                except OSError as e:  # recorded with the run, never instead of it
-                    paths = []
-                    outputs.append({"path": op_dir, "error": e.strerror or str(e)})
+                    except OSError as e:
+                        outputs.append({"path": target, "error": e.strerror or str(e)})
                 for fpath in sorted(set(paths)):
                     if td and td.acquisition and not _inside(fpath, cfg.case_dir):
                         outputs.append({"path": fpath, "outside_case": True,
