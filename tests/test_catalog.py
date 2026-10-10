@@ -213,7 +213,7 @@ class TestSysinternalsCatalog:
         assert td is not None
         assert td.binary == "autorunsc.exe"
         assert td.fk_tool_name == "autorunsc"  # its forensic-knowledge name
-        assert td.output_format == "csv"
+        assert td.output_format == "text"  # CSV only when the caller passes -c
 
     def test_sigcheck_in_catalog(self):
         td = get_tool_def("sigcheck")
