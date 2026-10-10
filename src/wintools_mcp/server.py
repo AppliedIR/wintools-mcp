@@ -69,6 +69,25 @@ def _real(path: str) -> str:
         return path
 
 
+def _absolute(token: str) -> bool:
+    """An absolute Windows path: a UNC path (two leading backslashes) or a
+    drive's (a letter, a colon, a slash). Not a /switch, a registry key or a
+    plain value."""
+    return token.startswith("\\\\") or (
+        len(token) >= 3 and token[0].isalpha() and token[1] == ":" and token[2] in "\\/"
+    )
+
+
+def _seen(path: str) -> bool:
+    """`path` is there as the share shows it; an error reading it is not."""
+    from pathlib import Path
+
+    try:
+        return Path(path).exists()
+    except OSError:
+        return False
+
+
 def _inside(path: str, case_dir: str) -> bool:
     import os
 
@@ -408,19 +427,41 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         found = {_real(p) for p in parsed}
         declared = [where(p) for p in input_files or [] if _real(where(p)) not in found]
 
+        def refused(why: str, suggestions: list[str]) -> dict:
+            """Nothing runs: the refusal is recorded, and answered loudly."""
+            audit.log(
+                tool="run_windows_command",
+                params={"command": command, "purpose": purpose},
+                result_summary={"error": why},
+                audit_id=audit_id,
+                elapsed_ms=(time.monotonic() - start) * 1000,
+            )
+            return {"success": False, "error": why, "suggestions": suggestions}
+
+        # A path the command names that the share doesn't show is never run
+        # on: the tool would find nothing and report success
+        for t in command[1:]:
+            if _absolute(t) and not _seen(t):
+                return refused(
+                    f"Can't see {t} over the share. A link to a file outside the "
+                    "case isn't followed over the share.",
+                    [
+                        "Copy the file into the case first, then run the tool on the copy"
+                    ],
+                )
+
         # Validate input files are accessible
         for fpath in [*parsed, *declared]:
             p = Path(fpath)
             if not p.exists():
-                return {
-                    "success": False,
-                    "error": f"Evidence path not accessible: {fpath}",
-                    "suggestions": [
+                return refused(
+                    f"Evidence path not accessible: {fpath}",
+                    [
                         "Verify the SMB share is mounted and the case is activated",
                         "If evidence is inside a VHDX/E01 mount, it needs to be "
                         "staged to the case extractions directory first",
                     ],
-                }
+                )
 
         def path_record(fpath: str, how: str) -> dict:
             p = Path(fpath)

@@ -390,7 +390,9 @@ def test_a_relative_input_is_never_read_from_a_dead_runs_folder(
     )
     assert resp["success"] is False and "not accessible" in resp["error"], resp
     assert "wintools-row-000002-2" in resp["error"]
-    assert calls == [] and _entries(case) == []
+    assert calls == []  # nothing ran; the refusal alone is recorded
+    (entry,) = _entries(case)
+    assert entry["result_summary"]["error"] == resp["error"]
 
 
 def test_one_output_folder_that_cannot_be_listed_keeps_the_others(
