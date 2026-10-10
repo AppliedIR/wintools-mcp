@@ -96,6 +96,7 @@ def test_any_other_remembered_mapping_is_left_and_named(tmp_path, target):
     assert "LETTER=\n" in r.stdout  # no letter
     assert "LETTER=S" not in r.stdout
     assert calls == []  # never deleted
+    assert "remove it (net use S: /delete)" in r.stdout  # the user's exact command
     assert (
         f"WHY=S: is remembered as a mapping to {target}, which isn't Valhuntir's"
         in (r.stdout)
