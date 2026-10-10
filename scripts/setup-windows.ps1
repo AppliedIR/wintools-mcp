@@ -1718,13 +1718,13 @@ try {
 import sys
 from datetime import datetime
 from wintools_mcp.catalog import load_catalog
-from wintools_mcp.environment import find_tool
+from wintools_mcp.environment import tool_path
 
 catalog = load_catalog()
 found = []
 missing = []
 for name, td in sorted(catalog.items()):
-    path = find_tool(td.binary)
+    path = tool_path(td)
     if path:
         found.append((td.name, td.category, td.binary, path))
     else:

@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from wintools_mcp.catalog import load_catalog
-from wintools_mcp.environment import find_tool
+from wintools_mcp.environment import clear_binary_cache, tool_path
 
 
 def scan_tools() -> dict[str, Any]:
     """Scan for all cataloged tools. Returns availability summary."""
+    clear_binary_cache()  # a fresh look: a tool moved or removed since is seen too
     catalog = load_catalog()
     available = []
     missing = []
@@ -17,7 +18,7 @@ def scan_tools() -> dict[str, Any]:
     # Single pass: find each binary once
     binary_cache: dict[str, str | None] = {}
     for td in catalog.values():
-        path = find_tool(td.binary)
+        path = tool_path(td)
         binary_cache[td.name] = path
 
         if path:
@@ -78,7 +79,7 @@ def get_install_guidance(tool_name: str) -> dict[str, Any]:
     if not td:
         return {"error": f"Tool '{tool_name}' not found in catalog"}
 
-    path = find_tool(td.binary)
+    path = tool_path(td)
     result: dict[str, Any] = {
         "name": td.name,
         "binary": td.binary,

@@ -102,8 +102,7 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
         except OSError:
             continue
 
-    _binary_cache[cache_key] = None
-    return None
+    return None  # never cached: a tool installed later is found on the next call
 
 
 def find_tool(binary_name: str) -> str | None:
@@ -170,3 +169,22 @@ def get_environment_info() -> dict:
         "python": platform.python_version(),
         "is_windows": os.name == "nt",
     }
+
+
+def tool_path(td) -> str | None:
+    """Where a cataloged tool runs from, or None when it can't run here. An
+    executable is its binary, found. A script is there only when its file and
+    its interpreter both are: a PowerShell script is `<name>.ps1` in its
+    install paths (where it's run from), with Windows PowerShell; a Perl
+    script is its binary, found, with perl.exe."""
+    if td.exec_type != "script":
+        return find_tool(td.binary)
+    extra = [Path(p) for p in td.install_paths or []]
+    if td.binary.lower().endswith(".pl"):
+        script = find_tool(td.binary)
+        return script if script and find_binary("perl.exe", extra) else None
+    script = next(
+        (str(d / f"{td.name}.ps1") for d in extra if (d / f"{td.name}.ps1").is_file()),
+        None,
+    )
+    return script if script and find_binary("powershell.exe") else None
