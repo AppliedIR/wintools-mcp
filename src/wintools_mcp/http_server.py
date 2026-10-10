@@ -199,8 +199,9 @@ async def activate_case(request: Request) -> JSONResponse:
             status_code=503,
         )
 
-    # Short-circuit if already on this case (avoids redundant YAML writes from 30s re-sync)
-    if cfg.active_case == case_id:
+    # Short-circuit if already on this case, in its folder (avoids redundant
+    # YAML writes from the 30s re-sync); a share that moved re-derives it
+    if cfg.active_case == case_id and cfg.case_dir == cfg.share_root:
         return JSONResponse(
             {"status": "already_active", "case_id": case_id, "case_dir": cfg.case_dir}
         )

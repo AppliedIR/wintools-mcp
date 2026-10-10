@@ -82,6 +82,12 @@ class WintoolsConfig:
         cfg.active_case = os.environ.get("VHIR_ACTIVE_CASE", cfg.active_case)
         cfg.share_root = os.environ.get("VHIR_SHARE_ROOT", cfg.share_root)
         cfg.audit_dir = os.environ.get("VHIR_AUDIT_DIR", cfg.audit_dir)
+        # Joined to SIFT, the case is the share: while one is active, its
+        # folder is the share root, whatever an earlier share left in
+        # config.yaml (a re-join moves the share)
+        if cfg.share_root and cfg.active_case:
+            cfg.case_dir = cfg.share_root
+            os.environ["VHIR_CASE_DIR"] = cfg.share_root
 
         # Examiner identity: VHIR_EXAMINER > VHIR_ANALYST (deprecated) > OS username
         # Set once at startup, immutable for process lifetime.
