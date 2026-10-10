@@ -91,16 +91,37 @@ def test_a_valhuntir_share_on_this_sift_is_removed_first(tmp_path, share):
     "target",
     [r"\\fileserver\cases", r"\\10.0.1.95\projects", r"\\10.0.1.91\cases"],
 )
-def test_any_other_remembered_mapping_is_left_and_named(tmp_path, target):
+def test_any_other_remembered_mapping_is_left_and_the_next_letter_used(
+    tmp_path, target
+):
     r, calls = _run(tmp_path, {"S": target}, "$previous = $null\n" + PICK)
-    assert "LETTER=\n" in r.stdout  # no letter
-    assert "LETTER=S" not in r.stdout
+    assert "LETTER=T" in r.stdout, r.stdout + r.stderr
     assert calls == []  # never deleted
-    assert "remove it (net use S: /delete)" in r.stdout  # the user's exact command
     assert (
-        f"WHY=S: is remembered as a mapping to {target}, which isn't Valhuntir's"
-        in (r.stdout)
+        f"S: is remembered as a mapping to {target}, which isn't Valhuntir's "
+        "(to remove it: net use S: /delete); left as it is, using T:"
+    ) in r.stdout
+
+
+@pwsh
+def test_with_every_letter_held_by_another_mapping_it_fails_naming_each(tmp_path):
+    held = {x: rf"\\files\{x.lower()}" for x in "STUVWXYZ"}
+    r, calls = _run(tmp_path, held, "$previous = $null\n" + PICK)
+    assert "LETTER=\n" in r.stdout and calls == []
+    for x in "STUVWXYZ":
+        assert f"{x}: is remembered as a mapping to \\\\files\\{x.lower()}" in r.stdout
+        assert f"(to remove it: net use {x}: /delete)" in r.stdout
+
+
+@pwsh
+def test_a_foreign_letter_then_valhuntirs_own_earlier_one(tmp_path):
+    r, calls = _run(
+        tmp_path,
+        {"S": r"\\files\home", "T": r"\\10.0.1.95\cases"},
+        "$previous = $null\n" + PICK,
     )
+    assert "LETTER=T" in r.stdout and calls == ["use T: /delete /y"]
+    assert "left as it is, using T:" in r.stdout
 
 
 @pwsh
@@ -115,7 +136,26 @@ def test_a_removal_that_fails_leaves_no_letter_and_says_so(tmp_path):
         tmp_path, {"S": r"\\10.0.1.95\cases"}, "$previous = $null\n" + PICK, net_exit=2
     )
     assert "LETTER=S" not in r.stdout and calls == ["use S: /delete /y"]
-    assert r"couldn't be removed" in r.stdout
+    assert "couldn't be removed; remove it (net use S: /delete /y)" in r.stdout
+
+
+@pwsh
+def test_a_failed_removal_never_ends_the_installer_under_stop(tmp_path):
+    # Windows PowerShell 5.1 turns a native command's redirected stderr into
+    # an error that Stop makes terminating; pwsh 7 doesn't, so a net that
+    # raises a PowerShell error stands in for it
+    stand_in = (
+        '$ErrorActionPreference = "Stop"\n'
+        "function net { Write-Error 'System error 2 has occurred.'; "
+        "$global:LASTEXITCODE = 2 }\n"
+    )
+    r, _ = _run(
+        tmp_path,
+        {"S": r"\\10.0.1.95\cases"},
+        stand_in + "$previous = $null\n" + PICK + 'Write-Host "INSTALLER GOES ON"\n',
+    )
+    assert "INSTALLER GOES ON" in r.stdout, r.stdout + r.stderr
+    assert "couldn't be removed; remove it (net use S: /delete /y)" in r.stdout
 
 
 @pwsh
@@ -138,3 +178,17 @@ def test_the_mapping_step_picks_its_letter_this_way():
     assert "Select-ShareLetter -SmbHost $smbHost" in step
     assert "Get-PreviousShareRoot $wintoolsConfigPath" in step
     assert 'Write-Warn "Drive mapping failed: $($pick.Why)' in step
+
+
+@pwsh
+def test_a_removal_that_never_ran_isnt_taken_for_success(tmp_path):
+    # an earlier command left exit code 0; net itself can't run
+    stand_in = (
+        "$global:LASTEXITCODE = 0\n"
+        "function net { throw 'net.exe could not be started' }\n"
+    )
+    r, _ = _run(
+        tmp_path, {"S": r"\\10.0.1.95\cases"}, stand_in + "$previous = $null\n" + PICK
+    )
+    assert "LETTER=S" not in r.stdout, r.stdout + r.stderr
+    assert "couldn't be removed" in r.stdout

@@ -276,23 +276,43 @@ function Test-OwnEarlierMapping {
 
 # The letter to map the share on (S: first, then T:-Z:): the first with no
 # drive and no remembered mapping, once Valhuntir's own earlier mapping is
-# removed from it. Any other remembered mapping is never removed: no letter,
-# and why (net use would stop at its overwrite prompt).
+# removed from it. Any other remembered mapping is never removed: the search
+# moves on to the next letter, and the letters passed over are named. No
+# letter at all, or a removal that failed: no letter, and why, with the
+# command that clears it (net use would stop at its overwrite prompt).
 function Select-ShareLetter {
     param([string]$SmbHost, [string]$PreviousShareRoot)
+    $passed = @()
     foreach ($letter in @("S","T","U","V","W","X","Y","Z")) {
         if (Test-Path "${letter}:\") { continue }  # a drive in use: left alone
         $target = Get-RememberedMapping $letter
-        if (-not $target) { return @{ Letter = $letter; Why = "" } }
+        if (-not $target) {
+            foreach ($p in $passed) { Write-Info "$p; left as it is, using ${letter}:" }
+            return @{ Letter = $letter; Why = "" }
+        }
         if (Test-OwnEarlierMapping $target $SmbHost $PreviousShareRoot) {
-            $null = net use "${letter}:" /delete /y 2>&1
-            if ($LASTEXITCODE -eq 0) {
+            # net's stderr under Stop would end the installer (PowerShell 5.1):
+            # read its exit code instead
+            $global:LASTEXITCODE = -1
+            $prevEAPNet = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                $null = net use "${letter}:" /delete /y 2>&1
+            } catch {
+            } finally {
+                $ErrorActionPreference = $prevEAPNet
+            }
+            if ($global:LASTEXITCODE -eq 0) {
                 Write-Info "Removed Valhuntir's earlier mapping ${letter}: to $target"
+                foreach ($p in $passed) { Write-Info "$p; left as it is, using ${letter}:" }
                 return @{ Letter = $letter; Why = "" }
             }
-            return @{ Letter = $null; Why = "${letter}: still holds Valhuntir's earlier mapping to $target, which couldn't be removed" }
+            return @{ Letter = $null; Why = "${letter}: still holds Valhuntir's earlier mapping to $target, which couldn't be removed; remove it (net use ${letter}: /delete /y) and run the installer again" }
         }
-        return @{ Letter = $null; Why = "${letter}: is remembered as a mapping to $target, which isn't Valhuntir's; remove it (net use ${letter}: /delete) or map the share by hand" }
+        $passed += "${letter}: is remembered as a mapping to $target, which isn't Valhuntir's (to remove it: net use ${letter}: /delete)"
+    }
+    if ($passed) {
+        return @{ Letter = $null; Why = ($passed -join "; ") + "; remove one, or map the share by hand" }
     }
     return @{ Letter = $null; Why = "no available drive letter (S-Z)" }
 }
