@@ -81,11 +81,14 @@ def test_a_scan_looks_afresh_for_a_tool_removed_since(box, tmp_path, monkeypatch
 
 def test_a_powershell_script_is_available_only_with_its_script(box):
     tools, scripts, _ = box
+    (scripts / "Get-InjectedThreadEx.ps1").write_text("function Get-InjectedThread {}")
+    # the script with no PowerShell to run it isn't the tool
+    assert _available("Get-InjectedThreadEx") is False
+    (scripts / "Get-InjectedThreadEx.ps1").unlink()
     (tools / "powershell.exe").write_bytes(b"MZ")
-    # PowerShell alone isn't the tool
+    # nor is PowerShell alone
     assert _available("Get-InjectedThreadEx") is False
     (scripts / "Get-InjectedThreadEx.ps1").write_text("function Get-InjectedThread {}")
-    environment.clear_binary_cache()
     tool = next(
         t for t in list_available_tools() if t["name"] == "Get-InjectedThreadEx"
     )
