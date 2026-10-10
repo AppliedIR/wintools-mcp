@@ -5,7 +5,6 @@ tools:
     description: "List autostart entries (registry, services, scheduled tasks, etc.)"
     input_style: flag
     input_flag: "-a"
-    output_flag: "-c"
     output_format: csv
     timeout_seconds: 300
     fk_tool_name: autoruns
@@ -119,7 +118,6 @@ tools:
     binary: sigcheck.exe
     description: "Verify digital signatures and check VirusTotal for files"
     input_style: positional
-    output_flag: "-c"
     output_format: csv
     timeout_seconds: 300
     fk_tool_name: sigcheck
