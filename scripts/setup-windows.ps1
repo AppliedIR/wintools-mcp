@@ -238,6 +238,65 @@ function Derive-SMBPassword {
     return [BitConverter]::ToString($dk).Replace("-", "").ToLower().Substring(0, 32)
 }
 
+# -- The share's drive letter, past a remembered mapping --
+# A drive letter's remembered mapping (a persistent one Windows keeps even
+# while it can't connect), by its remote path; $null when there is none
+function Get-RememberedMapping {
+    param([string]$Letter)
+    $key = "HKCU:\Network\$Letter"
+    if (-not (Test-Path $key)) { return $null }
+    try {
+        return (Get-ItemProperty -Path $key -Name RemotePath -ErrorAction Stop).RemotePath
+    } catch { return $null }
+}
+
+# The share root the last install recorded in config.yaml; $null when none
+function Get-PreviousShareRoot {
+    param([string]$ConfigPath)
+    if (-not $ConfigPath -or -not (Test-Path $ConfigPath)) { return $null }
+    $m = Select-String -Path $ConfigPath -Pattern '^share_root:\s*(\S+)' | Select-Object -First 1
+    if ($m) { return $m.Matches[0].Groups[1].Value }
+    return $null
+}
+
+# Whether a remembered mapping is Valhuntir's own earlier one: the share root
+# the last install recorded, or a Valhuntir share on this SIFT (cases, its
+# name before 0.6.4, or vhir-cases)
+function Test-OwnEarlierMapping {
+    param([string]$Target, [string]$SmbHost, [string]$PreviousShareRoot)
+    if (-not $Target) { return $false }
+    $t = $Target.Trim().TrimEnd('\').ToLowerInvariant()
+    if ($PreviousShareRoot -and $t -eq $PreviousShareRoot.Trim().TrimEnd('\').ToLowerInvariant()) {
+        return $true
+    }
+    $parts = $t.TrimStart('\').Split('\')
+    return ($parts.Count -eq 2) -and ($parts[0] -eq "$SmbHost".ToLowerInvariant()) -and
+        ($parts[1] -in @("cases", "vhir-cases"))
+}
+
+# The letter to map the share on (S: first, then T:-Z:): the first with no
+# drive and no remembered mapping, once Valhuntir's own earlier mapping is
+# removed from it. Any other remembered mapping is never removed: no letter,
+# and why (net use would stop at its overwrite prompt).
+function Select-ShareLetter {
+    param([string]$SmbHost, [string]$PreviousShareRoot)
+    foreach ($letter in @("S","T","U","V","W","X","Y","Z")) {
+        if (Test-Path "${letter}:\") { continue }  # a drive in use: left alone
+        $target = Get-RememberedMapping $letter
+        if (-not $target) { return @{ Letter = $letter; Why = "" } }
+        if (Test-OwnEarlierMapping $target $SmbHost $PreviousShareRoot) {
+            $null = net use "${letter}:" /delete /y 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Info "Removed Valhuntir's earlier mapping ${letter}: to $target"
+                return @{ Letter = $letter; Why = "" }
+            }
+            return @{ Letter = $null; Why = "${letter}: still holds Valhuntir's earlier mapping to $target, which couldn't be removed" }
+        }
+        return @{ Letter = $null; Why = "${letter}: is remembered as a mapping to $target, which isn't Valhuntir's; remove it (net use ${letter}: /delete) or map the share by hand" }
+    }
+    return @{ Letter = $null; Why = "no available drive letter (S-Z)" }
+}
+
 function Set-StaticIP {
     param([string]$IP)
 
@@ -2176,16 +2235,12 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
             }
         }
 
-        # Find available drive letter (S: preferred, fall back to T:-Z:)
-        $driveLetter = $null
-        foreach ($letter in @("S","T","U","V","W","X","Y","Z")) {
-            if (-not (Test-Path "${letter}:\")) {
-                $driveLetter = $letter
-                break
-            }
-        }
+        # The drive letter (S: preferred, then T:-Z:), past Valhuntir's own
+        # earlier mapping remembered on it (an upgrade from the old share)
+        $pick = Select-ShareLetter -SmbHost $smbHost -PreviousShareRoot (Get-PreviousShareRoot $wintoolsConfigPath)
+        $driveLetter = $pick.Letter
         if (-not $driveLetter) {
-            Write-Warn "No available drive letter (S-Z). Map the share manually:"
+            Write-Warn "Drive mapping failed: $($pick.Why). Map the share manually:"
             Write-Host "  net use <LETTER>: $uncPath /user:$smbUser <password> /persistent:yes"
         } else {
             try {
