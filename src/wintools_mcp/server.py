@@ -58,6 +58,17 @@ OUTSIDE_CASE = (
 )
 
 
+def _real(path: str) -> str:
+    """`path` resolved, or as given when it can't be: over SMB Windows can
+    fail with an error a non-strict resolve doesn't swallow (WinError 59)."""
+    from pathlib import Path
+
+    try:
+        return str(Path(path).resolve())
+    except OSError:
+        return path
+
+
 def _inside(path: str, case_dir: str) -> bool:
     import os
 
@@ -394,12 +405,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 detection_method = "parsed"
             elif not (td and not td.input_flag):
                 detection_method = "none"
-        found = {str(Path(p).resolve()) for p in parsed}
-        declared = [
-            where(p)
-            for p in input_files or []
-            if str(Path(where(p)).resolve()) not in found
-        ]
+        found = {_real(p) for p in parsed}
+        declared = [where(p) for p in input_files or [] if _real(where(p)) not in found]
 
         # Validate input files are accessible
         for fpath in [*parsed, *declared]:
@@ -416,8 +423,9 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 }
 
         def path_record(fpath: str, how: str) -> dict:
-            p = Path(fpath).resolve()
+            p = Path(fpath)
             try:
+                p = p.resolve()
                 if p.is_file():
                     record = operation.file_record(p, cfg.share_root)
                 else:  # a folder is recorded without a hash

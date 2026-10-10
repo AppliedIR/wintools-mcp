@@ -421,3 +421,29 @@ def test_one_output_folder_that_cannot_be_listed_keeps_the_others(
     assert kept and all(
         o["sift_path"].startswith(entry["op_folder"] + "/") for o in kept
     )
+
+
+def test_an_input_whose_path_cannot_be_resolved_still_runs_and_is_audited(
+    case, tools, monkeypatch
+):
+    """Over SMB, Windows can fail to resolve a share path with an error a
+    non-strict resolve doesn't swallow (WinError 59, an unexpected network
+    error). The input is recorded with that error and the tool still runs."""
+    ev = _evtx(case)
+    real = Path.resolve
+
+    def resolve(self, *a, **k):
+        if self.name == ev.name:
+            raise OSError(22, "An unexpected network error occurred", str(self), 59)
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    out = _run(tools, "evtxecmd", _csv, command=["EvtxECmd", "-f", str(ev)])
+    assert out["success"] is True
+    (entry,) = _entries(case)
+    assert entry["result_summary"]["exit_code"] == 0
+    (inp,) = entry["inputs"]
+    assert inp["path"] == str(ev)
+    assert inp["found"] == "catalog"
+    assert "unexpected network error" in inp["error"]
+    assert "sha256" not in inp
