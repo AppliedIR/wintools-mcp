@@ -256,13 +256,13 @@ class TestMemoryCatalog:
         td = get_tool_def("moneta")
         assert td is not None
         assert td.binary == "moneta64.exe"
-        assert td.input_flag == "--pid"
+        assert td.input_flag == ""  # its pid picks a process: no file is read
 
     def test_hollows_hunter_in_catalog(self):
         td = get_tool_def("hollows_hunter")
         assert td is not None
         assert td.binary == "hollows_hunter.exe"
-        assert td.input_flag == "/pid"
+        assert td.input_flag == ""  # its pid picks a process: no file is read
 
     def test_dumpit_in_catalog(self):
         td = get_tool_def("dumpit")

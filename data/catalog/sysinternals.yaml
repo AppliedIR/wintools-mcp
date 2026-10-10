@@ -4,7 +4,6 @@ tools:
     binary: autorunsc.exe
     description: "List autostart entries (registry, services, scheduled tasks, etc.)"
     input_style: flag
-    input_flag: "-a"
     output_format: csv
     timeout_seconds: 300
     fk_tool_name: autoruns

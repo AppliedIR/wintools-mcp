@@ -39,7 +39,6 @@ tools:
     binary: moneta64.exe
     description: "Detect malware through virtual memory analysis (injected threads, hollowed processes)"
     input_style: flag
-    input_flag: "--pid"
     output_format: text
     timeout_seconds: 300
     fk_tool_name: moneta
@@ -60,7 +59,6 @@ tools:
     binary: hollows_hunter.exe
     description: "Scan running processes for hollowed/injected code using PE-sieve"
     input_style: flag
-    input_flag: "/pid"
     output_format: text
     timeout_seconds: 300
     fk_tool_name: hollows_hunter
