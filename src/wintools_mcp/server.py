@@ -69,12 +69,12 @@ def _real(path: str) -> str:
         return path
 
 
-def _absolute(token: str) -> bool:
-    """An absolute Windows path: a UNC path (two leading backslashes) or a
-    drive's (a letter, a colon, a slash). Not a /switch, a registry key or a
-    plain value."""
-    return token.startswith("\\\\") or (
-        len(token) >= 3 and token[0].isalpha() and token[1] == ":" and token[2] in "\\/"
+def _in_share(path: str, share_root: str) -> bool:
+    """`path` is on the share: under its root as given, or once resolved (a
+    mapped drive resolves to the share's UNC path)."""
+    root = share_root.replace("\\", "/").rstrip("/").lower()
+    return bool(root) and any(
+        p.replace("\\", "/").lower().startswith(root + "/") for p in (path, _real(path))
     )
 
 
@@ -438,10 +438,30 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             )
             return {"success": False, "error": why, "suggestions": suggestions}
 
-        # A path the command names that the share doesn't show is never run
-        # on: the tool would find nothing and report success
+        # What the command writes: an output flag's value, and an acquisition's
+        # destination (it may be a bare path). Not there yet, and never refused
+        out_flags = set(OUTPUT_FLAGS)
+        if td and td.output_flag:
+            out_flags.add(td.output_flag.lower())
+        writes = {
+            command[i + 1]
+            for i in range(1, len(command) - 1)
+            if command[i].lower() in out_flags
+        }
+        if td and td.acquisition:
+            writes.update(a for a in command[1:] if not a.startswith("-"))
+
+        # A path on the share the command names that the share doesn't show,
+        # and so no input was found for, is never run on: the tool would find
+        # nothing and report success
         for t in command[1:]:
-            if _absolute(t) and not _seen(t):
+            if (
+                t not in writes
+                and where(t) not in parsed
+                and Path(t).is_absolute()
+                and _in_share(t, cfg.share_root)
+                and not _seen(t)
+            ):
                 return refused(
                     f"Can't see {t} over the share. A link to a file outside the "
                     "case isn't followed over the share.",
@@ -493,9 +513,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         }
 
         # Folders named by a user-given output flag: what's new there is output
-        out_flags = set(OUTPUT_FLAGS)
-        if td and td.output_flag:
-            out_flags.add(td.output_flag.lower())
         watched = {
             command[i + 1]: operation.listing(command[i + 1])
             for i in range(1, len(command) - 1)
