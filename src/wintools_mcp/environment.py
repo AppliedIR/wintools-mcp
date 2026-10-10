@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import shutil
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -43,10 +44,16 @@ DEFAULT_TOOL_PATHS = [
 
 _binary_cache: dict[str, str | None] = {}
 
+# A tool not found is looked for again after this long (a search of the tool
+# folders costs about 0.25 s a list call on a real box), or at once by a scan
+NOT_FOUND_SECONDS = 60
+_not_found: dict[str, float] = {}
+
 
 def clear_binary_cache() -> None:
-    """Clear cached binary paths. Called from scan_tools()."""
+    """Forget every lookup, found or not. Called from scan_tools()."""
     _binary_cache.clear()
+    _not_found.clear()
 
 
 def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
@@ -60,6 +67,9 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
     cache_key = f"{name}|{'|'.join(str(p) for p in (extra_paths or []))}"
     if cache_key in _binary_cache:
         return _binary_cache[cache_key]
+    looked = _not_found.get(cache_key)
+    if looked is not None and time.monotonic() - looked < NOT_FOUND_SECONDS:
+        return None
 
     found = shutil.which(name)
     if found:
@@ -102,7 +112,8 @@ def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
         except OSError:
             continue
 
-    return None  # never cached: a tool installed later is found on the next call
+    _not_found[cache_key] = time.monotonic()  # a tool installed later is found soon
+    return None
 
 
 def find_tool(binary_name: str) -> str | None:
