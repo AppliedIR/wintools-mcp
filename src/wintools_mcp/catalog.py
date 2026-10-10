@@ -225,7 +225,24 @@ def load_catalog() -> dict[str, ToolDefinition]:
 
 
 def get_tool_def(name: str) -> ToolDefinition | None:
-    return load_catalog().get(name.lower())
+    """A tool by its catalog name, or by its binary (with or without .exe, in
+    any folder): callers name either. A script's interpreter is never its key."""
+    catalog = load_catalog()
+    key = name.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    stem = key.removesuffix(".exe")
+    return (
+        catalog.get(key)
+        or catalog.get(stem)
+        or next(
+            (
+                td
+                for td in catalog.values()
+                if td.exec_type != "script"
+                and td.binary.lower().removesuffix(".exe") == stem
+            ),
+            None,
+        )
+    )
 
 
 def list_tools_in_catalog(category: str | None = None) -> list[dict]:

@@ -376,6 +376,20 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         if command:
             for i, arg in enumerate(command):
                 _validate_str_length(arg, f"command[{i}]", _MAX_CMD_ARG)
+            # A tool named by its catalog name runs as its binary (strings is
+            # strings64.exe); a script keeps its name, which finds the script
+            named = get_tool_def(command[0])
+            if (
+                named
+                and named.exec_type != "script"
+                and command[0]
+                .replace("\\", "/")
+                .rsplit("/", 1)[-1]
+                .lower()
+                .removesuffix(".exe")
+                != named.binary.lower().removesuffix(".exe")
+            ):
+                command = [named.binary, *command[1:]]
         from pathlib import Path
 
         from wintools_mcp.tools.generic import run_command as _run
