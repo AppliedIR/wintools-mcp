@@ -204,7 +204,7 @@ LEGACY = "\\\\sift\\cases"  # the share 0.6.3 used
 
 @pytest.fixture
 def legacy(monkeypatch):
-    """net use stand-in for a box upgraded from 0.6.3: this logon session
+    r"""net use stand-in for a box upgraded from 0.6.3: this logon session
     remembers \\sift\cases under an earlier password, so mapping the new share
     gets 1219 until that mapping is deleted. `still` keeps 1219 after it."""
     calls: list[list[str]] = []
