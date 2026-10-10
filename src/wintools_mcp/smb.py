@@ -63,6 +63,24 @@ def _net_use_reason(result) -> str:
     return f"net use exit {result.returncode}"
 
 
+def _legacy_share(share_root: str) -> str:
+    """`\\\\<server>\\cases`, the share 0.6.3 used on the same server; "" when
+    share_root is that share, or isn't \\\\server\\share."""
+    parts = share_root[2:].split("\\")
+    if not share_root.startswith("\\\\") or len(parts) < 2 or not parts[0]:
+        return ""
+    if parts[1].lower() == "cases":  # already that share: its own mapping went first
+        return ""
+    return f"\\\\{parts[0]}\\cases"
+
+
+def _is_1219(result) -> bool:
+    """net use refused: the server is already mapped with other credentials."""
+    return result.returncode != 0 and "system error 1219" in (
+        f"{result.stderr} {result.stdout}".lower()
+    )
+
+
 def _net_use(config):
     return subprocess.run(
         [
@@ -130,6 +148,17 @@ def _attempt(config, share_guard) -> bool:
                 timeout=15,
             )
             again = _net_use(config)
+            legacy = _legacy_share(config.share_root)
+            if legacy and _is_1219(again):
+                # a mapping to the share 0.6.3 used, remembered by this logon
+                # session, holds the server under an earlier join's password
+                subprocess.run(
+                    ["net", "use", legacy, "/delete", "/y"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                again = _net_use(config)
             why = (
                 _probe(config.share_root, config.active_case)
                 if again.returncode == 0

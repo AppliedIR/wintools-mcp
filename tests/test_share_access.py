@@ -199,6 +199,72 @@ def test_a_stale_mapping_is_dropped_and_mapped_again(net, monkeypatch):
     assert smb.is_smb_session_ok() is True
 
 
+LEGACY = "\\\\sift\\cases"  # the share 0.6.3 used
+
+
+@pytest.fixture
+def legacy(monkeypatch):
+    """net use stand-in for a box upgraded from 0.6.3: this logon session
+    remembers \\sift\cases under an earlier password, so mapping the new share
+    gets 1219 until that mapping is deleted. `still` keeps 1219 after it."""
+    calls: list[list[str]] = []
+    state = SimpleNamespace(gone=False, still=False, calls=calls)
+
+    def run(cmd, **k):
+        calls.append(cmd)
+        if "/delete" in cmd:
+            state.gone = state.gone or cmd[2] == LEGACY
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        if state.gone and not state.still:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, ALREADY[0], "", ALREADY[1])
+
+    monkeypatch.setattr(smb.subprocess, "run", run)
+    monkeypatch.setattr(smb, "_smb_session_ok", False)
+    probes = {"ok": lambda: state.gone and not state.still}
+    monkeypatch.setattr(
+        smb, "_probe",
+        lambda share, case: "" if probes["ok"]() else "mapped already with other credentials",
+    )  # fmt: skip
+    return state
+
+
+def _deleted(calls):
+    return [c[2] for c in calls if "/delete" in c]
+
+
+def test_the_0_6_3_shares_mapping_is_dropped_when_it_holds_the_server(legacy):
+    assert smb.establish_smb_session(_cfg("\\\\sift\\vhir-cases")) is True
+    assert _deleted(legacy.calls) == ["\\\\sift\\vhir-cases", LEGACY]
+    assert smb.is_smb_session_ok() is True
+
+
+def test_only_that_one_mapping_is_dropped_and_only_once(legacy):
+    legacy.still = True  # something else holds the server: no session, no more deletes
+    assert smb.establish_smb_session(_cfg("\\\\sift\\vhir-cases")) is False
+    assert _deleted(legacy.calls) == ["\\\\sift\\vhir-cases", LEGACY]
+
+
+def test_a_box_still_on_the_0_6_3_share_drops_only_its_own_mapping(legacy):
+    assert smb.establish_smb_session(_cfg(LEGACY)) is True  # as before
+    assert _deleted(legacy.calls) == [LEGACY]
+
+
+def test_another_net_use_error_drops_nothing_more(net, monkeypatch):
+    monkeypatch.setattr(
+        smb, "_probe", lambda share, case: "wrong user name or password"
+    )
+    net.answers += [ALREADY, (2, "System error 1326 has occurred.")]
+    assert smb.establish_smb_session(_cfg("\\\\sift\\vhir-cases")) is False
+    assert _deleted(net.calls) == ["\\\\sift\\vhir-cases"]
+
+
+def test_the_legacy_share_is_named_on_the_same_server():
+    assert smb._legacy_share("\\\\10.0.1.91\\vhir-cases") == "\\\\10.0.1.91\\cases"
+    assert smb._legacy_share("\\\\10.0.1.91\\CASES") == ""
+    assert smb._legacy_share("C:\\evidence") == ""
+
+
 def test_a_mapping_that_still_fails_is_no_session(net, monkeypatch):
     monkeypatch.setattr(
         smb, "_probe", lambda share, case: "The network name cannot be found"
