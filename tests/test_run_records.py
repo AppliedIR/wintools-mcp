@@ -284,22 +284,30 @@ def test_what_a_user_given_output_folder_gains_is_listed_and_nothing_else(case, 
 
 def test_a_tools_own_output_flag_given_by_the_user_is_not_injected_again(case, tools):
     evtx_dir = case / "evidence"
-    out = case / "work" / "hayabusa.jsonl"
+    out = case / "work" / "hayabusa.csv"
     out.parent.mkdir()
 
     def write(cmd, kw):
-        Path(cmd[cmd.index("--json-output") + 1]).write_text("{}\n")
+        Path(cmd[cmd.index("-o") + 1]).write_text("Timestamp,RuleTitle\n")
 
     _run(
         tools,
         "hayabusa",
         write,
-        command=["hayabusa", "-d", str(evtx_dir), "--json-output", str(out)],
+        command=[
+            "hayabusa",
+            "dfir-timeline",
+            "-d",
+            str(evtx_dir),
+            "-o",
+            str(out),
+            "-w",
+        ],
     )
     (entry,) = _entries(case)
-    assert entry["params"]["command"].count("--json-output") == 1
+    assert entry["params"]["command"].count("-o") == 1
     listed = {o["sift_path"]: o for o in entry["outputs"]}
-    assert listed["work/hayabusa.jsonl"]["sha256"] == sha(out)
+    assert listed["work/hayabusa.csv"]["sha256"] == sha(out)
     folder = {Path(i["path"]).name: i for i in entry["inputs"]}["evidence"]
     assert folder["folder"] is True and "sha256" not in folder
 

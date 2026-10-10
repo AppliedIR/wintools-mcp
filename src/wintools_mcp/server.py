@@ -58,6 +58,13 @@ OUTSIDE_CASE = (
 )
 
 
+def _drive_root(token: str) -> str | None:
+    """A bare drive letter, as KAPE's --tsource takes it (C or C:), as that
+    drive's root (C:\\); None for anything else."""
+    letter = token[:-1] if token.endswith(":") else token
+    return f"{letter.upper()}:\\" if len(letter) == 1 and letter.isalpha() else None
+
+
 def _real(path: str) -> str:
     """`path` resolved, or as given when it can't be: over SMB Windows can
     fail with an error a non-strict resolve doesn't swallow (WinError 59)."""
@@ -426,7 +433,11 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         if td and td.input_flag and td.input_flag in command:
             idx = command.index(td.input_flag)
             if idx + 1 < len(command):
-                parsed = [where(command[idx + 1])]
+                value = where(command[idx + 1])
+                # a bare drive letter (kape --tsource C) is that drive, unless
+                # it names a file in the run's folder
+                drive = _drive_root(command[idx + 1])
+                parsed = [drive if drive and not Path(value).exists() else value]
                 detection_method = "catalog"
         if not parsed:
             parsed = [

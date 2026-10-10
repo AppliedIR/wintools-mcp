@@ -9,8 +9,10 @@ tools:
     timeout_seconds: 600
     fk_tool_name: winpmem
     common_flags:
-      - flag: "-o"
-        description: "Output file path"
+      - flag: "<output path>"
+        description: "Positional: the raw image file to write (e.g. winpmem.exe C:\\case\\mem.raw)"
+      - flag: "-2"
+        description: "Use PTE remapping (AMD64 only; the default on 64-bit)"
     install_methods:
       - method: github
         url: "https://github.com/Velocidex/WinPmem/releases"
@@ -43,10 +45,16 @@ tools:
     timeout_seconds: 300
     fk_tool_name: moneta
     common_flags:
-      - flag: "-a"
-        description: "Scan all processes"
+      - flag: "-m"
+        description: "Required: the memory to select: * | region | referenced | ioc"
+      - flag: "-p"
+        description: "Required: the process to scan: a PID, or * for all"
       - flag: "--option"
-        description: "Filter option (from-base, ioc, etc.)"
+        description: "from-base | statistics"
+      - flag: "--filter"
+        description: "unsigned-module | clr-prvx | clr-heap | metadata-modules"
+      - flag: "-d"
+        description: "Dump the selected memory"
     install_methods:
       - method: github
         url: "https://github.com/forrest-orr/moneta/releases"
@@ -57,11 +65,11 @@ tools:
 
   - name: hollows_hunter
     binary: hollows_hunter.exe
-    description: "Scan running processes for hollowed/injected code using PE-sieve"
+    description: "Scan running processes for hollowed/injected code using PE-sieve (/pid or /pname: one per call, ';' lists are blocked)"
     input_style: flag
     output_format: text
     timeout_seconds: 300
-    fk_tool_name: hollows_hunter
+    fk_tool_name: HollowsHunter
     common_flags:
       - flag: "/loop"
         description: "Continuous scanning mode"

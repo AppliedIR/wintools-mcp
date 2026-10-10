@@ -2,11 +2,27 @@ category: timeline
 tools:
   - name: hayabusa
     binary: hayabusa.exe
-    description: "Sigma-based Windows event log analysis and threat hunting"
+    description: "Sigma-based Windows event log analysis; needs a command, e.g. dfir-timeline -d <evtx folder> -o <file.csv> -w"
     input_style: flag
     input_flag: "-d"
-    output_flag: "--json-output"
-    output_format: json
+    output_format: csv
+    common_flags:
+      - flag: "dfir-timeline"
+        description: "Command: create a DFIR timeline (CSV by default)"
+      - flag: "-d"
+        description: "Directory of multiple .evtx files"
+      - flag: "-f"
+        description: "File path to one .evtx file"
+      - flag: "-o"
+        description: "Save the timeline to a file (e.g. results.csv)"
+      - flag: "-t"
+        description: "Output format: csv (default), json, or jsonl"
+      - flag: "-w"
+        description: "Do not ask questions (needed for an unattended run)"
+      - flag: "-m"
+        description: "Minimum level for rules to load (default: informational)"
+      - flag: "-U"
+        description: "Output time in UTC (default: local time)"
     timeout_seconds: 1800
     fk_tool_name: Hayabusa
     settings_paths: ["rules", "config"]
@@ -20,24 +36,24 @@ tools:
 
   - name: chainsaw
     binary: chainsaw.exe
-    description: "Rapidly search and hunt through Windows forensic artifacts using Sigma rules"
+    description: "Hunt and search Windows artifacts with Sigma and Chainsaw rules; needs a command: hunt <evtx path> -s <sigma> --mapping <map> | search <term> <evtx path>"
     input_style: positional
     output_format: text
     timeout_seconds: 1800
     fk_tool_name: chainsaw
     common_flags:
-      - flag: "--rules"
-        description: "Path to Sigma rules directory"
+      - flag: "-r"
+        description: "A path containing additional Chainsaw rules to hunt with"
+      - flag: "-s"
+        description: "A path containing Sigma rules to hunt with (needs --mapping)"
       - flag: "--mapping"
-        description: "Path to field mapping file"
+        description: "A mapping file telling Chainsaw how to use third-party (Sigma) rules"
       - flag: "--csv"
-        description: "Output as CSV"
+        description: "Switch: print the output in CSV format"
       - flag: "--json"
-        description: "Output as JSON"
+        description: "Switch: print the output in JSON format"
       - flag: "--full"
-        description: "Show full event content in results"
-      - flag: "--lateral-all"
-        description: "Detect lateral movement (all techniques)"
+        description: "Print the full values for the tabular output"
     install_methods:
       - method: github
         url: "https://github.com/WithSecureLabs/chainsaw/releases"

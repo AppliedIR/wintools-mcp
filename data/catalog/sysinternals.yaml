@@ -6,7 +6,7 @@ tools:
     input_style: flag
     output_format: csv
     timeout_seconds: 300
-    fk_tool_name: autoruns
+    fk_tool_name: autorunsc
     common_flags:
       - flag: "-a *"
         description: "Scan all autostart categories"
@@ -132,7 +132,7 @@ tools:
       - flag: "-s"
         description: "Recurse subdirectories"
       - flag: "-u"
-        description: "Show unsigned files only"
+        description: "Show unsigned files only (with a VirusTotal check: files unknown to VT or with detections)"
       - flag: "-v"
         description: "Query VirusTotal"
       - flag: "-h"
@@ -140,9 +140,9 @@ tools:
       - flag: "-r"
         description: "Disable CRL revocation check — required on offline/air-gapped workstations"
       - flag: "-o"
-        description: "Offline VT workflow — capture hashes for later VT check on connected system. Free API: 4 req/min, 500/day. Only submit suspicious hashes, not bulk scans."
+        description: "VirusTotal lookups of hashes in a CSV made earlier with -h -c (the offline-system workflow); the CSV is the positional argument. Free API: 4 req/min, 500/day"
       - flag: "-i"
-        description: "Show catalog-signed files (files signed via CatRoot catalog)"
+        description: "Show catalog name and signing chain"
       - flag: "-accepteula"
         description: "Accept EULA (required for first run)"
     install_methods:

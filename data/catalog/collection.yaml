@@ -11,7 +11,7 @@ tools:
     settings_paths: ["Targets", "Modules"]
     common_flags:
       - flag: "--tsource"
-        description: "Target source directory"
+        description: "Target source: a drive (C, D: or F:\\) or a directory"
       - flag: "--tdest"
         description: "Target destination directory"
       - flag: "--target"
@@ -23,9 +23,9 @@ tools:
       - flag: "--module"
         description: "Module name(s) to run"
       - flag: "--tlist"
-        description: "List available targets"
+        description: "List available targets: --tlist . (a value is required)"
       - flag: "--mlist"
-        description: "List available modules"
+        description: "List available modules: --mlist . (a value is required)"
     install_methods:
       - method: direct
         url: "https://www.kroll.com/en/services/cyber-risk/incident-response-litigation-support/kroll-artifact-parser-extractor-kape"

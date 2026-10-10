@@ -162,7 +162,7 @@ tools:
     binary: SBECmd.exe
     description: "Parse ShellBags for folder access history"
     input_style: flag
-    input_flag: "-f"
+    input_flag: "-d"
     output_format: csv
     output_flag: "--csv"
     timeout_seconds: 300
@@ -231,8 +231,7 @@ tools:
     description: "Extract strings with regex pattern matching"
     input_style: flag
     input_flag: "-f"
-    output_format: csv
-    output_flag: "--csv"
+    output_format: text
     timeout_seconds: 600
     fk_tool_name: bstrings
     install_methods:
