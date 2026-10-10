@@ -65,20 +65,24 @@ def _net_use_reason(result) -> str:
 
 def _legacy_share(share_root: str) -> str:
     """`\\\\<server>\\cases`, the share 0.6.3 used on the same server; "" when
-    share_root is that share, or isn't \\\\server\\share."""
+    share_root is that share or ends in \\cases, or isn't \\\\server\\share."""
     parts = share_root[2:].split("\\")
     if not share_root.startswith("\\\\") or len(parts) < 2 or not parts[0]:
         return ""
-    if parts[1].lower() == "cases":  # already that share: its own mapping went first
-        return ""
+    if parts[1].lower() == "cases" or share_root.rstrip("\\").lower().endswith(
+        "\\cases"
+    ):
+        return ""  # that share, or a folder named cases: its own mapping went first
     return f"\\\\{parts[0]}\\cases"
 
 
 def _is_1219(result) -> bool:
-    """net use refused: the server is already mapped with other credentials."""
-    return result.returncode != 0 and "system error 1219" in (
-        f"{result.stderr} {result.stdout}".lower()
-    )
+    """net use refused: the server is already mapped with other credentials.
+    By the error number, since its words follow Windows' display language."""
+    import re
+
+    text = f"{result.stderr} {result.stdout}"
+    return result.returncode != 0 and re.search(r"(?<!\d)1219(?!\d)", text) is not None
 
 
 def _net_use(config):
@@ -134,9 +138,11 @@ def _attempt(config, share_guard) -> bool:
     """One session attempt, under the lock (see establish_smb_session)."""
     result = _net_use(config)
     combined = (result.stderr + result.stdout).lower()
-    existing = result.returncode != 0 and (
-        "already" in combined or "multiple connections" in combined
-    )
+    existing = (
+        result.returncode != 0
+        and ("already" in combined or "multiple connections" in combined)
+        or _is_1219(result)
+    )  # 1219 by its number, in any display language
     if result.returncode == 0 or existing:
         why = _probe(config.share_root, config.active_case)
         if why and existing and not share_guard.is_refusal(why):

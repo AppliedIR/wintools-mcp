@@ -259,10 +259,37 @@ def test_another_net_use_error_drops_nothing_more(net, monkeypatch):
     assert _deleted(net.calls) == ["\\\\sift\\vhir-cases"]
 
 
+def test_a_localized_1219_still_drops_the_0_6_3_mapping(legacy, monkeypatch):
+    """German Windows: no English words, only the number."""
+    real = smb.subprocess.run
+
+    def german(cmd, **k):
+        r = real(cmd, **k)
+        if r.returncode:
+            r = subprocess.CompletedProcess(
+                cmd, 2, "", "Systemfehler 1219 aufgetreten."
+            )
+        return r
+
+    monkeypatch.setattr(smb.subprocess, "run", german)
+    assert smb.establish_smb_session(_cfg("\\\\sift\\vhir-cases")) is True
+    assert _deleted(legacy.calls) == ["\\\\sift\\vhir-cases", LEGACY]
+
+
+def test_1219_is_known_by_its_number_in_any_display_language():
+    de = subprocess.CompletedProcess([], 2, "", "Systemfehler 1219 aufgetreten.")
+    assert smb._is_1219(de)
+    assert not smb._is_1219(
+        subprocess.CompletedProcess([], 2, "", "Systemfehler 12190")
+    )
+    assert not smb._is_1219(subprocess.CompletedProcess([], 0, "1219", ""))
+
+
 def test_the_legacy_share_is_named_on_the_same_server():
     assert smb._legacy_share("\\\\10.0.1.91\\vhir-cases") == "\\\\10.0.1.91\\cases"
     assert smb._legacy_share("\\\\10.0.1.91\\CASES") == ""
     assert smb._legacy_share("C:\\evidence") == ""
+    assert smb._legacy_share("\\\\10.0.1.91\\data\\cases") == ""  # ends in \cases
 
 
 def test_a_mapping_that_still_fails_is_no_session(net, monkeypatch):
