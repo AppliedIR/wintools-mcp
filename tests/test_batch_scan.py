@@ -250,6 +250,40 @@ def test_each_input_is_hashed_as_the_tool_read_it(case, ran, monkeypatch):
     assert got == scanned
 
 
+def test_a_link_into_a_blocked_folder_is_refused_before_it_is_read(
+    case, ran, monkeypatch, tmp_path
+):
+    """Its target is never hashed or run: the refusal is its row and input."""
+    from wintools_mcp import security
+
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    (blocked / "token.dll").write_bytes(b"secret")
+    monkeypatch.setattr(security, "_BLOCKED_DIRECTORIES", (str(blocked),))
+    folder = _files(case / "evidence" / "lk", ["a.dll"])
+    (folder / "link.dll").symlink_to(blocked / "token.dll")
+    from wintools_mcp import operation
+
+    hashed, record = [], operation.file_record
+    monkeypatch.setattr(
+        operation,
+        "file_record",
+        lambda p, r: hashed.append(Path(p).name) or record(p, r),
+    )
+    resp = _scan(folder)
+    assert "token.dll" not in hashed  # never read
+    assert [Path(f).name for f in ran] == ["a.dll"]
+    inputs = {Path(i["path"]).name: i for i in _one_entry(case)["inputs"]}
+    assert "sha256" not in inputs["link.dll"] and "size" not in inputs["link.dll"]
+    assert "Access denied" in inputs["link.dll"]["error"]
+    log = (case / "audit" / "wintools-mcp.jsonl").read_text()
+    text = log + (case / resp["results_file"]).read_text() + json.dumps(resp)
+    assert str(blocked) not in text and "token.dll" not in text
+    assert resp["exit_codes"] == {"0": 1, "error": 1}
+    rows, _ = _rows(case / resp["results_file"])
+    assert "Access denied" in rows["link.dll"][1]
+
+
 def test_a_share_repointed_during_the_batch_gets_no_folder_and_no_entry(
     case, ran, monkeypatch
 ):

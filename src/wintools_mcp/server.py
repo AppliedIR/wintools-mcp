@@ -368,16 +368,26 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             if _time.monotonic() - start > timeout:
                 errors.append(f"Timeout after {i} files")
                 break
-            try:
-                record = operation.file_record(Path(filepath).resolve(), cfg.share_root)
-            except OSError as e:
-                record = {"path": filepath, "error": e.strerror or str(e)}
             row = {
                 "file": filepath,
                 "exit_code": None,
                 "stdout_bytes": 0,
                 "preview": "",
             }
+            # A name resolving into a blocked folder is never read, and what
+            # it resolves to isn't recorded
+            try:
+                validate_input_path(filepath)
+            except ValueError:
+                why = f"Access denied: {filepath} resolves into a blocked folder"
+                errors.append(why)
+                results.append({**row, "error": why})
+                inputs.append({"path": filepath, "error": why})
+                continue
+            try:
+                record = operation.file_record(Path(filepath).resolve(), cfg.share_root)
+            except OSError as e:
+                record = {"path": filepath, "error": e.strerror or str(e)}
             try:
                 r = _run(
                     [tool, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
