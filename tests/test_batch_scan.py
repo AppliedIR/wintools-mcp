@@ -284,6 +284,69 @@ def test_a_link_into_a_blocked_folder_is_refused_before_it_is_read(
     assert "Access denied" in rows["link.dll"][1]
 
 
+def test_a_file_that_fails_before_its_run_is_recorded_and_the_batch_goes_on(
+    case, ran, monkeypatch
+):
+    """Resolving its name raises OSError (an SMB path, say): the other file
+    still runs, and the one entry records both."""
+    import pathlib
+
+    resolve = pathlib.Path.resolve
+
+    def failing(self, *a, **k):
+        if self.name == "b.dll":
+            raise OSError(22, "The network name cannot be found")
+        return resolve(self, *a, **k)
+
+    folder = _files(case / "evidence" / "os", ["a.dll", "b.dll"])
+    monkeypatch.setattr(pathlib.Path, "resolve", failing)
+    resp = _scan(folder)
+    assert [Path(f).name for f in ran] == ["a.dll"]
+    inputs = {Path(i["path"]).name: i for i in _one_entry(case)["inputs"]}
+    assert inputs["a.dll"]["sha256"] and "sha256" not in inputs["b.dll"]
+    assert "network name" in inputs["b.dll"]["error"]
+    assert resp["exit_codes"] == {"0": 1, "error": 1}
+
+
+class _Odd(Exception):
+    pass
+
+
+@pytest.mark.parametrize("stage", ["check", "hash", "run"])
+@pytest.mark.parametrize(
+    "exc", [OSError, RuntimeError, ValueError, UnicodeError, KeyError, _Odd]
+)
+def test_any_failure_on_one_file_leaves_every_row_and_one_entry(
+    case, ran, monkeypatch, stage, exc
+):
+    from wintools_mcp import operation, security
+    from wintools_mcp.tools import generic
+
+    target = {
+        "check": (security, "validate_input_path"),
+        "hash": (operation, "file_record"),
+        "run": (generic, "run_command"),
+    }[stage]
+    real = getattr(*target)
+
+    def failing(*a, **k):
+        if "b.dll" in str(a[0]):
+            raise exc("failed on b.dll")
+        return real(*a, **k)
+
+    monkeypatch.setattr(*target, failing)
+    resp = _scan(_files(case / "evidence" / "x", ["a.dll", "b.dll"]))
+    inputs = {Path(i["path"]).name: i for i in _one_entry(case)["inputs"]}
+    assert set(inputs) == {"a.dll", "b.dll"} and inputs["a.dll"]["sha256"]
+    assert "sha256" not in inputs["b.dll"] or stage == "run"
+    assert sum(resp["exit_codes"].values()) == 2
+    assert _rows(case / resp["results_file"])[1] == 2
+    # a file that can't be hashed is still run, as run_windows_command does
+    assert ("b.dll" in {Path(f).name for f in ran}) == (
+        stage == "hash" and exc is OSError
+    )
+
+
 def test_a_share_repointed_during_the_batch_gets_no_folder_and_no_entry(
     case, ran, monkeypatch
 ):

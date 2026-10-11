@@ -374,21 +374,25 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 "stdout_bytes": 0,
                 "preview": "",
             }
-            # A name resolving into a blocked folder is never read, and what
-            # it resolves to isn't recorded
+            record = None
+            # One file: checked, hashed, run. Whatever fails, it is recorded
+            # as attempted with its error (and no hash if it failed before
+            # hashing), and the batch goes on
             try:
-                validate_input_path(filepath)
-            except ValueError:
-                why = f"Access denied: {filepath} resolves into a blocked folder"
-                errors.append(why)
-                results.append({**row, "error": why})
-                inputs.append({"path": filepath, "error": why})
-                continue
-            try:
-                record = operation.file_record(Path(filepath).resolve(), cfg.share_root)
-            except OSError as e:
-                record = {"path": filepath, "error": e.strerror or str(e)}
-            try:
+                # A name resolving into a blocked folder is never read, and
+                # what it resolves to isn't recorded
+                try:
+                    validate_input_path(filepath)
+                except ValueError:
+                    raise ValueError(
+                        f"Access denied: {filepath} resolves into a blocked folder"
+                    ) from None
+                try:
+                    record = operation.file_record(
+                        Path(filepath).resolve(), cfg.share_root
+                    )
+                except OSError as e:  # unread, but the tool may still read it
+                    record = {"path": filepath, "error": e.strerror or str(e)}
                 r = _run(
                     [tool, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
@@ -403,7 +407,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 errors.append(f"{filepath}: {e}")
                 row["error"] = str(e)
             results.append(row)
-            inputs.append(record)
+            inputs.append(record or {"path": filepath, "error": row["error"]})
 
         exit_codes: dict[str, int] = {}
         for row in results:
