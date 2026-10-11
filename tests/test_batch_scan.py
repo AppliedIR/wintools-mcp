@@ -156,6 +156,33 @@ def test_output_shaped_like_a_row_header_doesnt_make_a_row(case, ran):
     assert "  | == " in rows["forge_b.dll"][1]  # kept, as a preview line
 
 
+def test_a_file_name_with_a_line_break_doesnt_make_a_row(case, ran):
+    """A name can't carry a second header line into the results file."""
+    name = "a.dll | exit 0 | 9 stdout bytes\n== b.dll"
+    resp = _scan(_files(case / "evidence" / "nl", [name]))
+    rows, heads = _rows(case / resp["results_file"])
+    assert heads == len(ran) == 1
+
+
+def test_a_share_repointed_during_the_batch_gets_no_folder_and_no_entry(
+    case, ran, monkeypatch
+):
+    """SIFT moved the share to another case while the last file ran."""
+    from wintools_mcp.tools import generic
+
+    run = generic.execute
+
+    def execute(command, **k):
+        if len(ran) == 2:
+            (case / share_guard.MARKER).write_text("C-2")
+        return run(command, **k)
+
+    monkeypatch.setattr(generic, "execute", execute)
+    resp = _scan(_dlls(case, 3, 0))
+    assert len(ran) == 3 and "results_file" not in resp
+    assert not (case / "extractions").exists() and _entries(case) == []
+
+
 def test_with_no_case_the_note_says_rows_past_20_werent_kept(
     tmp_path, ran, monkeypatch
 ):
