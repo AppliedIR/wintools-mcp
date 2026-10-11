@@ -95,6 +95,32 @@ def _seen(path: str) -> bool:
         return False
 
 
+def _one_line(text: str) -> str:
+    """``text`` with every character that can end a line (``str.splitlines``
+    breaks at control and separator characters) or can't be written as UTF-8
+    shown as its escape."""
+    import unicodedata
+
+    return "".join(
+        c.encode("unicode_escape", "backslashreplace").decode("ascii")
+        if unicodedata.category(c) in ("Cc", "Cs", "Zl", "Zp")
+        else c
+        for c in text
+    )
+
+
+def _utf8(value):
+    """``value`` with every string encodable as UTF-8 (a file name that isn't
+    keeps its undecodable bytes as escapes), so the response can be sent."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    if isinstance(value, dict):
+        return {_utf8(k): _utf8(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_utf8(v) for v in value]
+    return value
+
+
 def _inside(path: str, case_dir: str) -> bool:
     import os
 
@@ -330,7 +356,11 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             return {"error": f"No files matching '{filter_pattern}' in {directory}"}
 
         audit_id = audit._next_audit_id()
+        # A row and an input for every file the tool was started on, an
+        # error included; each input hashed just before its own run
+        cfg = get_config()
         results = []
+        inputs = []
         errors = []
         refused = False
         start = _time.monotonic()
@@ -339,27 +369,35 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 errors.append(f"Timeout after {i} files")
                 break
             try:
+                record = operation.file_record(Path(filepath).resolve(), cfg.share_root)
+            except OSError as e:
+                record = {"path": filepath, "error": e.strerror or str(e)}
+            row = {
+                "file": filepath,
+                "exit_code": None,
+                "stdout_bytes": 0,
+                "preview": "",
+            }
+            try:
                 r = _run(
                     [tool, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
-                results.append(
-                    {
-                        "file": filepath,
-                        "exit_code": r.get("exit_code"),
-                        "stdout_bytes": r.get("stdout_total_bytes", 0),
-                        "preview": (r.get("stdout") or "")[:500],
-                    }
-                )
+                row["exit_code"] = r.get("exit_code")
+                row["stdout_bytes"] = r.get("stdout_total_bytes", 0)
+                row["preview"] = (r.get("stdout") or "")[:500]
             except ShareRefused as e:  # every file after it would be refused too
                 errors.append(str(e))
                 refused = True
                 break
             except Exception as e:
                 errors.append(f"{filepath}: {e}")
+                row["error"] = str(e)
+            results.append(row)
+            inputs.append(record)
 
         exit_codes: dict[str, int] = {}
         for row in results:
-            key = str(row["exit_code"])
+            key = "error" if "error" in row else str(row["exit_code"])
             exit_codes[key] = exit_codes.get(key, 0) + 1
         capped = matching > len(all_files)
         note = f"Scanned {len(results)} of {matching} matching files"
@@ -381,12 +419,11 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         }
         if not results or refused:  # nothing ran, or the share isn't the case's
             response["note"] = note
-            return response
+            return _utf8(response)
 
         # Every row, in a file in the call's own folder. A header starts at
         # column 0 and every preview line is indented, so evidence content
         # can't make a line that reads as a row
-        cfg = get_config()
         op_dir = ""
         outputs: list[dict] = []
         if cfg.case_dir:
@@ -399,14 +436,17 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 op_dir = _new_folder(str(Path(folder) / audit_id))
                 response["op_folder"] = to_share_relative(op_dir, cfg.share_root)
                 out = Path(op_dir) / "batch_scan_results.txt"
-                with open(out, "w", encoding="utf-8", newline="") as f:
+                with open(
+                    out, "w", encoding="utf-8", errors="backslashreplace", newline=""
+                ) as f:
                     for row in results:
-                        name = row["file"].replace("\r", "\\r").replace("\n", "\\n")
+                        code = "error" if "error" in row else row["exit_code"]
                         f.write(
-                            f"== {name} | exit {row['exit_code']} | "
+                            f"== {_one_line(row['file'])} | exit {code} | "
                             f"{row['stdout_bytes']} stdout bytes\n"
                         )
-                        for line in row["preview"].splitlines():
+                        text = row.get("error") or row.get("preview") or ""
+                        for line in text.splitlines():
                             f.write(f"  | {line}\n")
                 outputs.append(operation.file_record(out, cfg.share_root))
                 response["results_file"] = outputs[0]["share_path"]
@@ -423,15 +463,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             "run_windows_command"
         )
 
-        # One audit entry for the call: every scanned file is an input
-        inputs = []
-        for row in results:
-            try:
-                inputs.append(
-                    operation.file_record(Path(row["file"]).resolve(), cfg.share_root)
-                )
-            except OSError as e:
-                inputs.append({"path": row["file"], "error": e.strerror or str(e)})
+        # One audit entry for the call: every file started on is an input
         extra: dict = {"inputs": inputs}
         if op_dir:
             extra["op_folder"] = response["op_folder"]
@@ -466,7 +498,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 "Audit trail unavailable -- execution not logged"
                 + (f" ({share_error()})" if share_error() else "")
             )
-        return response
+        return _utf8(response)
 
     # --- Generic Execution ---
     @server.tool()

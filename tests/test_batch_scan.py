@@ -14,6 +14,7 @@ import json
 import re
 from pathlib import Path
 
+import pydantic_core
 import pytest
 
 from wintools_mcp import audit as audit_mod
@@ -21,7 +22,7 @@ from wintools_mcp import config as config_mod
 from wintools_mcp import share_guard
 from wintools_mcp.config import WintoolsConfig
 
-HEADER = re.compile(r"^== (.+) \| exit (-?\d+) \| (\d+) stdout bytes$")
+HEADER = re.compile(r"^== (.+) \| exit (-?\d+|error) \| (\d+) stdout bytes$")
 
 
 @pytest.fixture
@@ -94,7 +95,8 @@ def _rows(path: Path) -> tuple[dict, int]:
         if m := HEADER.match(line):
             heads += 1
             cur = Path(m.group(1)).name
-            rows[cur] = (int(m.group(2)), [])
+            code = m.group(2)
+            rows[cur] = (code if code == "error" else int(code), [])
         elif cur:
             rows[cur][1].append(line)
     return {k: (v[0], "\n".join(v[1])) for k, v in rows.items()}, heads
@@ -162,6 +164,90 @@ def test_a_file_name_with_a_line_break_doesnt_make_a_row(case, ran):
     resp = _scan(_files(case / "evidence" / "nl", [name]))
     rows, heads = _rows(case / resp["results_file"])
     assert heads == len(ran) == 1
+
+
+@pytest.mark.parametrize(
+    "brk",
+    ["\u2028", "\u2029", "\x85", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e"],
+    ids=["LS", "PS", "NEL", "VT", "FF", "FS", "GS", "RS"],
+)
+def test_a_file_name_with_any_line_break_doesnt_make_a_row(case, ran, brk):
+    """Every character str.splitlines breaks at, read back as lines."""
+    name = f"a.dll{brk}== ghost0.dll | exit 0 | 9 stdout bytes"
+    resp = _scan(_files(case / "evidence" / "nl", [name]))
+    rows, heads = _rows(case / resp["results_file"])
+    assert heads == len(ran) == 1
+    assert [k[:5] for k in rows] == ["a.dll"]  # the real name, not the forged one
+
+
+def _one_entry(case) -> dict:
+    entries = _entries(case)
+    assert [e["tool"] for e in entries] == ["batch_scan"]
+    return entries[0]
+
+
+def test_a_file_whose_run_raised_after_it_started_is_still_recorded(case, ran):
+    """A name that isn't UTF-8: the tool runs, then reading its output fails."""
+    import os
+
+    folder = case / "evidence" / "bad"
+    folder.mkdir(parents=True)
+    with open(os.path.join(os.fsencode(folder), b"bad\xff.dll"), "wb") as f:
+        f.write(b"MZ")
+    resp = _scan(folder)
+    assert len(ran) == 1 and resp["files_processed"] == 1 and resp["errors"]
+    pydantic_core.to_json(resp)  # as the server sends it
+    assert resp["exit_codes"] == {"error": 1}
+    e = _one_entry(case)
+    assert [i["path"] for i in e["inputs"]] == [str(Path(ran[0]).resolve())]
+    assert e["inputs"][0]["sha256"] == hashlib.sha256(b"MZ").hexdigest()
+    rows, heads = _rows(case / resp["results_file"])
+    assert heads == 1
+
+
+def test_a_file_whose_run_timed_out_is_a_row_and_an_input(case, ran, monkeypatch):
+    from wintools_mcp.exceptions import ExecutionTimeoutError
+    from wintools_mcp.tools import generic
+
+    run = generic.execute
+
+    def execute(command, **k):
+        if "slow" in command[-1]:
+            ran.append(command[-1])
+            raise ExecutionTimeoutError(f"Command timed out after 300s: {command}")
+        return run(command, **k)
+
+    monkeypatch.setattr(generic, "execute", execute)
+    resp = _scan(_files(case / "evidence" / "t", ["a.dll", "slow.dll", "c.dll"]))
+    assert len(ran) == 3 and resp["exit_codes"] == {"0": 2, "error": 1}
+    rows, heads = _rows(case / resp["results_file"])
+    assert heads == 3 and "timed out" in rows["slow.dll"][1]
+    assert {Path(i["path"]).name for i in _one_entry(case)["inputs"]} == {
+        "a.dll",
+        "slow.dll",
+        "c.dll",
+    }
+
+
+def test_each_input_is_hashed_as_the_tool_read_it(case, ran, monkeypatch):
+    """A file changed by a later file's run, or by its own, keeps the hash of
+    the bytes before its run."""
+    from wintools_mcp.tools import generic
+
+    run = generic.execute
+
+    def execute(command, **k):
+        if len(ran) == 1:  # the second run rewrites the first file, and its own
+            Path(ran[0]).write_bytes(b"changed after it was scanned")
+            Path(command[-1]).write_bytes(b"changed while it was scanned")
+        return run(command, **k)
+
+    monkeypatch.setattr(generic, "execute", execute)
+    folder = _files(case / "evidence" / "m", ["a.dll", "b.dll"])
+    scanned = {n: _sha(folder / n) for n in ("a.dll", "b.dll")}
+    _scan(folder)
+    got = {Path(i["path"]).name: i["sha256"] for i in _one_entry(case)["inputs"]}
+    assert got == scanned
 
 
 def test_a_share_repointed_during_the_batch_gets_no_folder_and_no_entry(
