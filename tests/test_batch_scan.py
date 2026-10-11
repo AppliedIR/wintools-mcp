@@ -127,7 +127,7 @@ def test_a_run_under_the_cap_isnt_capped(case, ran):
 @pytest.mark.parametrize("max_files", [0, -1])
 def test_a_cap_below_one_is_refused_and_nothing_runs(case, ran, max_files):
     resp = _scan(_dlls(case, 50, 0), max_files=max_files)
-    assert "error" in resp and ran == []
+    assert "max_files must be at least 1" in resp["error"] and ran == []
     assert not (case / "extractions").exists() and _entries(case) == []
 
 
