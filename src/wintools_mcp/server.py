@@ -877,7 +877,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
             )
-            return response
+            return _utf8(response)
         except Exception as e:
             elapsed = time.monotonic() - start
             logger.error(
@@ -900,7 +900,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
             )
-            return response
+            return _utf8(response)
 
     # Per-tool wrappers removed in FU-3 consolidation.
     # All tool execution goes through run_windows_command() which validates

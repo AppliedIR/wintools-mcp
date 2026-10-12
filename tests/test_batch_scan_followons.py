@@ -118,3 +118,28 @@ def test_a_reply_naming_an_undecodable_file_can_be_sent(case, quiet, save):  # n
     r = fn(command=["sigcheck", os.fsdecode(raw)], purpose="check", save_output=save)
     sent = json.loads(pydantic_core.to_json(r))
     assert sent["success"] is True and sent.get("audit_id")
+
+
+@pytest.mark.parametrize(
+    "error", [ValueError, RuntimeError], ids=["refused", "unexpected"]
+)
+def test_an_error_naming_an_undecodable_file_can_be_sent(case, monkeypatch, error):  # noqa: F811
+    """The tool's run fails with an error whose text names the file."""
+    from wintools_mcp.tools import generic
+
+    def execute(command, **k):
+        raise error(f"cannot read {command[-1]}")
+
+    monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
+    monkeypatch.setattr(generic, "execute", execute)
+    folder = case / "evidence"
+    folder.mkdir()
+    raw = os.fsencode(str(folder)) + b"/bad\xff.exe"
+    with open(raw, "wb") as f:
+        f.write(b"MZbad")
+    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    r = fn(command=["sigcheck", os.fsdecode(raw)], purpose="check")
+    sent = json.loads(pydantic_core.to_json(r))
+    assert (
+        sent["success"] is False and "bad\\udcff.exe" in sent["error"]
+    )  # the byte, escaped
