@@ -609,9 +609,10 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             idx = command.index(td.input_flag)
             if idx + 1 < len(command):
                 value = where(command[idx + 1])
-                # a bare drive letter (kape --tsource C) is that drive, unless
-                # it names a file in the run's folder
-                drive = _drive_root(command[idx + 1])
+                # a bare drive letter is that drive for kape's --tsource only,
+                # unless it names a file in the run's folder
+                tsource = td.input_flag.lower() == "--tsource"
+                drive = _drive_root(command[idx + 1]) if tsource else None
                 parsed = [drive if drive and not Path(value).exists() else value]
                 detection_method = "catalog"
         if not parsed:
