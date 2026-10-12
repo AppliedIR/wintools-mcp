@@ -46,6 +46,35 @@ EULA = BANNER + "SYSINTERNALS SOFTWARE LICENSE TERMS\r\n" + TERMS + "\r\n* updat
 NAMED = "showed its license (EULA) screen and didn't run"
 
 
+def _screen(name: str, copyright: str, site: str) -> str:
+    """A captured screen's head: banner, blank line, title, first terms line."""
+    terms = TERMS.replace("technet.microsoft.com / sysinternals", site)
+    return (
+        f"\r\n{name}\r\n{copyright}\r\nSysinternals - www.sysinternals.com\r\n\r\n"
+        f"SYSINTERNALS SOFTWARE LICENSE TERMS\r\n{terms}\r\n* updates,\r\n"
+    )
+
+
+# The three captured on the guest, each run as an account that hadn't accepted
+SCREENS = {
+    "sigcheck": _screen(
+        "Sigcheck v2.90 - File version and signature viewer",
+        "Copyright (C) 2004-2022 Mark Russinovich",
+        "technet.microsoft.com / sysinternals",
+    ),
+    "autorunsc": _screen(
+        "Sysinternals Autoruns v14.10 - Autostart program viewer",
+        "Copyright (C) 2002-2023 Mark Russinovich",
+        "https://sysinternals.com",
+    ),
+    "strings": _screen(
+        "Strings v2.54 - Search for ANSI and Unicode strings in binary images.",
+        "Copyright (C) 1999-2021 Mark Russinovich",
+        "technet.microsoft.com / sysinternals",
+    ),
+}
+
+
 def _sent(r: dict) -> dict:
     return json.loads(pydantic_core.to_json(r))
 
@@ -92,6 +121,16 @@ def test_an_eula_screen_in_a_batch_is_an_error_not_a_result(case, tools, tool): 
     assert "unsigned files found" not in json.dumps(r)
     rows, _ = _rows(case / r["results_file"])
     assert len(rows) == 2 and all(code == "error" for code, _ in rows.values())
+
+
+@pytest.mark.parametrize("tool", sorted(SCREENS))
+def test_each_captured_screen_is_the_named_failure(case, tools, tool):  # noqa: F811
+    tools["said"], tools["code"] = SCREENS[tool], 1
+    target = _files(case / "evidence" / f"cap-{tool}", ["a.exe"]) / "a.exe"
+    args = ["-a", "*"] if tool == "autorunsc" else [str(target)]
+    r = _sent(_tool("run_windows_command")(command=[tool, *args], purpose="check"))
+    assert r["success"] is False and NAMED in r["error"], r
+    assert "exit_code_meaning" not in r["metadata"]
 
 
 def test_an_eula_screen_through_run_windows_command_is_a_named_failure(case, tools):  # noqa: F811
@@ -253,3 +292,70 @@ def test_an_error_naming_an_odd_name_shows_its_code_point(case, monkeypatch):  #
     text = (case / r["results_file"]).read_text(encoding="utf-8")
     assert f"  | cannot read {folder}/bad<U+DCFF>.exe" in text, text
     assert "\\udcff" not in text
+
+
+# sigcheck's forensic-knowledge entry, the parts a reply uses (as shipped)
+FK_SIGCHECK = {
+    "caveats": [
+        "Unsigned files are common for legitimate scripts, custom tools, and some open-source software",
+        "Exit code 1 = unsigned files found (not an error)",
+    ],
+    "exit_code_hints": {0: "success", 1: "error"},
+    "advisories": [
+        "Use -e to scan a directory for unsigned executables — common first triage step"
+    ],
+    "field_meanings": {"Verified": "Signature verification result"},
+}
+
+
+@pytest.fixture
+def fk(monkeypatch):
+    from wintools_mcp import response
+
+    loader = type("FK", (), {"get_tool": staticmethod(lambda name: FK_SIGCHECK),
+                             "get_artifact": staticmethod(lambda name: None)})  # fmt: skip
+    monkeypatch.setattr(response, "fk_loader", loader)
+    response.reset_call_counter()
+
+
+def test_an_eula_reply_carries_no_meaning_caveat_or_hint(case, tools, fk):  # noqa: F811
+    tools["screen"] = True
+    target = _files(case / "evidence" / "fk", ["a.exe"]) / "a.exe"
+    r = _sent(
+        _tool("run_windows_command")(command=["sigcheck", str(target)], purpose="check")
+    )
+    assert r["success"] is False and NAMED in r["error"]
+    assert (
+        r["metadata"]["exit_code"] == 1 and "exit_code_meaning" not in r["metadata"]
+    ), r
+    for key in (
+        "caveats",
+        "advisories",
+        "field_meanings",
+        "corroboration",
+        "field_notes",
+    ):
+        assert key not in r, key
+    text = json.dumps(r)
+    assert "Exit code 1" not in text and "unsigned" not in text.lower()
+
+
+def test_a_run_still_gets_its_knowledge_and_meaning(case, tools, fk):  # noqa: F811
+    folder = _files(case / "evidence" / "fkrun", ["evil.exe"])
+    r = _sent(_tool("run_windows_command")(command=["sigcheck", str(folder / "evil.exe")],
+                                           purpose="check"))  # fmt: skip
+    assert r["success"] is True
+    assert r["metadata"]["exit_code_meaning"] == "unsigned files found"
+    assert "Exit code 1 = unsigned files found (not an error)" in r["caveats"]
+
+
+def test_a_title_line_that_isnt_exactly_the_title_isnt_the_screen():
+    """Hostile text that lines up the site line, the title inside a longer
+    line, and the terms' opening."""
+    from wintools_mcp.tools.generic import eula_screen
+
+    lined_up = (
+        BANNER + "C:\\x\\SYSINTERNALS SOFTWARE LICENSE TERMS.exe:\r\n" + TERMS + "\r\n"
+    )
+    assert eula_screen(lined_up) is False
+    assert all(eula_screen(screen) for screen in SCREENS.values())

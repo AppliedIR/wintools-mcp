@@ -179,28 +179,28 @@ def _expand_script_command(command: list[str]) -> list[str]:
 
 # What a Sysinternals tool prints, in place of running, for an account that
 # hasn't accepted its EULA (measured: strings 2.54, sigcheck 2.90, Autoruns
-# 14.10): its banner, ending with the site line, then the terms' title and
-# their first line, each a line of its own
-EULA_SCREEN = (
-    "Sysinternals - www.sysinternals.com",
-    "SYSINTERNALS SOFTWARE LICENSE TERMS",
-    "These license terms are an agreement between Sysinternals(a wholly owned "
-    "subsidiary of Microsoft Corporation) and you.Please read them.They apply to "
-    "the software you are downloading from technet.microsoft.com / sysinternals, "
-    "which includes the media on which you received it, if any.The terms also "
-    "apply to any Sysinternals",
-)
+# 14.10): its banner, ending with the site line, then the terms' title, then
+# their first line, which names a download site that differs between tools
+EULA_SITE = "Sysinternals - www.sysinternals.com"
+EULA_TITLE = "SYSINTERNALS SOFTWARE LICENSE TERMS"
+EULA_TERMS = "These license terms are an agreement between Sysinternals"
 EULA_BANNER_LINES = 4  # name and version, copyright, the site
 
 
 def eula_screen(stdout: str) -> bool:
-    """``stdout`` is the EULA screen: the banner's site line, then the title
-    and the terms' first line exactly. Text in a result (a file named after
-    the title) never makes a line of its own that is exactly the title."""
+    """``stdout`` is the EULA screen: the banner's site line, then a line that
+    is exactly the title, then the terms' first line. Text in a result (a
+    file named after the title) never makes a line of its own that is
+    exactly the title."""
     lines = [line.strip() for line in stdout.splitlines() if line.strip()]
     for i, line in enumerate(lines[:EULA_BANNER_LINES]):
-        if line == EULA_SCREEN[0]:
-            return lines[i + 1 : i + 3] == list(EULA_SCREEN[1:])
+        if line == EULA_SITE:
+            after = lines[i + 1 : i + 3]
+            return (
+                len(after) == 2
+                and after[0] == EULA_TITLE
+                and after[1].startswith(EULA_TERMS)
+            )
     return False
 
 

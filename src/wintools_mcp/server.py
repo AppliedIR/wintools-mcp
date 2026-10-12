@@ -800,9 +800,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             exit_code = exec_result["exit_code"]
             eula = exec_result.get("eula_screen")  # the tool didn't run: no result
             success = not eula and (td.is_success(exit_code) if td else exit_code == 0)
-            exit_code_meaning = (
-                td.exit_code_meanings.get(exit_code) if td and not eula else None
-            )
+            exit_code_meaning = td.exit_code_meanings.get(exit_code) if td else None
 
             response = build_response(
                 tool_name="run_windows_command",
@@ -815,6 +813,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 exit_code_meaning=exit_code_meaning,
                 command=command,
                 error=eula,
+                tool_ran=not eula,
                 fk_tool_name=fk_name,
                 extractions=exec_result.get("extractions"),
                 output_files=[
