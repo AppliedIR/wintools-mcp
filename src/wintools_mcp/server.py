@@ -430,7 +430,10 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     [binary, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
                 row["exit_code"] = r.get("exit_code")
-                if td and r.get("exit_code") in td.exit_code_meanings:
+                if r.get("eula_screen"):  # not a result: no meaning
+                    row["error"] = r["eula_screen"]
+                    errors.append(f"{filepath}: {r['eula_screen']}")
+                elif td and r.get("exit_code") in td.exit_code_meanings:
                     row["exit_meaning"] = td.exit_code_meanings[r["exit_code"]]
                 row["stdout_bytes"] = r.get("stdout_total_bytes", 0)
                 row["preview"] = (r.get("stdout") or "")[:500]
@@ -795,8 +798,11 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 resp_format = exec_result.get("_output_format", "text")
 
             exit_code = exec_result["exit_code"]
-            success = td.is_success(exit_code) if td else exit_code == 0
-            exit_code_meaning = td.exit_code_meanings.get(exit_code) if td else None
+            eula = exec_result.get("eula_screen")  # the tool didn't run: no result
+            success = not eula and (td.is_success(exit_code) if td else exit_code == 0)
+            exit_code_meaning = (
+                td.exit_code_meanings.get(exit_code) if td and not eula else None
+            )
 
             response = build_response(
                 tool_name="run_windows_command",
@@ -808,6 +814,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 exit_code=exit_code,
                 exit_code_meaning=exit_code_meaning,
                 command=command,
+                error=eula,
                 fk_tool_name=fk_name,
                 extractions=exec_result.get("extractions"),
                 output_files=[
@@ -857,6 +864,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "stdout_encoding": exec_result.get("stdout_encoding", ""),
                     "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
+                    **({"error": eula} if eula else {}),
                 },
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,

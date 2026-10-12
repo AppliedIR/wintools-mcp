@@ -11,7 +11,7 @@ from pathlib import Path
 from wintools_mcp.catalog import PS_SCRIPT_EXCEPTIONS, get_tool_def, validate_command
 from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_tool
-from wintools_mcp.exceptions import DenylistError, ExecutionError, ToolNotInCatalogError
+from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
 from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args, validate_input_path
 
@@ -177,8 +177,31 @@ def _expand_script_command(command: list[str]) -> list[str]:
     ] + command[1:]
 
 
-EULA_BANNER = "SYSINTERNALS SOFTWARE LICENSE TERMS"
-EULA_WITHIN = 1024  # the screen opens with the tool's banner, then the terms
+# What a Sysinternals tool prints, in place of running, for an account that
+# hasn't accepted its EULA (measured: strings 2.54, sigcheck 2.90, Autoruns
+# 14.10): its banner, ending with the site line, then the terms' title and
+# their first line, each a line of its own
+EULA_SCREEN = (
+    "Sysinternals - www.sysinternals.com",
+    "SYSINTERNALS SOFTWARE LICENSE TERMS",
+    "These license terms are an agreement between Sysinternals(a wholly owned "
+    "subsidiary of Microsoft Corporation) and you.Please read them.They apply to "
+    "the software you are downloading from technet.microsoft.com / sysinternals, "
+    "which includes the media on which you received it, if any.The terms also "
+    "apply to any Sysinternals",
+)
+EULA_BANNER_LINES = 4  # name and version, copyright, the site
+
+
+def eula_screen(stdout: str) -> bool:
+    """``stdout`` is the EULA screen: the banner's site line, then the title
+    and the terms' first line exactly. Text in a result (a file named after
+    the title) never makes a line of its own that is exactly the title."""
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    for i, line in enumerate(lines[:EULA_BANNER_LINES]):
+        if line == EULA_SCREEN[0]:
+            return lines[i + 1 : i + 3] == list(EULA_SCREEN[1:])
+    return False
 
 
 def run_command(
@@ -319,11 +342,13 @@ def run_command(
     exec_result["tool_path"] = tool_path
     if op_dir:
         exec_result["op_dir"] = op_dir
-    # A Sysinternals tool whose EULA the account hasn't accepted prints the
-    # license and exits 1, which a catalog can read as a result
-    head = (exec_result.get("stdout") or "")[:EULA_WITHIN]
-    if exec_result.get("exit_code") != 0 and EULA_BANNER in head:
-        raise ExecutionError(
+    # A Sysinternals tool whose EULA the account hasn't accepted shows the
+    # license and exits 1, which a catalog can read as a result. The run is
+    # still a run, recorded as one; its callers report it as this error
+    if exec_result.get("exit_code") != 0 and eula_screen(
+        exec_result.get("stdout") or ""
+    ):
+        exec_result["eula_screen"] = (
             f"{binary_name} showed its license (EULA) screen and didn't run: the account "
             "running wintools hasn't accepted the Sysinternals EULA"
         )

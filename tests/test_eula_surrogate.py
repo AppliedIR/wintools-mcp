@@ -29,12 +29,20 @@ from test_batch_scan import HEADER, _files, _rows, case  # noqa: F401 - fixtures
 
 from wintools_mcp import server as srv
 
-EULA = (
-    "\nSigcheck v2.90 - File version and signature viewer\n"
-    "Copyright (C) 2004-2022 Mark Russinovich\nSysinternals - www.sysinternals.com\n\n"
-    "SYSINTERNALS SOFTWARE LICENSE TERMS\n"
-    "These license terms are an agreement between Sysinternals and you.\n"
+# The screen's head as captured on a Windows guest (sigcheck 2.90, Autoruns
+# 14.10 and strings 2.54 show the same title and first terms line), with the
+# Windows line ends it was written with
+TERMS = (
+    "These license terms are an agreement between Sysinternals(a wholly owned subsidiary"
+    " of Microsoft Corporation) and you.Please read them.They apply to the software you"
+    " are downloading from technet.microsoft.com / sysinternals, which includes the media"
+    " on which you received it, if any.The terms also apply to any Sysinternals"
 )
+BANNER = (
+    "\r\nSigcheck v2.90 - File version and signature viewer\r\n"
+    "Copyright (C) 2004-2022 Mark Russinovich\r\nSysinternals - www.sysinternals.com\r\n\r\n"
+)
+EULA = BANNER + "SYSINTERNALS SOFTWARE LICENSE TERMS\r\n" + TERMS + "\r\n* updates,\r\n"
 NAMED = "showed its license (EULA) screen and didn't run"
 
 
@@ -116,10 +124,11 @@ def test_a_real_unsigned_result_still_means_unsigned(case, tools):  # noqa: F811
 @pytest.mark.parametrize(
     "code, said",
     [
-        (0, "strings64.exe read:\n" + EULA),  # strings over a Sysinternals binary
-        (1, "x" * 2000 + EULA),  # deep in a failed run's output, not its screen
+        (0, EULA),  # strings over a Sysinternals binary: a clean exit
+        (1, BANNER + "SYSINTERNALS SOFTWARE LICENSE TERMS\r\nsomething else\r\n"),
+        (1, "line\r\n" * 10 + EULA),  # deep in a failed run's output
     ],
-    ids=["clean-exit", "not-at-the-start"],
+    ids=["clean-exit", "title-alone", "deep"],
 )
 def test_the_license_text_in_real_output_isnt_the_screen(case, tools, code, said):  # noqa: F811
     tools["said"], tools["code"] = said, code
@@ -128,6 +137,41 @@ def test_the_license_text_in_real_output_isnt_the_screen(case, tools, code, said
         _tool("run_windows_command")(command=["strings", str(target)], purpose="read")
     )
     assert NAMED not in json.dumps(r) and r["metadata"]["exit_code"] == code, r
+
+
+def test_a_file_named_after_the_title_is_still_a_result(case, monkeypatch):  # noqa: F811
+    """Hostile evidence: sigcheck names the file in its result."""
+    from wintools_mcp.tools import generic
+
+    def execute(command, **k):
+        out = BANNER + f"{command[-1]}:\r\n\tVerified:\tUnsigned\r\n"
+        return {"exit_code": 1, "stdout": out, "stderr": "",
+                "stdout_total_bytes": len(out.encode())}  # fmt: skip
+
+    monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
+    monkeypatch.setattr(generic, "execute", execute)
+    folder = _files(
+        case / "evidence" / "hostile", ["SYSINTERNALS SOFTWARE LICENSE TERMS"]
+    )
+    r = _sent(_tool("batch_scan")(tool="sigcheck", directory=str(folder)))
+    (row,) = r["results"]
+    assert row["exit_meaning"] == "unsigned files found" and "error" not in row, row
+
+
+def test_an_eula_run_is_audited_in_full(case, tools):  # noqa: F811
+    tools["screen"] = True
+    target = _files(case / "evidence" / "aud", ["a.exe"]) / "a.exe"
+    r = _sent(_tool("run_windows_command")(command=["sigcheck", str(target)],
+                                           purpose="check", save_output=True))  # fmt: skip
+    assert r["success"] is False and NAMED in r["error"]
+    entries = [
+        json.loads(line)
+        for p in (case / "audit").glob("*.jsonl")
+        for line in p.read_text().splitlines()
+    ]
+    (entry,) = [e for e in entries if e.get("audit_id") == r["audit_id"]]
+    assert entry.get("input_sha256s") and entry.get("tool_sha256") is not None, entry
+    assert NAMED in json.dumps(entry)
 
 
 def _undecodable(folder, name=b"bad\xff.exe", body=b"MZbad"):
