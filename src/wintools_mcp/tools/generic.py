@@ -11,7 +11,7 @@ from pathlib import Path
 from wintools_mcp.catalog import PS_SCRIPT_EXCEPTIONS, get_tool_def, validate_command
 from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_tool
-from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
+from wintools_mcp.exceptions import DenylistError, ExecutionError, ToolNotInCatalogError
 from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args, validate_input_path
 
@@ -177,6 +177,10 @@ def _expand_script_command(command: list[str]) -> list[str]:
     ] + command[1:]
 
 
+EULA_BANNER = "SYSINTERNALS SOFTWARE LICENSE TERMS"
+EULA_WITHIN = 1024  # the screen opens with the tool's banner, then the terms
+
+
 def run_command(
     command: list[str],
     *,
@@ -315,6 +319,14 @@ def run_command(
     exec_result["tool_path"] = tool_path
     if op_dir:
         exec_result["op_dir"] = op_dir
+    # A Sysinternals tool whose EULA the account hasn't accepted prints the
+    # license and exits 1, which a catalog can read as a result
+    head = (exec_result.get("stdout") or "")[:EULA_WITHIN]
+    if exec_result.get("exit_code") != 0 and EULA_BANNER in head:
+        raise ExecutionError(
+            f"{binary_name} showed its license (EULA) screen and didn't run: the account "
+            "running wintools hasn't accepted the Sysinternals EULA"
+        )
 
     # Attach share-relative CSV output dir (for cross-MCP consumption)
     if _csv_output_rel:

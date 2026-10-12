@@ -141,8 +141,8 @@ def test_an_error_naming_an_undecodable_file_can_be_sent(case, monkeypatch, erro
     r = fn(command=["sigcheck", os.fsdecode(raw)], purpose="check")
     sent = json.loads(pydantic_core.to_json(r))
     assert (
-        sent["success"] is False and "bad\\udcff.exe" in sent["error"]
-    )  # the byte, escaped
+        sent["success"] is False and "bad<U+DCFF>.exe" in sent["error"]
+    )  # the byte, as its code point
 
 
 def _loop(folder):
