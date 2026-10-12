@@ -198,4 +198,6 @@ def tool_path(td) -> str | None:
         (str(d / f"{td.name}.ps1") for d in extra if (d / f"{td.name}.ps1").is_file()),
         None,
     )
-    return script if script and find_binary("powershell.exe") else None
+    return (
+        script if script and find_tool("powershell.exe") else None
+    )  # as the run finds it
