@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import logging
 import time
 
@@ -95,25 +96,40 @@ def _seen(path: str) -> bool:
         return False
 
 
+def _code_points(err: UnicodeEncodeError) -> tuple[str, int]:
+    """A lone surrogate as ``<U+D800>``: ``<`` and ``>`` can't be in a
+    Windows file name, so the text names no other path (a backslash escape
+    reads as a folder and a file)."""
+    bad = err.object[err.start : err.end]
+    return "".join(f"<U+{ord(c):04X}>" for c in bad), err.end
+
+
+codecs.register_error("wintools-code-points", _code_points)
+
+
 def _one_line(text: str) -> str:
     """``text`` with every character that can end a line (``str.splitlines``
-    breaks at control and separator characters) or can't be written as UTF-8
-    shown as its escape."""
+    breaks at control and separator characters) shown as its escape, and one
+    that can't be written as UTF-8 as its code point."""
     import unicodedata
 
-    return "".join(
-        c.encode("unicode_escape", "backslashreplace").decode("ascii")
-        if unicodedata.category(c) in ("Cc", "Cs", "Zl", "Zp")
-        else c
-        for c in text
-    )
+    def shown(c: str) -> str:
+        kind = unicodedata.category(c)
+        if kind == "Cs":
+            return f"<U+{ord(c):04X}>"
+        if kind in ("Cc", "Zl", "Zp"):
+            return c.encode("unicode_escape").decode("ascii")
+        return c
+
+    return "".join(shown(c) for c in text)
 
 
 def _utf8(value):
     """``value`` with every string encodable as UTF-8 (a file name that isn't
-    keeps its undecodable bytes as escapes), so the response can be sent."""
+    shows each undecodable character as its code point), so the response can
+    be sent."""
     if isinstance(value, str):
-        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+        return value.encode("utf-8", "wintools-code-points").decode("utf-8")
     if isinstance(value, dict):
         return {_utf8(k): _utf8(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -414,7 +430,10 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     [binary, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
                 row["exit_code"] = r.get("exit_code")
-                if td and r.get("exit_code") in td.exit_code_meanings:
+                if r.get("eula_screen"):  # not a result: no meaning
+                    row["error"] = r["eula_screen"]
+                    errors.append(f"{filepath}: {r['eula_screen']}")
+                elif td and r.get("exit_code") in td.exit_code_meanings:
                     row["exit_meaning"] = td.exit_code_meanings[r["exit_code"]]
                 row["stdout_bytes"] = r.get("stdout_total_bytes", 0)
                 row["preview"] = (r.get("stdout") or "")[:500]
@@ -472,7 +491,11 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 response["op_folder"] = to_share_relative(op_dir, cfg.share_root)
                 out = Path(op_dir) / "batch_scan_results.txt"
                 with open(
-                    out, "w", encoding="utf-8", errors="backslashreplace", newline=""
+                    out,
+                    "w",
+                    encoding="utf-8",
+                    errors="wintools-code-points",
+                    newline="",
                 ) as f:
                     for row in results:
                         code = "error" if "error" in row else row["exit_code"]
@@ -776,7 +799,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 resp_format = exec_result.get("_output_format", "text")
 
             exit_code = exec_result["exit_code"]
-            success = td.is_success(exit_code) if td else exit_code == 0
+            eula = exec_result.get("eula_screen")  # the tool didn't run: no result
+            success = not eula and (td.is_success(exit_code) if td else exit_code == 0)
             exit_code_meaning = td.exit_code_meanings.get(exit_code) if td else None
 
             response = build_response(
@@ -789,6 +813,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 exit_code=exit_code,
                 exit_code_meaning=exit_code_meaning,
                 command=command,
+                error=eula,
+                tool_ran=not eula,
                 fk_tool_name=fk_name,
                 extractions=exec_result.get("extractions"),
                 output_files=[
@@ -838,6 +864,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "stdout_encoding": exec_result.get("stdout_encoding", ""),
                     "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
+                    **({"error": eula} if eula else {}),
                 },
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,

@@ -51,7 +51,11 @@ def build_response(
     exit_code_meaning: str | None = None,
     output_files: list[dict] | None = None,
     extractions: list[str] | None = None,
+    tool_ran: bool = True,
 ) -> dict:
+    """The reply. With ``tool_ran`` False (the tool showed a screen in place
+    of running) there is no output to interpret: no FK content and no
+    exit-code meaning, only the bare code."""
     call_num = next(_call_counter)
 
     response: dict[str, Any] = {
@@ -75,27 +79,22 @@ def build_response(
 
     # FK enrichment with decay (accuracy always, discovery decays after 3 per tool)
     fk_name = fk_tool_name or tool_name
+    nothing: tuple = ({}, [], [], {}, {}, [])
     try:
-        (
-            corroboration,
-            caveats,
-            advisories,
-            field_notes,
-            field_meanings,
-            cross_mcp_checks,
-        ) = _build_knowledge_context(fk_name)
+        knowledge = _build_knowledge_context(fk_name) if tool_ran else nothing
     except Exception as e:
         logger.warning("FK enrichment failed for %s: %s", fk_name, e)
-        (
-            corroboration,
-            caveats,
-            advisories,
-            field_notes,
-            field_meanings,
-            cross_mcp_checks,
-        ) = {}, [], [], {}, {}, []
+        knowledge = nothing
+    (
+        corroboration,
+        caveats,
+        advisories,
+        field_notes,
+        field_meanings,
+        cross_mcp_checks,
+    ) = knowledge
 
-    fk_count = _fk_delivery_counts.get(fk_name, 0) + 1
+    fk_count = _fk_delivery_counts.get(fk_name, 0) + int(tool_ran)
     _fk_delivery_counts[fk_name] = fk_count
     deliver_discovery = fk_count <= 3 or fk_count % 10 == 0
 
@@ -125,8 +124,8 @@ def build_response(
     if exit_code is not None:
         metadata["exit_code"] = exit_code
         # Catalog exit_code_meanings override FK hints
-        meaning = exit_code_meaning
-        if not meaning and fk_loader:
+        meaning = exit_code_meaning if tool_ran else None
+        if not meaning and fk_loader and tool_ran:
             try:
                 tool_info = fk_loader.get_tool(fk_name)
                 if tool_info:
