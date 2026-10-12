@@ -359,8 +359,15 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         except OSError as e:
             return {"error": f"Cannot scan directory: {e}"}
 
-        if not all_files:
-            return {"error": f"No files matching '{filter_pattern}' in {directory}"}
+        plural = "s" if subfolders != 1 else ""
+        left = f"{subfolders} subfolder{plural} not scanned" if subfolders else ""
+        if not all_files:  # still names what it couldn't read, and what it left
+            empty = {"error": f"No files matching '{filter_pattern}' in {directory}"}
+            if unread:
+                empty["errors"] = unread
+            if left:
+                empty["note"] = left
+            return _utf8(empty)
         # a catalog name runs its binary, as run_windows_command does
         td = get_tool_def(tool)
         binary = td.binary if td and td.exec_type != "script" else tool
@@ -429,9 +436,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         note = f"Scanned {len(results)} of {matching} matching files"
         if capped:
             note += f" (cap {max_files}; {matching - len(all_files)} not scanned)"
-        if subfolders:
-            plural = "s" if subfolders != 1 else ""
-            note += f", {subfolders} subfolder{plural} not scanned"
+        if left:
+            note += f", {left}"
         if errors:
             note += f", {len(errors)} errors"
         elapsed = _time.monotonic() - start

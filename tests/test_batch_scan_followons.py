@@ -143,3 +143,35 @@ def test_an_error_naming_an_undecodable_file_can_be_sent(case, monkeypatch, erro
     assert (
         sent["success"] is False and "bad\\udcff.exe" in sent["error"]
     )  # the byte, escaped
+
+
+def _loop(folder):
+    os.symlink("loop_b", folder / "loop_a")
+    os.symlink("loop_a", folder / "loop_b")
+
+
+def test_a_folder_of_only_unreadable_entries_names_them(case, ran):  # noqa: F811
+    folder = case / "evidence" / "only-loop"
+    folder.mkdir(parents=True)
+    _loop(folder)
+    r = _scan(folder)
+    assert ran == [] and r["error"].startswith("No files matching")
+    assert len(r["errors"]) == 2 and all("[Errno 40]" in e for e in r["errors"])
+
+
+def test_unreadable_entries_beside_files_the_filter_leaves_out_are_named(case, ran):  # noqa: F811
+    folder = _files(case / "evidence" / "loop-and-text", ["notes.txt"])
+    _loop(folder)
+    r = _scan(folder, filter_pattern="*.exe")
+    assert ran == [] and r["error"].startswith("No files matching '*.exe'")
+    assert {e.split(":")[0] for e in r["errors"]} == {
+        str(folder / "loop_a"),
+        str(folder / "loop_b"),
+    }
+
+
+def test_a_folder_with_no_match_says_which_subfolders_it_left(case, ran):  # noqa: F811
+    folder = _files(case / "evidence" / "no-match", ["notes.txt"])
+    _files(folder / "sub", ["deep.exe"])
+    r = _scan(folder, filter_pattern="*.exe")
+    assert ran == [] and r["note"] == "1 subfolder not scanned"
