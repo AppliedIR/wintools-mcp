@@ -95,6 +95,32 @@ def _seen(path: str) -> bool:
         return False
 
 
+def _one_line(text: str) -> str:
+    """``text`` with every character that can end a line (``str.splitlines``
+    breaks at control and separator characters) or can't be written as UTF-8
+    shown as its escape."""
+    import unicodedata
+
+    return "".join(
+        c.encode("unicode_escape", "backslashreplace").decode("ascii")
+        if unicodedata.category(c) in ("Cc", "Cs", "Zl", "Zp")
+        else c
+        for c in text
+    )
+
+
+def _utf8(value):
+    """``value`` with every string encodable as UTF-8 (a file name that isn't
+    keeps its undecodable bytes as escapes), so the response can be sent."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    if isinstance(value, dict):
+        return {_utf8(k): _utf8(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_utf8(v) for v in value]
+    return value
+
+
 def _inside(path: str, case_dir: str) -> bool:
     import os
 
@@ -287,9 +313,13 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         import fnmatch
         import os
         import time as _time
+        from pathlib import Path
 
+        from wintools_mcp import operation
+        from wintools_mcp.output import to_share_relative
         from wintools_mcp.security import validate_input_path
-        from wintools_mcp.share_guard import ShareRefused
+        from wintools_mcp.share_guard import ShareRefused, before_write
+        from wintools_mcp.tools.generic import _make_dir, _new_folder
         from wintools_mcp.tools.generic import run_command as _run
 
         # Validate directory against blocked paths
@@ -297,6 +327,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             validate_input_path(directory)
         except ValueError as e:
             return {"error": str(e)}
+        if max_files < 1:
+            return {"error": f"max_files must be at least 1 (got {max_files})"}
 
         # Safety caps
         tool_lower = tool.lower()
@@ -305,60 +337,182 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         else:
             max_files = min(max_files, 500)
 
-        # Collect files
+        # Collect files: every matching file is counted, the first max_files run
         try:
             all_files = []
+            matching = 0
             for entry in os.scandir(directory):
                 if not entry.is_file():
                     continue
                 if filter_pattern and not fnmatch.fnmatch(entry.name, filter_pattern):
                     continue
-                all_files.append(entry.path)
-                if len(all_files) >= max_files:
-                    break
+                matching += 1
+                if len(all_files) < max_files:
+                    all_files.append(entry.path)
         except OSError as e:
             return {"error": f"Cannot scan directory: {e}"}
 
         if not all_files:
             return {"error": f"No files matching '{filter_pattern}' in {directory}"}
 
+        audit_id = audit._next_audit_id()
+        # A row and an input for every file the tool was started on, an
+        # error included; each input hashed just before its own run
+        cfg = get_config()
         results = []
+        inputs = []
         errors = []
+        refused = False
         start = _time.monotonic()
         for i, filepath in enumerate(all_files):
             if _time.monotonic() - start > timeout:
                 errors.append(f"Timeout after {i} files")
                 break
+            row = {
+                "file": filepath,
+                "exit_code": None,
+                "stdout_bytes": 0,
+                "preview": "",
+            }
+            record = None
+            # One file: checked, hashed, run. Whatever fails, it is recorded
+            # as attempted with its error (and no hash if it failed before
+            # hashing), and the batch goes on
             try:
+                # A name resolving into a blocked folder is never read, and
+                # what it resolves to isn't recorded
+                try:
+                    validate_input_path(filepath)
+                except ValueError:
+                    raise ValueError(
+                        f"Access denied: {filepath} resolves into a blocked folder"
+                    ) from None
+                try:
+                    record = operation.file_record(
+                        Path(filepath).resolve(), cfg.share_root
+                    )
+                except OSError as e:  # unread, but the tool may still read it
+                    record = {"path": filepath, "error": e.strerror or str(e)}
                 r = _run(
                     [tool, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
-                results.append(
-                    {
-                        "file": filepath,
-                        "exit_code": r.get("exit_code"),
-                        "stdout_bytes": r.get("stdout_total_bytes", 0),
-                        "preview": (r.get("stdout") or "")[:500],
-                    }
-                )
+                row["exit_code"] = r.get("exit_code")
+                row["stdout_bytes"] = r.get("stdout_total_bytes", 0)
+                row["preview"] = (r.get("stdout") or "")[:500]
             except ShareRefused as e:  # every file after it would be refused too
                 errors.append(str(e))
+                refused = True
                 break
             except Exception as e:
                 errors.append(f"{filepath}: {e}")
+                row["error"] = str(e)
+            results.append(row)
+            inputs.append(record or {"path": filepath, "error": row["error"]})
 
+        exit_codes: dict[str, int] = {}
+        for row in results:
+            key = "error" if "error" in row else str(row["exit_code"])
+            exit_codes[key] = exit_codes.get(key, 0) + 1
+        capped = matching > len(all_files)
+        note = f"Scanned {len(results)} of {matching} matching files"
+        if capped:
+            note += f" (cap {max_files}; {matching - len(all_files)} not scanned)"
+        if errors:
+            note += f", {len(errors)} errors"
         elapsed = _time.monotonic() - start
-        return {
+        response = {
             "tool": tool,
             "directory": directory,
             "files_processed": len(results),
-            "files_total": len(all_files),
+            "files_total": matching,
+            "capped": capped,
+            "exit_codes": exit_codes,
             "errors": errors,
             "elapsed_seconds": round(elapsed, 1),
-            "results": results[:20],  # first 20 inline, rest in saved output
-            "note": f"Processed {len(results)}/{len(all_files)} files"
-            + (f", {len(errors)} errors" if errors else ""),
+            "results": results[:20],
         }
+        if not results or refused:  # nothing ran, or the share isn't the case's
+            response["note"] = note
+            return _utf8(response)
+
+        # Every row, in a file in the call's own folder. A header starts at
+        # column 0 and every preview line is indented, so evidence content
+        # can't make a line that reads as a row
+        op_dir = ""
+        outputs: list[dict] = []
+        if cfg.case_dir:
+            try:
+                before_write()
+                folder = str(Path(cfg.case_dir) / "extractions")
+                error = _make_dir(folder)
+                if error:
+                    raise OSError(error)
+                op_dir = _new_folder(str(Path(folder) / audit_id))
+                response["op_folder"] = to_share_relative(op_dir, cfg.share_root)
+                out = Path(op_dir) / "batch_scan_results.txt"
+                with open(
+                    out, "w", encoding="utf-8", errors="backslashreplace", newline=""
+                ) as f:
+                    for row in results:
+                        code = "error" if "error" in row else row["exit_code"]
+                        f.write(
+                            f"== {_one_line(row['file'])} | exit {code} | "
+                            f"{row['stdout_bytes']} stdout bytes\n"
+                        )
+                        text = row.get("error") or row.get("preview") or ""
+                        for line in text.splitlines():
+                            f.write(f"  | {line}\n")
+                outputs.append(operation.file_record(out, cfg.share_root))
+                response["results_file"] = outputs[0]["share_path"]
+                note += ". Every row is in results_file"
+            except (OSError, ShareRefused) as e:
+                response.setdefault("warnings", []).append(
+                    f"Results file not written: {e}"
+                )
+        if not outputs and len(results) > 20:
+            why = "No results file" if cfg.case_dir else "No case"
+            note += f". {why}: rows past the first 20 were not kept"
+        response["note"] = (
+            note + ". Before citing a file in a finding, re-run it with "
+            "run_windows_command"
+        )
+
+        # One audit entry for the call: every file started on is an input
+        extra: dict = {"inputs": inputs}
+        if op_dir:
+            extra["op_folder"] = response["op_folder"]
+            extra["outputs"] = outputs
+        logged = audit.log(
+            tool="batch_scan",
+            params={
+                "tool": tool,
+                "directory": directory,
+                "filter_pattern": filter_pattern,
+                "max_files": max_files,
+            },
+            result_summary={
+                "files_total": matching,
+                "files_processed": len(results),
+                "capped": capped,
+                "exit_codes": exit_codes,
+                "errors": errors,
+                "output_file": outputs[0]["share_path"] if outputs else "",
+                "output_sha256": outputs[0].get("sha256", "") if outputs else "",
+            },
+            audit_id=audit_id,
+            elapsed_ms=elapsed * 1000,
+            extra=extra,
+        )
+        if logged:
+            response["audit_id"] = audit_id
+        else:
+            from wintools_mcp.audit import share_error
+
+            response.setdefault("warnings", []).append(
+                "Audit trail unavailable -- execution not logged"
+                + (f" ({share_error()})" if share_error() else "")
+            )
+        return _utf8(response)
 
     # --- Generic Execution ---
     @server.tool()

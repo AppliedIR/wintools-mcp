@@ -41,7 +41,7 @@ tools:
     fk_tool_name: strings
     common_flags:
       - flag: "-a"
-        description: "Scan entire file (not just image sections)"
+        description: "ASCII-only. The default scans ASCII and Unicode; don't pass it for IOC sweeps."
       - flag: "-n"
         description: "Minimum string length (default 3)"
       - flag: "-u"
