@@ -8,6 +8,7 @@ import os
 import subprocess
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -342,14 +343,16 @@ def _save_output(
     safe_cmd = "".join(
         c if c.isalnum() or c in "-_" else "_" for c in Path(cmd_list[0]).name
     )[:40]
-    prefix = f"{ts}_{safe_cmd}"
+    # unique, and created exclusively: a saved output is never replaced, so its
+    # recorded hash always describes it
+    prefix = f"{ts}_{safe_cmd}_{uuid.uuid4().hex[:8]}"
 
     saved_paths: list[str] = []
 
     if stdout or always:
         try:
             stdout_path = out_dir / f"{prefix}_stdout.txt"
-            with open(stdout_path, "wb") as f:
+            with open(stdout_path, "xb") as f:
                 f.write(stdout)
                 f.flush()
                 os.fsync(f.fileno())
@@ -363,7 +366,7 @@ def _save_output(
     if stderr:
         try:
             stderr_path = out_dir / f"{prefix}_stderr.txt"
-            with open(stderr_path, "wb") as f:
+            with open(stderr_path, "xb") as f:
                 f.write(stderr)
                 f.flush()
                 os.fsync(f.fileno())
