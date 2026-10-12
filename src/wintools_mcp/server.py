@@ -340,9 +340,16 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         # Collect files: every matching file is counted, the first max_files run
         try:
             all_files = []
-            matching = 0
+            matching = subfolders = 0
+            # an entry whose type can't be read is an error of its own
+            unread: list[str] = []
             for entry in os.scandir(directory):
-                if not entry.is_file():
+                try:
+                    if not entry.is_file():
+                        subfolders += entry.is_dir()  # not recursive: counted, said
+                        continue
+                except OSError as e:
+                    unread.append(f"{entry.path}: {e}")
                     continue
                 if filter_pattern and not fnmatch.fnmatch(entry.name, filter_pattern):
                     continue
@@ -354,6 +361,9 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
         if not all_files:
             return {"error": f"No files matching '{filter_pattern}' in {directory}"}
+        # a catalog name runs its binary, as run_windows_command does
+        td = get_tool_def(tool)
+        binary = td.binary if td and td.exec_type != "script" else tool
 
         audit_id = audit._next_audit_id()
         # A row and an input for every file the tool was started on, an
@@ -361,7 +371,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         cfg = get_config()
         results = []
         inputs = []
-        errors = []
+        errors = list(unread)
         refused = False
         start = _time.monotonic()
         for i, filepath in enumerate(all_files):
@@ -394,9 +404,11 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 except OSError as e:  # unread, but the tool may still read it
                     record = {"path": filepath, "error": e.strerror or str(e)}
                 r = _run(
-                    [tool, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
+                    [binary, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
                 row["exit_code"] = r.get("exit_code")
+                if td and r.get("exit_code") in td.exit_code_meanings:
+                    row["exit_meaning"] = td.exit_code_meanings[r["exit_code"]]
                 row["stdout_bytes"] = r.get("stdout_total_bytes", 0)
                 row["preview"] = (r.get("stdout") or "")[:500]
             except ShareRefused as e:  # every file after it would be refused too
@@ -417,6 +429,9 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         note = f"Scanned {len(results)} of {matching} matching files"
         if capped:
             note += f" (cap {max_files}; {matching - len(all_files)} not scanned)"
+        if subfolders:
+            plural = "s" if subfolders != 1 else ""
+            note += f", {subfolders} subfolder{plural} not scanned"
         if errors:
             note += f", {len(errors)} errors"
         elapsed = _time.monotonic() - start
@@ -615,7 +630,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 audit_id=audit_id,
                 elapsed_ms=(time.monotonic() - start) * 1000,
             )
-            return {"success": False, "error": why, "suggestions": suggestions}
+            return _utf8({"success": False, "error": why, "suggestions": suggestions})
 
         # What the command writes: an output flag's value, and an acquisition's
         # destination (it may be a bare path). Not there yet, and never refused
@@ -844,7 +859,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "Could not detect input files — pass input_files parameter "
                     "for provenance chain linking."
                 )
-            return response
+            return _utf8(response)
 
         except (WintoolsError, ValueError) as e:
             elapsed = time.monotonic() - start
