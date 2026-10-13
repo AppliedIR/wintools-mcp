@@ -71,7 +71,8 @@ def box(monkeypatch):
     missing is not accepted; `unreadable` makes every read fail), and the
     argv of every run. A tool run without the flag, its key not accepted,
     shows the EULA screen and exits 1; with the flag, it sets its key."""
-    state = {"accepted": {}, "unreadable": False, "runs": [], "reads": []}
+    state = {"accepted": {}, "unreadable": False, "runs": [], "reads": [],
+             "fail": {}}  # run number -> the error it raises  # fmt: skip
     monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
     _whoami(monkeypatch, "nt authority\\system\r\n")
 
@@ -84,6 +85,9 @@ def box(monkeypatch):
         key = KEYS[command[0].rsplit("/", 1)[-1].removesuffix(".exe")]
         if FLAG in command:
             state["accepted"][key] = True
+        error = state["fail"].get(len(state["runs"]))
+        if error:  # a timeout comes after the start (the key is set by then)
+            raise error
         if state["accepted"].get(key):
             code, out = 0, "Verified:\tSigned\n"
         else:
@@ -308,3 +312,53 @@ def test_the_account_is_named_as_whoami_names_it_and_read_once(monkeypatch):
 def test_without_whoami_the_account_is_the_environments(monkeypatch, out, code, error):
     _whoami(monkeypatch, out, code, error)
     assert generic.run_account() == "WORKGROUP\\SANS-SIFT$"
+
+
+# --- a run that accepted, then failed -----------------------------------------
+
+
+def _timeout():
+    from wintools_mcp.exceptions import ExecutionTimeoutError
+
+    return ExecutionTimeoutError("Command timed out after 5s: sigcheck")
+
+
+def test_a_run_that_accepted_then_timed_out_still_says_so(case, box):  # noqa: F811
+    box["fail"][1] = _timeout()
+    r, entry = _run(case, "sigcheck", _target(case))
+    assert r["success"] is False and "timed out" in r["error"]
+    assert ON_BEHALF in r["error"] and ON_BEHALF in entry["result_summary"]["error"]
+
+
+def test_a_batch_whose_first_run_accepted_then_timed_out_says_so(case, box):  # noqa: F811
+    box["fail"][1] = _timeout()
+    folder = _files(case / "evidence" / "many", ["a.exe", "b.exe"])
+    r = _sent(_tool("batch_scan")(tool="sigcheck", directory=str(folder)))
+    assert len(r["errors"]) == 1 and ON_BEHALF in r["errors"][0], r
+    (entry,) = [e for e in _entries(case) if e["tool"] == "batch_scan"]
+    assert ON_BEHALF in entry["result_summary"]["errors"][0]
+
+
+def test_an_accepted_tool_that_times_out_says_nothing_of_it(case, box):  # noqa: F811
+    box["accepted"]["sigcheck"] = True
+    box["fail"][1] = _timeout()
+    r, _ = _run(case, "sigcheck", _target(case))
+    assert "timed out" in r["error"] and ON_BEHALF not in r["error"]
+
+
+def test_a_tool_that_never_started_accepted_nothing(case, box):  # noqa: F811
+    from wintools_mcp.exceptions import ExecutionError
+
+    box["fail"][1] = ExecutionError("Binary not found: sigcheck")
+    r, _ = _run(case, "sigcheck", _target(case))
+    assert "not found" in r["error"] and ON_BEHALF not in r["error"]
+
+
+def test_the_timeout_keeps_its_type_with_the_note(case, box):  # noqa: F811
+    from wintools_mcp.exceptions import ExecutionTimeoutError
+
+    box["fail"][1] = _timeout()
+    with pytest.raises(
+        ExecutionTimeoutError, match="accepted on the examiner's behalf"
+    ):
+        generic.run_command(["sigcheck", _target(case)])

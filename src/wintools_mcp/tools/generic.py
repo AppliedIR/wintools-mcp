@@ -11,7 +11,11 @@ from pathlib import Path
 from wintools_mcp.catalog import PS_SCRIPT_EXCEPTIONS, get_tool_def, validate_command
 from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_tool
-from wintools_mcp.exceptions import DenylistError, ToolNotInCatalogError
+from wintools_mcp.exceptions import (
+    DenylistError,
+    ExecutionTimeoutError,
+    ToolNotInCatalogError,
+)
 from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args, validate_input_path
 
@@ -408,14 +412,20 @@ def run_command(
                 _csv_output_rel = to_share_relative(output_dir, cfg.share_root)
 
     eula_note = _accept_eula(command, td)
-    exec_result = execute(
-        command,
-        timeout=timeout,
-        cwd=cwd,
-        save_output=save_output,
-        save_dir=op_dir or save_dir,
-        keep_raw=bool(op_dir),
-    )
+    try:
+        exec_result = execute(
+            command,
+            timeout=timeout,
+            cwd=cwd,
+            save_output=save_output,
+            save_dir=op_dir or save_dir,
+            keep_raw=bool(op_dir),
+        )
+    except ExecutionTimeoutError as e:
+        # the tool started, so the EULA was accepted: the error says so too
+        if eula_note:
+            raise ExecutionTimeoutError(f"{e} {eula_note}") from e
+        raise
     exec_result["tool_path"] = tool_path
     if eula_note:
         exec_result["eula_note"] = eula_note
