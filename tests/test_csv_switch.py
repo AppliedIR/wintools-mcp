@@ -26,7 +26,11 @@ def more_tools(tools, tmp_path):  # noqa: F811
         ("autorunsc", ["-accepteula", "-h", "-s"]),
     ],
 )
-def test_nothing_is_appended_to_the_command(case, more_tools, tool, args):  # noqa: F811
+def test_nothing_is_appended_to_the_command(case, more_tools, tool, args, monkeypatch):  # noqa: F811
+    # the account has accepted the EULA: no -accepteula is added either
+    from wintools_mcp.tools import generic
+
+    monkeypatch.setattr(generic, "eula_accepted", lambda key: True)
     ev = str(_evtx(case))
     args = [ev if a == "FILE" else a for a in args]
     calls: list = []

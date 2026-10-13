@@ -204,6 +204,82 @@ def eula_screen(stdout: str) -> bool:
     return False
 
 
+# The flag that accepts a Sysinternals tool's EULA for the account running it
+EULA_FLAG = "-accepteula"
+
+
+def eula_accepted(key: str) -> bool | None:
+    """Whether the account running wintools has accepted the EULA of the
+    Sysinternals tool keyed ``key``: its ``EulaAccepted`` value, in this
+    account's own hive (the hive the tool reads). None when it can't be read."""
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, f"Software\\Sysinternals\\{key}"
+        ) as k:
+            value, _ = winreg.QueryValueEx(k, "EulaAccepted")
+    except FileNotFoundError:  # no key or no value: never accepted
+        return False
+    except (ImportError, OSError):
+        return None
+    return value == 1
+
+
+def run_account() -> str:
+    """The account wintools runs as, as ``whoami`` names it (``nt
+    authority\\system`` for the service: its USERNAME is the machine's, e.g.
+    ``SANS-SIFT$``, which doesn't say SYSTEM). Read once; the environment's
+    DOMAIN\\user if whoami can't be run."""
+    global _account
+    if _account is None:
+        import ntpath
+        import os
+        import subprocess
+
+        whoami = ntpath.join(
+            os.environ.get("SystemRoot", "C:\\Windows"), "System32", "whoami.exe"
+        )
+        try:
+            r = subprocess.run([whoami], capture_output=True, text=True, timeout=10)
+            _account = r.stdout.strip() if r.returncode == 0 else ""
+        except (OSError, subprocess.SubprocessError):
+            _account = ""
+        if not _account:
+            user = os.environ.get("USERNAME", "")
+            domain = os.environ.get("USERDOMAIN", "")
+            _account = (
+                f"{domain}\\{user}" if domain and user else user or "this account"
+            )
+    return _account
+
+
+_account: str | None = None
+
+
+def _accept_eula(command: list[str], td) -> str:
+    """Before a Sysinternals tool runs: when this account hasn't accepted its
+    EULA, or that can't be read, the run accepts it (``-accepteula``, unless
+    the caller passed it) and the note returned says so. An accepted EULA
+    returns no note and leaves the command as it is."""
+    if not td or not td.eula_key:
+        return ""
+    accepted = eula_accepted(td.eula_key)
+    if accepted:
+        return ""
+    if not any(a.lower() == EULA_FLAG for a in command[1:]):
+        command.insert(1, EULA_FLAG)
+    why = (
+        f"it hadn't been accepted for {run_account()}"
+        if accepted is False
+        else f"whether it had been accepted for {run_account()} couldn't be read"
+    )
+    return (
+        f"The Sysinternals EULA for {td.name} was accepted on the examiner's "
+        f"behalf ({why})."
+    )
+
+
 def run_command(
     command: list[str],
     *,
@@ -331,6 +407,7 @@ def run_command(
 
                 _csv_output_rel = to_share_relative(output_dir, cfg.share_root)
 
+    eula_note = _accept_eula(command, td)
     exec_result = execute(
         command,
         timeout=timeout,
@@ -340,6 +417,8 @@ def run_command(
         keep_raw=bool(op_dir),
     )
     exec_result["tool_path"] = tool_path
+    if eula_note:
+        exec_result["eula_note"] = eula_note
     if op_dir:
         exec_result["op_dir"] = op_dir
     # A Sysinternals tool whose EULA the account hasn't accepted shows the

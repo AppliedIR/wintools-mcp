@@ -133,6 +133,11 @@ class ToolDefinition:
     settings_paths: list[str] = field(default_factory=list)
     # Its outputs are acquired evidence (a memory or disk image)
     acquisition: bool = False
+    # A Sysinternals tool's key under HKCU\Software\Sysinternals: its
+    # EulaAccepted value says whether the account running wintools has
+    # accepted the tool's EULA. Not accepted, the run passes -accepteula and
+    # its reply says the EULA was accepted on the examiner's behalf
+    eula_key: str = ""
 
     @property
     def knowledge_name(self) -> str:
@@ -217,6 +222,7 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 alternatives=tool_entry.get("alternatives", []),
                 settings_paths=list(tool_entry.get("settings_paths", [])),
                 acquisition=bool(tool_entry.get("acquisition", False)),
+                eula_key=str(tool_entry.get("eula_key", "")),
             )
             _catalog_cache[name.lower()] = td
 

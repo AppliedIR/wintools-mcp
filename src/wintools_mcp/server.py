@@ -396,6 +396,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         inputs = []
         errors = list(unread)
         refused = False
+        eula_note = ""  # one per batch: the tool is the same for every file
         start = _time.monotonic()
         for i, filepath in enumerate(all_files):
             if _time.monotonic() - start > timeout:
@@ -430,6 +431,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     [binary, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
                 row["exit_code"] = r.get("exit_code")
+                eula_note = eula_note or r.get("eula_note", "")
                 if r.get("eula_screen"):  # not a result: no meaning
                     row["error"] = r["eula_screen"]
                     errors.append(f"{filepath}: {r['eula_screen']}")
@@ -471,6 +473,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             "elapsed_seconds": round(elapsed, 1),
             "results": results[:20],
         }
+        if eula_note:
+            response["eula_note"] = eula_note
         if not results or refused:  # nothing ran, or the share isn't the case's
             response["note"] = note
             return _utf8(response)
@@ -542,6 +546,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 "errors": errors,
                 "output_file": outputs[0]["share_path"] if outputs else "",
                 "output_sha256": outputs[0].get("sha256", "") if outputs else "",
+                **({"eula_note": eula_note} if eula_note else {}),
             },
             audit_id=audit_id,
             elapsed_ms=elapsed * 1000,
@@ -838,6 +843,9 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 response["op_folder"] = to_share_relative(op_dir, cfg.share_root)
                 response["outputs"] = outputs
             response["inputs"] = inputs
+            eula_note = exec_result.get("eula_note", "")
+            if eula_note:
+                response["eula_note"] = eula_note
 
             extra = {
                 "requested_command": command,
@@ -865,6 +873,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
                     **({"error": eula} if eula else {}),
+                    **({"eula_note": eula_note} if eula_note else {}),
                 },
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
