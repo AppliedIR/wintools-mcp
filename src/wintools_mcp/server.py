@@ -805,8 +805,20 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
             exit_code = exec_result["exit_code"]
             eula = exec_result.get("eula_screen")  # the tool didn't run: no result
-            success = not eula and (td.is_success(exit_code) if td else exit_code == 0)
-            exit_code_meaning = td.exit_code_meanings.get(exit_code) if td else None
+            stopped = (  # wintools stopped it: its exit code is no result either
+                f"{binary} was stopped by wintools at its {exec_result['terminated']}: "
+                "the exit code is the stop's, not the tool's"
+                if exec_result.get("terminated")
+                else ""
+            )
+            success = (
+                not eula
+                and not stopped
+                and (td.is_success(exit_code) if td else exit_code == 0)
+            )
+            exit_code_meaning = (
+                td.exit_code_meanings.get(exit_code) if td and not stopped else None
+            )
 
             response = build_response(
                 tool_name="run_windows_command",
@@ -818,7 +830,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 exit_code=exit_code,
                 exit_code_meaning=exit_code_meaning,
                 command=command,
-                error=eula,
+                error=eula or stopped,
                 tool_ran=not eula,
                 fk_tool_name=fk_name,
                 extractions=exec_result.get("extractions"),
@@ -872,7 +884,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "stdout_encoding": exec_result.get("stdout_encoding", ""),
                     "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
-                    **({"error": eula} if eula else {}),
+                    **({"error": eula or stopped} if eula or stopped else {}),
                     **({"eula_note": eula_note} if eula_note else {}),
                 },
                 audit_id=audit_id,

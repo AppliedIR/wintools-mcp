@@ -158,6 +158,7 @@ def execute(
 
     start = time.monotonic()
     truncated = False
+    terminated = ""  # why wintools stopped the process, when it did
     try:
         kwargs: dict[str, Any] = {
             "stdout": subprocess.PIPE,
@@ -205,6 +206,7 @@ def execute(
                 raise subprocess.TimeoutExpired(cmd_list, timeout)
             if total[0] >= max_bytes:
                 truncated = True
+                terminated = f"output limit ({max_bytes} bytes)"
                 proc.kill()
                 _close_pipes(proc)
                 try:
@@ -246,6 +248,8 @@ def execute(
         }
         if truncated:
             response["truncated"] = True
+        if terminated:  # its exit code is the kill's (1 on Windows), not the tool's
+            response["terminated"] = terminated
 
         # Threshold-based save: auto-save when output exceeds response budget
         case_dir = config.case_dir
