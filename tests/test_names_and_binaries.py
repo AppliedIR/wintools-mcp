@@ -14,6 +14,14 @@ import pytest
 from test_run_records import _evtx, _popen, case  # noqa: F401  (fixture)
 
 from wintools_mcp import server as srv
+from wintools_mcp.tools import generic
+
+
+@pytest.fixture(autouse=True)
+def _eula_accepted(monkeypatch):
+    """Every Sysinternals EULA reads as accepted, whatever ran before: these
+    rows are about names, and an unread EULA would run whoami first."""
+    monkeypatch.setattr(generic, "eula_accepted", lambda key: True)
 
 
 def _call(tmp_path, command, write=None):
