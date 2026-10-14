@@ -235,14 +235,14 @@ def test_every_copy_is_named_with_the_one_that_runs(tmp_path, monkeypatch):
         versions, "file_version", lambda p: "1.5.0.0" if "KAPE" in p else "2026.5.0.0"
     )
     found = _tool("check_windows_tools")(tool_names=["PECmd"])["pecmd"]
-    assert found["installed_version"] == "1.5.0.0"
-    assert found["resolved_path"] == str(kape / "PECmd.exe")
+    assert found["installed_version"] == "2026.5.0.0"
+    assert found["resolved_path"] == str(ez / "PECmd.exe")
     assert found["copies"] == [
-        {"path": str(kape / "PECmd.exe"), "version": "1.5.0.0", "runs": True},
-        {"path": str(ez / "PECmd.exe"), "version": "2026.5.0.0", "runs": False},
+        {"path": str(ez / "PECmd.exe"), "version": "2026.5.0.0", "runs": True},
+        {"path": str(kape / "PECmd.exe"), "version": "1.5.0.0", "runs": False},
     ]
     shown = _tool("get_windows_tool_help")(tool_name="PECmd")
-    assert shown["installed_version"] == "1.5.0.0" and len(shown["copies"]) == 2
+    assert shown["installed_version"] == "2026.5.0.0" and len(shown["copies"]) == 2
 
 
 # The probe's reader as shipped, taken before conftest stands in for it

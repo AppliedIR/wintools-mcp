@@ -5,18 +5,29 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import re
 import shutil
 import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Searched after the configured folders, in this order. C:\\Tools is last: its
+# walk reaches every tool under it, KAPE's bundled copies too
 DEFAULT_TOOL_PATHS = [
     Path(os.environ.get("ProgramFiles", "C:\\Program Files")),
     Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")),
     Path(os.environ.get("LOCALAPPDATA", "") or "C:\\Users\\Default\\AppData\\Local")
     / "Programs",
-    Path("C:\\Tools"),
+    # SANS FOR508 default
+    Path("C:\\Forensic_Program_Files"),
+    Path(os.environ.get("USERPROFILE", "") or "C:\\Users\\Default")
+    / "Desktop"
+    / "ZimmermanTools",
+    # Chocolatey
+    Path("C:\\ProgramData\\chocolatey\\bin"),
+    # Scoop
+    Path(os.environ.get("USERPROFILE", "") or "C:\\Users\\Default") / "scoop" / "shims",
     Path("C:\\Tools\\ZimmermanTools"),
     Path("C:\\Tools\\Hayabusa"),
     Path("C:\\Tools\\SleuthKit\\bin"),
@@ -30,16 +41,11 @@ DEFAULT_TOOL_PATHS = [
     Path("C:\\Tools\\Chainsaw"),
     Path("C:\\Tools\\YARA"),
     Path("C:\\Tools\\DensityScout"),
-    # SANS FOR508 default
-    Path("C:\\Forensic_Program_Files"),
-    Path(os.environ.get("USERPROFILE", "") or "C:\\Users\\Default")
-    / "Desktop"
-    / "ZimmermanTools",
-    # Chocolatey
-    Path("C:\\ProgramData\\chocolatey\\bin"),
-    # Scoop
-    Path(os.environ.get("USERPROFILE", "") or "C:\\Users\\Default") / "scoop" / "shims",
+    Path("C:\\Tools"),
 ]
+
+# A copy KAPE bundles for its modules: run only when no other copy is found
+_KAPE_BIN = re.compile(r"[\\/]modules[\\/]bin[\\/]", re.IGNORECASE)
 
 
 _binary_cache: dict[str, str | None] = {}
@@ -60,14 +66,29 @@ def _search(name: str, extra_paths: list[Path] | None = None):
     """Every copy of ``name``, in the order a run looks: (path, the one PATH
     resolves).
 
-    1. shutil.which() (checks PATH), then any other PATH folder's copy
-    2. Each tool folder's direct children (with .exe tried)
-    3. Each tool folder's subfolders, at most 4 levels deep (catches
-       arbitrary layouts like ZimmermanTools/net9/RECmd/RECmd.exe)
+    1. The configured folders (config tool_paths, the catalog's install_paths)
+    2. shutil.which() (checks PATH), then any other PATH folder's copy
+    3. DEFAULT_TOOL_PATHS, C:\\Tools last
+    4. Any copy in a KAPE Modules\\bin folder, found in any of these
+
+    Each folder is searched in its direct children (with .exe tried), then its
+    subfolders at most 4 levels deep (catches arbitrary layouts like
+    ZimmermanTools/net9/RECmd/RECmd.exe).
     """
+    held = []
+    for path, on_path in _copies(name, extra_paths):
+        if _KAPE_BIN.search(path):
+            held.append((path, on_path))
+        else:
+            yield path, on_path
+    yield from held
+
+
+def _copies(name: str, extra_paths: list[Path] | None = None):
     wanted = {name.lower()}
     if not name.lower().endswith(".exe"):
         wanted.add(f"{name}.exe".lower())
+    yield from _in_folders(name, wanted, extra_paths or [])
     found = shutil.which(name)
     if found:
         yield found, True
@@ -76,11 +97,10 @@ def _search(name: str, extra_paths: list[Path] | None = None):
             for candidate in (Path(d) / name, Path(d) / f"{name}.exe"):
                 if candidate.name.lower() in wanted and candidate.is_file():
                     yield str(candidate), False
+    yield from _in_folders(name, wanted, DEFAULT_TOOL_PATHS)
 
-    search = list(DEFAULT_TOOL_PATHS)
-    if extra_paths:
-        search.extend(extra_paths)
 
+def _in_folders(name: str, wanted: set[str], search: list[Path]):
     for d in search:
         if not d.is_dir():
             continue
