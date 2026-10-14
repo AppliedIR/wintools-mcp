@@ -150,25 +150,33 @@ class ToolDefinition:
         return self.fk_tool_name or self.name
 
 
-def _release(version: str) -> tuple[int, ...] | None:
-    """A version's numbers ("v4.2.0" -> (4, 2, 0)); None when it has none."""
-    nums = re.findall(r"\d+", version.split("-")[0].split("+")[0])
-    return tuple(int(n) for n in nums) if nums else None
+def _release(version: str) -> tuple[tuple[int, ...], int] | None:
+    """A version's numbers and whether it is a release ("v4.2.0" -> ((4, 2,
+    0), 1); "4.0.0-rc1" -> ((4, 0, 0), 0): a pre-release comes before its
+    release). None when it has no numbers."""
+    base = version.split("+")[0]
+    nums = re.findall(r"\d+", base.split("-")[0])
+    if not nums:
+        return None
+    return tuple(int(n) for n in nums), 0 if "-" in base else 1
 
 
 def version_in(version: str, versions: str) -> bool:
     """Whether ``version`` is in a range such as ">=4.0,<5" (every comma
-    clause must hold; >=, >, <=, <, ==). An unreadable version is in none."""
+    clause must hold; >=, >, <=, <, ==). An unreadable version is in none,
+    and a blank or unreadable range holds none."""
     have = _release(version or "")
-    if have is None:
+    clauses = [c.strip() for c in versions.split(",") if c.strip()]
+    if have is None or not clauses:
         return False
-    for clause in filter(None, (c.strip() for c in versions.split(","))):
+    for clause in clauses:
         m = re.match(r"(>=|<=|==|>|<)\s*(.+)", clause)
         want = _release(m.group(2)) if m else None
         if want is None:
             return False
-        n = max(len(have), len(want))
-        a, b = have + (0,) * (n - len(have)), want + (0,) * (n - len(want))
+        n = max(len(have[0]), len(want[0]))
+        a = (have[0] + (0,) * (n - len(have[0])), have[1])
+        b = (want[0] + (0,) * (n - len(want[0])), want[1])
         holds = {">=": a >= b, "<=": a <= b, "==": a == b, ">": a > b, "<": a < b}
         if not holds[m.group(1)]:
             return False

@@ -77,7 +77,9 @@ def test_a_flag_the_help_doesnt_show_is_named():
     [("3.9.0", ">=3.9,<4", True), ("4.1.0", ">=3.9,<4", False),
      ("v4.2.0", ">=4.0,<5", True), ("1.5.0.0", ">=1.5,<2", True),
      ("2026.5.0.0", ">=1.5,<2", False), ("unknown", ">=3.9,<4", False),
-     ("14.3", "==14.3", True)],
+     ("14.3", "==14.3", True), ("4.2.0", "", False), ("4.2.0", " , ", False),
+     ("4.0.0-rc1", ">=4.0", False), ("4.0.0-rc1", "<4.0", True),
+     ("4.0.0", ">=4.0", True)],
 )  # fmt: skip
 def test_a_version_range(version, versions_, inside):
     assert version_in(version, versions_) is inside

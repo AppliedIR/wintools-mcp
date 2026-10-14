@@ -19,7 +19,22 @@ from wintools_mcp import environment, versions
 from wintools_mcp import server as srv
 
 H3 = "Hayabusa v3.9.0\n\nUsage: hayabusa.exe csv-timeline <INPUT> [OPTIONS]\n\nOptions:\n  -d, --directory <DIR>\n  -t, --threads <NUMBER>\n"
-NO_SUB = "error: unrecognized subcommand 'dfir-timeline'\n\n  tip: a similar subcommand exists: 'csv-timeline'\n"
+# What each version prints for the other's subcommand (clap, on stderr; the probe
+# reads stdout, then stderr): Hayabusa 3.9.0 on SIFT, and 4.1.0 on a Windows guest
+NO_DFIR_3 = (
+    "\nerror: unrecognized subcommand 'dfir-timeline'\n\n"
+    "  tip: a similar subcommand exists: 'csv-timeline'\n\n"
+    "Usage: hayabusa [COMMAND]\n\nFor more information, try 'help'.\n"
+)
+NO_CSV_4 = (
+    "\nerror: unrecognized subcommand 'csv-timeline'\n\n"
+    "  tip: a similar subcommand exists: 'dfir-timeline'\n\n"
+    "Usage: hayabusa.exe [COMMAND]\n\nFor more information, try 'help'.\n"
+)
+H4 = (
+    "Hayabusa v4.1.0 - Suzumushi Release\n\nUsage:\n"
+    "  hayabusa.exe dfir-timeline <INPUT> [OPTIONS]\n\nOptions:\n  -t, --output-type <TYPE>\n"
+)
 
 
 def _help(name):
@@ -66,7 +81,7 @@ def test_the_help_is_the_tools_own(case, installed):  # noqa: F811
 
 def test_hayabusa_3_answers_its_csv_timeline_help(case, installed):  # noqa: F811
     installed["said"].update(
-        {"dfir-timeline --help": NO_SUB, "csv-timeline --help": H3}
+        {"dfir-timeline --help": NO_DFIR_3, "csv-timeline --help": H3}
     )
     r = _help("hayabusa")
     assert r["help_argv"] == ["csv-timeline", "--help"] and "--threads" in r["help"]
@@ -113,3 +128,25 @@ def test_the_audit_entry_carries_no_help_text(case, installed):  # noqa: F811
     assert entry["result_summary"]["help_chars"] == len(
         "Usage: tool [options]\n  -f <file>"
     )
+
+
+def test_hayabusa_4_answers_its_dfir_timeline_help(case, installed):  # noqa: F811
+    installed["said"].update(
+        {"dfir-timeline --help": H4, "csv-timeline --help": NO_CSV_4}
+    )
+    r = _help("hayabusa")
+    assert (
+        r["help_argv"] == ["dfir-timeline", "--help"] and "--output-type" in r["help"]
+    )
+    assert installed["asked"] == [["dfir-timeline", "--help"]]
+
+
+def test_an_argv_refused_with_an_error_is_never_the_help(case, installed):  # noqa: F811
+    """Every argv refused: no help, and each error named."""
+    installed["said"].update(
+        {"dfir-timeline --help": NO_DFIR_3, "csv-timeline --help": NO_CSV_4,
+         "help": "error: unexpected argument\n"}
+    )  # fmt: skip
+    r = _help("hayabusa")
+    assert "help" not in r
+    assert "dfir-timeline --help: error: unrecognized subcommand" in r["help_error"]

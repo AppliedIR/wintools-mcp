@@ -115,11 +115,19 @@ def _shown(text: str, argv: list[str]) -> dict:
     return out
 
 
+def _refused(text: str) -> bool:
+    """The tool refused the argv: its first line is an error (clap's
+    "error: unrecognized subcommand", whose own Usage line is no help)."""
+    first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    return first.lower().startswith("error:")
+
+
 def tool_help(path: str | None, td) -> dict:
     """The installed tool's own help, asked with its catalog `help_argv` (the
-    first that prints usage wins; else the first that prints anything). Run
-    on every call, outside any case. Never for an acquisition tool or a
-    script; a EULA screen in place of the help is said, never accepted."""
+    first that prints usage wins; else the first that prints anything; an
+    argv the tool refuses with an error is never its help). Run on every
+    call, outside any case. Never for an acquisition tool or a script; a
+    EULA screen in place of the help is said, never accepted."""
     if not path:
         return {}
     if td.acquisition:
@@ -140,6 +148,10 @@ def tool_help(path: str | None, td) -> dict:
                 f"{td.binary} showed its license (EULA) screen: the account running "
                 "wintools hasn't accepted it. A run accepts it and says so."
             )}  # fmt: skip
+        if _refused(text):  # e.g. a subcommand this version doesn't have
+            first_line = next(line for line in text.splitlines() if line.strip())
+            errors.append(f"{' '.join(argv)}: {first_line.strip()}")
+            continue
         if _USAGE.search(text):
             return _shown(text, argv)
         if first is None and text.strip():
