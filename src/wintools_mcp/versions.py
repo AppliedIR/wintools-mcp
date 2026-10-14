@@ -72,8 +72,9 @@ def bounded_output(argv: list[str]) -> tuple[int | None, str, str]:
     """The process's exit code, stdout and stderr, at most PROBE_BYTES of
     each: read as it comes, and the process ended once both are read or
     PROBE_SECONDS pass, so a tool that writes megabytes never fills memory.
-    The exit code is None when the process hadn't ended. Run outside any
-    case: no op folder, nothing saved."""
+    The exit code is None when the process hadn't ended by itself: one
+    stopped here at a cap has only the kill's code (-9, or 1 on Windows).
+    Run outside any case: no op folder, nothing saved."""
     proc = subprocess.Popen(
         argv,
         stdout=subprocess.PIPE,
@@ -110,6 +111,11 @@ def bounded_output(argv: list[str]) -> tuple[int | None, str, str]:
         for t in readers:
             t.join(0.05)
     out_of_time = any(t.is_alive() for t in readers) and not full.is_set()
+    if not out_of_time and not full.is_set():  # both pipes closed: it is ending
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
     ended = proc.poll() is not None  # the tool itself ended
     if not ended:  # still writing (past a cap) or past the deadline
         proc.kill()
@@ -130,7 +136,8 @@ def bounded_output(argv: list[str]) -> tuple[int | None, str, str]:
 
     # each stream in its own encoding: Sysinternals tools write UTF-16LE
     out, err = bytes(got["out"]), bytes(got["err"])
-    return signed_exit(proc.returncode), _decode_output(out), _decode_output(err)
+    code = signed_exit(proc.returncode) if ended else None
+    return code, _decode_output(out), _decode_output(err)
 
 
 def run_probe(argv: list[str]) -> str:
@@ -159,6 +166,7 @@ def _probe(path: str, probe: dict) -> dict:
 
 
 HELP_INLINE = 8192
+STDERR_INLINE = 1024  # of stderr, kept inline however long stdout is
 DEFAULT_HELP = [["--help"], ["-h"]]
 STDERR_LABEL = "# --- stderr ---"
 
@@ -168,18 +176,46 @@ def as_shown(out: str, err: str) -> str:
     return f"{out}\n{STDERR_LABEL}\n{err}\n"
 
 
-def _shown(text: str, argv: list[str], code: int | None) -> dict:
+def _cut_mark(stream: str, size: int) -> str:
+    return f"\n[{stream} cut here: {size:,} characters in all]"
+
+
+def _inline(out: str, err: str) -> str:
+    """Both streams as shown, at most HELP_INLINE characters. When they don't
+    fit and the tool wrote to stderr, stdout is cut so that the stderr label
+    and at least STDERR_INLINE characters of stderr stay: a long usage text
+    never hides the error. Each cut stream is marked where it is cut."""
+    text = as_shown(out, err).strip("\n")
+    if len(text) <= HELP_INLINE or not err.strip():
+        return text[:HELP_INLINE]
+    out, err = out.strip("\n"), err.strip("\n")
+    label = f"\n{STDERR_LABEL}\n"
+    err_room = max(STDERR_INLINE, HELP_INLINE - len(label) - len(out))
+    if len(err) > err_room:
+        mark = _cut_mark("stderr", len(err))
+        err = err[: err_room - len(mark)] + mark
+    out_room = HELP_INLINE - len(label) - len(err)
+    if len(out) > out_room:
+        mark = _cut_mark("stdout", len(out))
+        out = out[: out_room - len(mark)] + mark
+    return f"{out}{label}{err}".strip("\n")
+
+
+def _shown(out: str, err: str, argv: list[str], code: int | None) -> dict:
     """The help as the reply carries it, with its exit code: at most
-    HELP_INLINE characters, and when cut, how to read the rest."""
-    text = text.strip("\n")
-    out = {"help": text[:HELP_INLINE], "help_argv": argv, "help_exit_code": code,
-           "help_source": "the installed tool's own output, as text"}  # fmt: skip
+    HELP_INLINE characters, and when cut, how to read the rest. A tool
+    stopped at the probe's cap wrote more than was read, and has no exit
+    code of its own."""
+    text = as_shown(out, err).strip("\n")
+    shown = {"help": _inline(out, err), "help_argv": argv, "help_exit_code": code,
+             "help_source": "the installed tool's own output, as text"}  # fmt: skip
     if len(text) > HELP_INLINE:
-        out["help_cut"] = (
-            f"The help is cut at {HELP_INLINE:,} of {len(text):,} characters: run "
+        size = f"at least {len(text):,}" if code is None else f"{len(text):,}"
+        shown["help_cut"] = (
+            f"The help is cut at {HELP_INLINE:,} of {size} characters: run "
             f"the tool with {' '.join(argv)} through run_windows_command for all of it"
         )
-    return out
+    return shown
 
 
 def tool_help(path: str | None, td) -> dict:
@@ -211,7 +247,7 @@ def tool_help(path: str | None, td) -> dict:
                 "wintools hasn't accepted it. A run accepts it and says so."
             )}  # fmt: skip
         if out.strip() or err.strip():
-            return _shown(as_shown(out, err), argv, code)
+            return _shown(out, err, argv, code)
         errors.append(f"{' '.join(argv)}: printed nothing (exit code {code})")
     return {"help_error": "; ".join(errors) or "the tool printed no help"}
 

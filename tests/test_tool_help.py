@@ -227,3 +227,63 @@ def test_a_eula_screen_in_utf16_is_said_and_never_accepted(
     assert "EULA" in r.get("help_not_run", "") and "help" not in r, r.get("help", "")[
         :200
     ]
+
+
+def test_a_tool_stopped_at_the_probe_cap_has_no_exit_code():
+    """Its code would be the kill's (-9 here, 1 on Windows): read as the tool
+    failing. A tool that ends by itself keeps its own."""
+    spill = "import sys\nwhile True: sys.stdout.write('usage line\\n')"
+    code, out, _ = versions.bounded_output([sys.executable, "-c", spill])
+    assert code is None and len(out) >= versions.PROBE_BYTES
+    ends = "import sys\nsys.stdout.write('usage\\n'); raise SystemExit(3)"
+    assert versions.bounded_output([sys.executable, "-c", ends])[0] == 3
+
+
+def test_a_tool_that_closes_its_pipes_before_it_exits_keeps_its_code():
+    """Both pipes end a moment before the process does: it is waited for,
+    never killed and read as stopped."""
+    late = (
+        "import os, sys, time\nsys.stdout.write('usage\\n'); sys.stdout.flush()\n"
+        "os.close(1); os.close(2); time.sleep(0.5); os._exit(3)"
+    )
+    assert versions.bounded_output([sys.executable, "-c", late])[0] == 3
+
+
+def test_a_help_past_the_probe_cap_says_its_length_is_a_floor(case, installed):  # noqa: F811
+    out = "  -x  an option\n" * 5000
+    installed["said"]["--help"] = (None, out, "")
+    r = _help("MFTECmd")
+    size = len(versions.as_shown(out, "").strip("\n"))
+    assert r["help_exit_code"] is None
+    assert f"of at least {size:,} characters" in r["help_cut"], r["help_cut"]
+
+
+def test_a_long_usage_never_hides_the_error(case, installed):  # noqa: F811
+    """9,000 characters on stdout, then the error on stderr: the label and the
+    error stay inline, and the cut in stdout is marked."""
+    installed["said"]["--help"] = (2, "u" * 9000 + "\n", "error: real problem\n")
+    r = _help("PECmd")
+    assert r["help"].endswith(f"\n{LABEL}\nerror: real problem"), r["help"][-200:]
+    assert "[stdout cut here: 9,000 characters in all]" in r["help"]
+    assert len(r["help"]) <= versions.HELP_INLINE
+    assert r["help_exit_code"] == 2 and "run_windows_command" in r["help_cut"]
+
+
+def test_a_long_stderr_keeps_its_start_inline_and_marks_the_cut(case, installed):  # noqa: F811
+    installed["said"]["--help"] = (2, "u" * 9000, "error: first\n" + "e" * 5000)
+    r = _help("PECmd")
+    head, _, tail = r["help"].partition(f"\n{LABEL}\n")
+    assert tail.startswith("error: first")
+    assert tail.endswith("[stderr cut here: 5,013 characters in all]")
+    assert len(tail) == versions.STDERR_INLINE
+    assert "[stdout cut here: 9,000 characters in all]" in head
+    assert len(r["help"]) == versions.HELP_INLINE
+
+
+def test_a_short_usage_leaves_stderr_the_rest_of_the_room(case, installed):  # noqa: F811
+    installed["said"]["--help"] = (1, "usage: tool\n", "e" * 20000)
+    r = _help("PECmd")
+    assert r["help"].startswith(f"usage: tool\n{LABEL}\neee")
+    assert "stdout cut" not in r["help"]
+    assert r["help"].endswith("[stderr cut here: 20,000 characters in all]")
+    assert len(r["help"]) == versions.HELP_INLINE
