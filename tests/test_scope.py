@@ -128,10 +128,22 @@ def test_a_local_long_path_runs(case, tmp_path):  # noqa: F811
     _runs(tmp_path, ["strings", r"\\?\C:\Windows\x.bin"])
 
 
-def test_a_doubled_separator_inside_a_path_runs(case, tmp_path):  # noqa: F811
-    """Inside a path, Windows reads a doubled separator as one."""
-    (case / "evidence" / "x.bin").write_bytes(b"synthetic")
-    _runs(tmp_path, ["strings", str(case / "evidence") + "//x.bin"])
+@pytest.mark.parametrize(
+    "arg",
+    [
+        r"-f\\evilhost\share\x.evtx",
+        r"-d\\evilhost\share",
+        r"-f\\?\UNC\evilhost\share\x.evtx",
+        "-f//evilhost/share/x.evtx",
+    ],
+)
+def test_another_system_as_an_attached_value_is_refused(
+    case,  # noqa: F811
+    tmp_path,
+    arg,
+):
+    """Hayabusa's short options take a value attached to the letter."""
+    _refused(tmp_path, ["hayabusa", "dfir-timeline", arg, "-w"], "another system")
 
 
 @pytest.fixture
@@ -195,13 +207,6 @@ def test_run_command_refuses_before_finding_the_tool(case, monkeypatch):  # noqa
         (r"\??\C:\x.bin", False),
         (r"\\evilhost\cases\x.bin", True),
         (r"\\sift.evil\cases\x.bin", True),
-        (r"C:\case\\sub\x.bin", False),
-        (r"C:\\case\x.bin", False),
-        ("C://case/x.bin", False),
-        (r"--f=C:\\case\x.bin", False),
-        (r"sub\\x.bin", False),
-        (r"C:\case\\\sub\x.bin", False),
-        (r"\\?\C:\case\\sub\x.bin", False),
         (r"C:\case\a,\\evilhost\s", True),
         (r"-d:\\evilhost\s", True),
         (r"/d:\\evilhost\s", True),

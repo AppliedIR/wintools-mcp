@@ -46,33 +46,17 @@ def _share_hosts(share_root: str) -> set[str]:
     return hosts - {""}
 
 
-def _path_start(before: str) -> bool:
-    """A ``\\\\`` after ``before`` begins a path: ``before`` is empty, or ends
-    in none of a letter, a digit, ``_ . $ ~ ) ] } -`` and ``\\``, and isn't a
-    drive (``C:``). Anything else before it (``=``, ``,``, ``;``, a space, a
-    quote, ``@``) can end a value, so it begins a new path."""
-    if re.search(r"(?:^|[^\w.$~)\]}\\-])[A-Za-z]:$", before):
-        return False  # C:\\x is C:\x
-    return not re.search(r"[\w.$~)\]}\\-]$", before)
-
-
 def _network(arg: str, share_root: str) -> str:
     """Why ``arg`` names another system or a device, or "" when it doesn't.
 
-    A ``\\\\`` is read as the start of a path wherever a path can begin
-    (``_path_start``): at the argument's start, the value of
-    ``--x=\\\\h\\s``, an item of a list. Inside a path
-    (``C:\\case\\\\sub``, ``C:\\\\case``) it is one separator, as Windows reads
-    it. ``/`` is read as ``\\``, as Windows reads it. ``\\\\?\\UNC\\host`` and
-    ``\\??\\UNC\\host`` name that host; ``\\\\?\\X:\\`` and ``\\??\\X:\\`` are local.
-    Any other ``\\\\?\\`` or ``\\??\\`` path, and ``\\\\.\\`` (a device, such as a
-    raw volume), is refused."""
+    Every ``\\\\`` in it is read as the start of a path, wherever it is (the
+    value of ``--x=\\\\h\\s``, an item of a list), with ``/`` read as ``\\``
+    as Windows reads it. ``\\\\?\\UNC\\host`` and ``\\??\\UNC\\host`` name that
+    host; ``\\\\?\\X:\\`` and ``\\??\\X:\\`` are local. Any other ``\\\\?\\``
+    or ``\\??\\`` path, and ``\\\\.\\`` (a device, such as a raw volume), is
+    refused."""
     n = arg.replace("/", "\\")
-    starts = [
-        (m.start(), m.start() + 2)
-        for m in re.finditer(r"(?=\\\\)", n)
-        if _path_start(n[: m.start()])
-    ]
+    starts = [(m.start(), m.start() + 2) for m in re.finditer(r"(?=\\\\)", n)]
     starts += [(m.start(), m.start() + 1) for m in re.finditer(r"(?=\\\?\?\\)", n)]
     hosts: set[str] | None = None
     for at, rest in starts:
