@@ -9,6 +9,15 @@ tools:
     fk_tool_name: autorunsc
     eula_key: AutoRuns
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
+    # Each recipe's flags are in that version's own help (tests/fixtures/tool_help).
+    # An offline system only (-z): wintools analyses collected data
+    recipes:
+      - task: "Every autostart entry of an offline Windows system as CSV, with file hashes and signature checks"
+        versions: ">=14.3,<15"
+        argv: ["-a", "*", "-c", "-h", "-s", "-z", "<systemroot>", "<userprofile>"]
+      - task: "The same, hiding entries signed by Microsoft"
+        versions: ">=14.3,<15"
+        argv: ["-a", "*", "-c", "-h", "-s", "-m", "-z", "<systemroot>", "<userprofile>"]
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns"
@@ -28,6 +37,17 @@ tools:
     fk_tool_name: strings
     eula_key: Strings
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
+    # Each recipe's flags are in that version's own help (tests/fixtures/tool_help)
+    recipes:
+      - task: "Strings of at least 8 characters, each with its offset in the file"
+        versions: ">=2.54,<3"
+        argv: ["-o", "-n", "8", "<file>"]
+      - task: "ASCII strings only (Unicode and ASCII is the default)"
+        versions: ">=2.54,<3"
+        argv: ["-a", "<file>"]
+      - task: "Unicode strings only"
+        versions: ">=2.54,<3"
+        argv: ["-u", "<file>"]
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/strings"
@@ -92,6 +112,15 @@ tools:
     fk_tool_name: sigcheck
     eula_key: sigcheck
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
+    # Each recipe's flags are in that version's own help (tests/fixtures/tool_help)
+    recipes:
+      - task: "Signatures of every executable image in a folder and its subfolders, as CSV with file hashes, no revocation check"
+        versions: ">=2.92,<3"
+        argv: ["-c", "-e", "-h", "-r", "-s", "<folder>"]
+        notes: "-r: no certificate revocation check (a box without network)"
+      - task: "One file's catalog name and signing chain"
+        versions: ">=2.92,<3"
+        argv: ["-i", "<file>"]
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/sigcheck"

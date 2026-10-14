@@ -15,6 +15,19 @@ tools:
       - task: "The same, with times in UTC"
         versions: ">=3.9,<4"
         argv: ["csv-timeline", "-d", "<evtx folder>", "-o", "<file.csv>", "-w", "-U"]
+      - task: "Timeline of a folder of .evtx files as CSV, without questions"
+        versions: ">=4.1,<5"
+        argv: ["dfir-timeline", "-d", "<evtx folder>", "-o", "<file.csv>", "-w"]
+        notes: "4.x: -t is the output type (csv, json, jsonl)"
+      - task: "Timeline of one .evtx file as CSV, without questions"
+        versions: ">=4.1,<5"
+        argv: ["dfir-timeline", "-f", "<file.evtx>", "-o", "<file.csv>", "-w"]
+      - task: "The same, with times in UTC"
+        versions: ">=4.1,<5"
+        argv: ["dfir-timeline", "-d", "<evtx folder>", "-o", "<file.csv>", "-w", "-U"]
+      - task: "Timeline of a folder of .evtx files as JSON lines"
+        versions: ">=4.1,<5"
+        argv: ["dfir-timeline", "-d", "<evtx folder>", "-o", "<file.jsonl>", "-t", "jsonl", "-w"]
     input_style: flag
     input_flag: "-d"
     output_format: csv

@@ -22,6 +22,21 @@ tools:
     output_format: text
     timeout_seconds: 300
     fk_tool_name: yara
+    # yara64.exe has no VERSIONINFO: its help's first line names the version
+    version_probe:
+      argv: ["--help"]
+      pattern: "YARA ([0-9][^\\s,]*)"
+    # Each recipe's flags are in that version's own help (tests/fixtures/tool_help)
+    recipes:
+      - task: "Scan a folder and its subfolders, printing matching strings and rule metadata"
+        versions: ">=4.2,<5"
+        argv: ["-r", "-s", "-m", "<rules file>", "<folder>"]
+      - task: "Only the number of matches per file"
+        versions: ">=4.2,<5"
+        argv: ["-c", "<rules file>", "<file>"]
+      - task: "Scan with compiled rules"
+        versions: ">=4.2,<5"
+        argv: ["-C", "<compiled rules file>", "<folder>"]
     install_methods:
       - method: github
         url: "https://github.com/VirusTotal/yara/releases"

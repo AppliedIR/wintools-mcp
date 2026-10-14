@@ -9,6 +9,11 @@ tools:
     timeout_seconds: 1800
     fk_tool_name: KAPE
     settings_paths: ["Targets", "Modules"]
+    # Each recipe's flags are in that version's own help (tests/fixtures/tool_help)
+    recipes:
+      - task: "Run one module over files already collected"
+        versions: ">=1.3,<2"
+        argv: ["--msource", "<collected folder>", "--module", "<module>", "--mdest", "<output folder>"]
     install_methods:
       - method: direct
         url: "https://www.kroll.com/en/services/cyber-risk/incident-response-litigation-support/kroll-artifact-parser-extractor-kape"

@@ -66,7 +66,11 @@ def test_every_recipe_flag_is_in_its_versions_own_help(tool, i, recipe):
 
 
 def test_a_flag_the_help_doesnt_show_is_named():
-    (recipe,) = [r for r in load_catalog()["hayabusa"].recipes if "-U" in r["argv"]]
+    (recipe,) = [
+        r
+        for r in load_catalog()["hayabusa"].recipes
+        if "-U" in r["argv"] and r["versions"] == ">=3.9,<4"
+    ]
     text = _helps("hayabusa")["3.9.0"]
     cut = "\n".join(line for line in text.splitlines() if "--UTC" not in line)
     assert _missing(recipe, cut) == ["-U"]
@@ -106,18 +110,30 @@ def hayabusa_at(tmp_path, monkeypatch):
 
 
 def test_the_installed_versions_recipes_are_given(hayabusa_at):
+    """3.x gets csv-timeline; 4.x gets dfir-timeline; each lists the other's
+    as tested on its range only."""
     r = hayabusa_at("3.9.0")
-    assert [x["argv"][0] for x in r["recipes"]] == ["csv-timeline"] * 3
-    assert "no_recipe" not in r and "recipes_other_versions" not in r
-
-
-def test_a_version_no_recipe_was_checked_on_is_said(hayabusa_at):
+    assert {x["argv"][0] for x in r["recipes"]} == {
+        "csv-timeline"
+    } and "no_recipe" not in r
+    assert {x["note"] for x in r["recipes_other_versions"]} == {
+        "tested on >=4.1,<5 only"
+    }
     r = hayabusa_at("4.1.0")
-    assert r["recipes"] == []
-    assert r["no_recipe"].startswith("No recipe for hayabusa 4.1.0; tested on >=3.9,<4")
+    assert {x["argv"][0] for x in r["recipes"]} == {
+        "dfir-timeline"
+    } and "no_recipe" not in r
     assert {x["note"] for x in r["recipes_other_versions"]} == {
         "tested on >=3.9,<4 only"
     }
+
+
+def test_a_version_no_recipe_was_checked_on_is_said(hayabusa_at):
+    r = hayabusa_at("9.0.0")
+    assert r["recipes"] == []
+    assert r["no_recipe"].startswith(
+        "No recipe for hayabusa 9.0.0; tested on >=3.9,<4, >=4.1,<5"
+    )
 
 
 def test_an_unknown_version_gets_no_recipe_as_its_own(hayabusa_at):
@@ -127,3 +143,11 @@ def test_an_unknown_version_gets_no_recipe_as_its_own(hayabusa_at):
 
 def test_no_tool_keeps_a_switch_list():
     assert not any(hasattr(td, "common_flags") for td in load_catalog().values())
+
+
+def test_yaras_probe_reads_its_version_from_its_own_help():
+    """yara64.exe has no VERSIONINFO; its help's first line names it."""
+    probe = load_catalog()["yara"].version_probe
+    text = _helps("yara")["4.2.0"]
+    assert probe["argv"] == ["--help"]
+    assert re.search(probe["pattern"], text).group(1) == "4.2.0"
