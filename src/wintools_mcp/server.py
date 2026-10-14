@@ -275,7 +275,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         """The result of a long run_windows_command or batch_scan (the run_id
         its reply named): waits up to ``wait`` seconds (at most about 60), then
         gives the reply, or whether it is queued, running, stopped or failed,
-        or that wintools has no record of it (it may have restarted). Poll it
+        or that wintools has no record of it (it may have restarted, or let
+        the reply go after newer runs finished). Poll it
         every 30 seconds until the run is done."""
         return await jobs.poll(run_id, float(wait))
 

@@ -8,9 +8,10 @@ get_windows_run; its result is kept in wintools' memory.
   the wait runs out.
 - A poll after a gateway reconnect still gets the reply. After a wintools
   restart, or once the run is no longer kept, the poll says wintools has no
-  record of it. Finished runs are kept up to a cap, delivered ones go first,
-  then the oldest finished, and only once a reply is delivered: a run that
-  just finished is never let go before its reply is given.
+  record of it. Finished runs are kept up to a cap, counted as a run
+  finishes and as a reply is delivered: delivered ones go first, then the
+  oldest finished. A run a call is waiting on is never let go before its
+  reply is given, and callers that give up never keep more than the cap.
 - Polls write nothing to the audit; only the run's own entry is there. The
   pending-hash markers come with the first delivery only.
 - Runs go one at a time: a second is queued, a poll answers at once while
@@ -144,7 +145,8 @@ def test_a_gateway_reconnect_gets_the_reply_and_a_wintools_restart_is_named(
     assert seen["reconnect"].get("success") is True
     assert seen["reconnect"]["audit_id"] == run_id
     assert seen["restart"]["state"] == "unknown" and seen["restart"]["error"] == (
-        "wintools has no record of this run. It may have restarted. "
+        "wintools has no record of this run. It may have restarted, or it let "
+        f"the run's reply go after {jobs.KEEP} newer runs finished. "
         f"Check extractions/{run_id}/ and re-run if needed."
     )
     assert not list((case / "extractions").glob("*.state.json"))
@@ -246,9 +248,11 @@ def test_a_long_run_ending_with_the_cap_full_still_gives_its_reply(monkeypatch):
 
         await jobs.start("strings", "slow", "op", slow)
         await _unpolled_runs()
+        monkeypatch.setattr(jobs, "WAIT_SECONDS", 5.0)
+        polling = jobs.asyncio.ensure_future(jobs.poll("slow", 5))
+        await jobs.asyncio.sleep(0)  # its caller is polling as it ends
         gate.set()
-        await jobs._jobs["slow"].done.wait()
-        seen["slow"] = await jobs.poll("slow", 0)
+        seen["slow"] = await polling
         seen["kept"] = set(jobs._jobs)
 
     try:
@@ -281,6 +285,67 @@ def test_a_short_run_with_the_cap_full_of_unpolled_runs_loses_none(monkeypatch):
         jobs.clear()
     assert seen["short"] == {"success": True, "run": "short"}
     assert [p.get("run") for p in seen["polls"]] == list(range(jobs.KEEP))
+
+
+def test_callers_that_give_up_never_keep_more_than_the_cap(monkeypatch):
+    """256 runs whose callers are cancelled before the reply: each finishes
+    after its caller is gone, and at most KEEP are kept."""
+    monkeypatch.setattr(jobs, "WAIT_SECONDS", 5.0)
+    seen = {}
+
+    async def main():
+        for i in range(256):
+            gate = jobs.asyncio.Event()
+
+            async def work(began, gate=gate, i=i):
+                began()
+                await gate.wait()
+                return {"success": True, "run": i}
+
+            caller = jobs.asyncio.ensure_future(
+                jobs.start("strings", f"c{i}", "op", work)
+            )
+            await jobs.asyncio.sleep(0)  # the caller is waiting
+            job = jobs._jobs[f"c{i}"]
+            caller.cancel()
+            with pytest.raises(jobs.asyncio.CancelledError):
+                await caller
+            gate.set()
+            await job.done.wait()
+        seen["kept"] = sorted(jobs._jobs, key=lambda r: int(r[1:]))
+
+    anyio.run(main)
+    assert seen["kept"] == [f"c{i}" for i in range(256 - jobs.KEEP, 256)]
+
+
+def test_a_run_whose_caller_is_cancelled_as_it_ends_keeps_its_reply(monkeypatch):
+    """KEEP unpolled runs are kept; a polled run ends and its caller is
+    cancelled in the same tick: a later poll still gets its reply."""
+    seen = {}
+
+    async def main():
+        monkeypatch.setattr(jobs, "WAIT_SECONDS", 0.0)
+        gate = jobs.asyncio.Event()
+
+        async def watched(began):
+            began()
+            await gate.wait()
+            return {"success": True, "run": "watched"}
+
+        await jobs.start("strings", "watched", "op", watched)
+        await _unpolled_runs()
+        monkeypatch.setattr(jobs, "WAIT_SECONDS", 5.0)
+        caller = jobs.asyncio.ensure_future(jobs.poll("watched", 5))
+        await jobs.asyncio.sleep(0)  # the caller is polling
+        gate.set()
+        caller.cancel()
+        with pytest.raises(jobs.asyncio.CancelledError):
+            await caller
+        await jobs.asyncio.sleep(0.05)
+        seen["later"] = await jobs.poll("watched", 0)
+
+    anyio.run(main)
+    assert seen["later"] == {"success": True, "run": "watched"}
 
 
 def test_polls_write_no_entries_and_pending_hashes_come_once(case, runs, monkeypatch):  # noqa: F811

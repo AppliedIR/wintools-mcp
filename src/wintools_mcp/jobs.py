@@ -9,11 +9,14 @@ does; a call that finds QUEUE_LIMIT runs waiting is refused.
 
 Jobs live in this process only. A gateway restart doesn't touch them; a
 wintools restart forgets them, and a poll then answers that wintools has no
-record of the run. At most KEEP finished jobs are kept: delivered ones go
-first, then the oldest finished. They are let go only as a reply is
-delivered, after it's marked delivered, so a run that just finished is never
-let go before its reply is given; a forgotten run is answered as an unknown
-one.
+record of the run. At most KEEP finished jobs are kept, counted as a run
+finishes and as a reply is delivered: delivered ones go first, then
+undelivered ones, each oldest finished first. A job a call is waiting on is
+neither counted nor let go, so a run that just finished is never let go
+before its waiting caller has its reply; once delivered it is the first to
+go. A caller that times out or is cancelled stops waiting, and its job counts
+again. A run let go is answered as an unknown one: its reply and its
+pending-hash markers are lost, as they are when wintools restarts.
 
 The pending-hash markers (files over the hash limit) are delivered with the
 first delivery of a finished reply only, so the gateway hashes them once.
@@ -47,6 +50,7 @@ class Job:
     delivered: bool = False
     task: Any = None
     finished: int = 0  # finish order
+    waiters: int = 0  # wait() calls blocked on it now
 
 
 _jobs: dict[str, Job] = {}
@@ -68,9 +72,10 @@ def waiting() -> int:
 
 
 def _evict() -> None:
-    """Keep at most KEEP finished jobs: delivered ones go first, then the
-    oldest finished. Called once a reply is marked delivered."""
-    finished = [j for j in _jobs.values() if j.done.is_set()]
+    """Keep at most KEEP finished jobs that no call is waiting on: delivered
+    ones go first, then undelivered ones, each oldest finished first. Called
+    as a run finishes and once a reply is marked delivered."""
+    finished = [j for j in _jobs.values() if j.done.is_set() and not j.waiters]
     extra = len(finished) - KEEP
     if extra > 0:
         for job in sorted(finished, key=lambda j: (not j.delivered, j.finished))[
@@ -123,7 +128,8 @@ def unknown_reply(run_id: str) -> dict:
         "state": "unknown",
         "run_id": run_id,
         "error": (
-            "wintools has no record of this run. It may have restarted. Check "
+            "wintools has no record of this run. It may have restarted, or it let "
+            f"the run's reply go after {KEEP} newer runs finished. Check "
             f"extractions/{run_id}/ and re-run if needed."
         ),
     }
@@ -153,6 +159,7 @@ async def start(tool: str, run_id: str, op_folder: str, work) -> dict:
         job.reply, job.state = reply, outcome(reply)
         job.finished = next(_finish_order)
         job.done.set()
+        _evict()
 
     job.task = asyncio.get_running_loop().create_task(run())
     return await wait(job, WAIT_SECONDS)
@@ -161,14 +168,19 @@ async def start(tool: str, run_id: str, op_folder: str, work) -> dict:
 async def wait(job: Job, seconds: float) -> dict:
     """The job's reply once it's done, waiting up to ``seconds``; else that it
     is queued or running. A done job always gives its reply, whatever the wait,
-    and so does one that ends as the wait runs out."""
-    if not job.done.is_set():
-        try:
-            await asyncio.wait_for(
-                asyncio.shield(job.done.wait()), timeout=max(0.0, seconds)
-            )
-        except asyncio.TimeoutError:
-            pass
+    and so does one that ends as the wait runs out: while this waits, the job
+    is never let go."""
+    job.waiters += 1
+    try:
+        if not job.done.is_set():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(job.done.wait()), timeout=max(0.0, seconds)
+                )
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        job.waiters -= 1
     if not job.done.is_set():
         return running_reply(job)
     first = not job.delivered
