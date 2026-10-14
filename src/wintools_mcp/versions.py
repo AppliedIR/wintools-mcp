@@ -176,8 +176,9 @@ def as_shown(out: str, err: str) -> str:
     return f"{out}\n{STDERR_LABEL}\n{err}\n"
 
 
-def _cut_mark(stream: str, size: int) -> str:
-    return f"\n[{stream} cut here: {size:,} characters in all]"
+def _cut_mark(stream: str) -> str:
+    """No length: a stream read up to PROBE_BYTES may have been longer."""
+    return f"\n[{stream} cut here]"
 
 
 def _inline(out: str, err: str) -> str:
@@ -192,11 +193,11 @@ def _inline(out: str, err: str) -> str:
     label = f"\n{STDERR_LABEL}\n"
     err_room = max(STDERR_INLINE, HELP_INLINE - len(label) - len(out))
     if len(err) > err_room:
-        mark = _cut_mark("stderr", len(err))
+        mark = _cut_mark("stderr")
         err = err[: err_room - len(mark)] + mark
     out_room = HELP_INLINE - len(label) - len(err)
     if len(out) > out_room:
-        mark = _cut_mark("stdout", len(out))
+        mark = _cut_mark("stdout")
         out = out[: out_room - len(mark)] + mark
     return f"{out}{label}{err}".strip("\n")
 
@@ -204,16 +205,16 @@ def _inline(out: str, err: str) -> str:
 def _shown(out: str, err: str, argv: list[str], code: int | None) -> dict:
     """The help as the reply carries it, with its exit code: at most
     HELP_INLINE characters, and when cut, how to read the rest. A tool
-    stopped at the probe's cap wrote more than was read, and has no exit
-    code of its own."""
+    stopped at the probe's cap has no exit code of its own. The help's full
+    length is never claimed: a stream may be longer than the probe read, and
+    the characters read aren't the bytes written."""
     text = as_shown(out, err).strip("\n")
     shown = {"help": _inline(out, err), "help_argv": argv, "help_exit_code": code,
              "help_source": "the installed tool's own output, as text"}  # fmt: skip
     if len(text) > HELP_INLINE:
-        size = f"at least {len(text):,}" if code is None else f"{len(text):,}"
         shown["help_cut"] = (
-            f"The help is cut at {HELP_INLINE:,} of {size} characters: run "
-            f"the tool with {' '.join(argv)} through run_windows_command for all of it"
+            f"The help is cut at {HELP_INLINE:,} characters: run the tool with "
+            f"{' '.join(argv)} through run_windows_command for all of it"
         )
     return shown
 

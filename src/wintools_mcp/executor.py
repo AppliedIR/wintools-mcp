@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 _WINDOWS = os.name == "nt"
 _TASKKILL_TIMEOUT = 10  # seconds
+_READER_WAIT = 2  # seconds each pipe's reader is given to end after a stop
+_STILL_RUNNING = (
+    "a process the tool started may still be running, and may hold its output "
+    "and evidence files open"
+)
 
 # Blocked output directories — system paths that should never be used as
 # save_dir targets.  Windows paths use case-insensitive backslash comparison.
@@ -106,18 +111,9 @@ def _looks_like_utf16le(raw: bytes) -> bool:
     return null_ratio > 0.5
 
 
-def _close_pipes(proc) -> None:
-    """Close process pipes to unblock reader threads after kill."""
-    for pipe in (proc.stdout, proc.stderr):
-        if pipe:
-            try:
-                pipe.close()
-            except OSError:
-                pass
-
-
-def _kill_tree(proc) -> None:
-    """Stop the tool and every process it started.
+def _kill_tree(proc) -> str:
+    """Stop the tool and every process it started; "" when taskkill ended
+    the tree, else what went wrong with it.
 
     proc.kill() ends only the tool itself. A child it started on Windows
     (KAPE's EvtxECmd) runs on with its parent gone, holds the output and
@@ -125,10 +121,11 @@ def _kill_tree(proc) -> None:
     ends the whole tree first; proc.kill() always runs after, in case it
     could not.
     """
+    failed = ""
     if _WINDOWS:
         root = os.environ.get("SystemRoot", "C:\\Windows")
         try:
-            subprocess.run(
+            done = subprocess.run(
                 [f"{root}\\System32\\taskkill.exe", "/T", "/F", "/PID", str(proc.pid)],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -137,9 +134,40 @@ def _kill_tree(proc) -> None:
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 check=False,
             )
-        except (OSError, subprocess.SubprocessError):
-            pass
+            if done.returncode:
+                failed = f"taskkill exit {done.returncode}"
+        except (OSError, subprocess.SubprocessError) as e:
+            failed = f"taskkill failed ({type(e).__name__}: {e})"
     proc.kill()
+    return failed
+
+
+def _stop(proc, readers) -> str:
+    """Stop the tool and its tree, and let go of its pipes; "" when the tree
+    ended, else a note that part of it may still be running.
+
+    The readers are given _READER_WAIT seconds in all to see their pipes
+    end. A pipe a child of the tool still holds is left to its reader (a
+    daemon): closing it would wait for that child.
+    """
+    failed = _kill_tree(proc)
+    end = time.monotonic() + _READER_WAIT
+    for t in readers:
+        t.join(max(0.0, end - time.monotonic()))
+    for t, pipe in zip(readers, (proc.stdout, proc.stderr), strict=True):
+        if pipe and not t.is_alive():
+            try:
+                pipe.close()
+            except OSError:
+                pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    still = any(t.is_alive() for t in readers)
+    if failed or still:
+        return f"{failed or 'a pipe stayed open'}: {_STILL_RUNNING}"
+    return ""
 
 
 def _read_pipe(pipe, chunks: list[bytes], limit: int, total: list[int]) -> None:
@@ -196,6 +224,7 @@ def execute(
     start = time.monotonic()
     truncated = False
     terminated = ""  # why wintools stopped the process, when it did
+    stop_note = ""  # part of its tree may still be running
     try:
         kwargs: dict[str, Any] = {
             "stdout": subprocess.PIPE,
@@ -234,22 +263,12 @@ def execute(
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                _kill_tree(proc)
-                _close_pipes(proc)
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    pass
+                stop_note = _stop(proc, (stdout_thread, stderr_thread))
                 raise subprocess.TimeoutExpired(cmd_list, timeout)
             if total[0] >= max_bytes:
                 truncated = True
                 terminated = f"output limit ({max_bytes} bytes)"
-                _kill_tree(proc)
-                _close_pipes(proc)
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    pass
+                stop_note = _stop(proc, (stdout_thread, stderr_thread))
                 break
             try:
                 proc.wait(timeout=min(0.1, remaining))
@@ -257,8 +276,9 @@ def execute(
             except subprocess.TimeoutExpired:
                 continue
 
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
+        if not terminated:  # a stopped run's readers were waited for as it stopped
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
 
         # Check truncation after threads finish (process may have
         # exited before the polling loop detected the byte limit)
@@ -287,6 +307,8 @@ def execute(
             response["truncated"] = True
         if terminated:  # its exit code is the kill's (1 on Windows), not the tool's
             response["terminated"] = terminated
+        if stop_note:
+            response["stop_note"] = stop_note
 
         # Threshold-based save: auto-save when output exceeds response budget
         case_dir = config.case_dir
@@ -308,8 +330,9 @@ def execute(
         return response
 
     except subprocess.TimeoutExpired as exc:
+        note = f" ({stop_note})" if stop_note else ""
         raise ExecutionTimeoutError(
-            f"Command timed out after {timeout}s: {' '.join(cmd_list)}"
+            f"Command timed out after {timeout}s: {' '.join(cmd_list)}{note}"
         ) from exc
     except FileNotFoundError as exc:
         raise ExecutionError(f"Binary not found: {cmd_list[0]}") from exc

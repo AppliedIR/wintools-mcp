@@ -67,6 +67,22 @@ def test_a_run_stopped_at_the_output_limit_is_no_success(case, monkeypatch, tool
     assert entry["result_summary"]["stopped"] == "output limit"
 
 
+def test_a_stop_whose_taskkill_failed_says_part_of_the_tree_may_run_on(
+    case,  # noqa: F811
+    monkeypatch,
+):
+    _as_windows_runs(monkeypatch, SPILL)
+    monkeypatch.setattr(executor, "_WINDOWS", True, raising=False)
+    monkeypatch.setattr(
+        executor.subprocess,
+        "run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 1),
+    )
+    r = _run("sigcheck", "C:\\x")
+    assert r["stopped"] == "output limit", r
+    assert r["stop_note"].startswith("taskkill exit 1: a process the tool started may")
+
+
 def test_a_run_that_ends_under_the_limit_is_read_as_before(case, monkeypatch):  # noqa: F811
     _as_windows_runs(monkeypatch, UNSIGNED)
     r = _run("sigcheck", "C:\\x")

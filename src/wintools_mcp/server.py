@@ -974,6 +974,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
             if stopped:  # the same key and value on sift: why Valhuntir stopped it
                 response["stopped"] = "output limit"
+            if exec_result.get("stop_note"):  # its tree may not have ended
+                response["stop_note"] = exec_result["stop_note"]
 
             # Add full output metadata if file was saved
             if exec_result.get("output_file"):

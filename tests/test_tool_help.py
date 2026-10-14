@@ -19,6 +19,7 @@ synthetic, except:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -249,13 +250,28 @@ def test_a_tool_that_closes_its_pipes_before_it_exits_keeps_its_code():
     assert versions.bounded_output([sys.executable, "-c", late])[0] == 3
 
 
-def test_a_help_past_the_probe_cap_says_its_length_is_a_floor(case, installed):  # noqa: F811
-    out = "  -x  an option\n" * 5000
-    installed["said"]["--help"] = (None, out, "")
+def test_a_help_past_the_probe_cap_claims_no_length(case, installed):  # noqa: F811
+    installed["said"]["--help"] = (None, "  -x  an option\n" * 5000, "")
     r = _help("MFTECmd")
-    size = len(versions.as_shown(out, "").strip("\n"))
     assert r["help_exit_code"] is None
-    assert f"of at least {size:,} characters" in r["help_cut"], r["help_cut"]
+    assert re.findall(r"\d[\d,]*", r["help_cut"]) == ["8,192"], r["help_cut"]
+
+
+def test_a_help_read_up_to_the_probe_cap_claims_no_length(case, installed, monkeypatch):  # noqa: F811
+    """70,000 bytes and a normal exit: the probe reads 65,536 of them, so
+    neither the cut nor the stream's mark gives a length."""
+    writer = (
+        "import sys\nsys.stderr.write('error: x\\n'); sys.stdout.write('u' * 70000)"
+    )
+    monkeypatch.setattr(
+        versions,
+        "run_help",
+        lambda argv: versions.bounded_output([sys.executable, "-c", writer]),
+    )
+    r = _help("MFTECmd")
+    assert re.findall(r"\d[\d,]*", r["help_cut"]) == ["8,192"], r["help_cut"]
+    assert "\n[stdout cut here]\n" in r["help"], r["help"][-300:]
+    assert r["help"].endswith(f"{LABEL}\nerror: x")
 
 
 def test_a_long_usage_never_hides_the_error(case, installed):  # noqa: F811
@@ -264,7 +280,7 @@ def test_a_long_usage_never_hides_the_error(case, installed):  # noqa: F811
     installed["said"]["--help"] = (2, "u" * 9000 + "\n", "error: real problem\n")
     r = _help("PECmd")
     assert r["help"].endswith(f"\n{LABEL}\nerror: real problem"), r["help"][-200:]
-    assert "[stdout cut here: 9,000 characters in all]" in r["help"]
+    assert "[stdout cut here]" in r["help"]
     assert len(r["help"]) <= versions.HELP_INLINE
     assert r["help_exit_code"] == 2 and "run_windows_command" in r["help_cut"]
 
@@ -274,9 +290,9 @@ def test_a_long_stderr_keeps_its_start_inline_and_marks_the_cut(case, installed)
     r = _help("PECmd")
     head, _, tail = r["help"].partition(f"\n{LABEL}\n")
     assert tail.startswith("error: first")
-    assert tail.endswith("[stderr cut here: 5,013 characters in all]")
+    assert tail.endswith("[stderr cut here]")
     assert len(tail) == versions.STDERR_INLINE
-    assert "[stdout cut here: 9,000 characters in all]" in head
+    assert "[stdout cut here]" in head
     assert len(r["help"]) == versions.HELP_INLINE
 
 
@@ -285,5 +301,5 @@ def test_a_short_usage_leaves_stderr_the_rest_of_the_room(case, installed):  # n
     r = _help("PECmd")
     assert r["help"].startswith(f"usage: tool\n{LABEL}\neee")
     assert "stdout cut" not in r["help"]
-    assert r["help"].endswith("[stderr cut here: 20,000 characters in all]")
+    assert r["help"].endswith("[stderr cut here]")
     assert len(r["help"]) == versions.HELP_INLINE
