@@ -19,6 +19,9 @@ from wintools_mcp.output import to_share_relative
 
 logger = logging.getLogger(__name__)
 
+_WINDOWS = os.name == "nt"
+_TASKKILL_TIMEOUT = 10  # seconds
+
 # Blocked output directories — system paths that should never be used as
 # save_dir targets.  Windows paths use case-insensitive backslash comparison.
 # Linux paths included for test/dev environments where wintools runs on Linux.
@@ -113,6 +116,32 @@ def _close_pipes(proc) -> None:
                 pass
 
 
+def _kill_tree(proc) -> None:
+    """Stop the tool and every process it started.
+
+    proc.kill() ends only the tool itself. A child it started on Windows
+    (KAPE's EvtxECmd) runs on with its parent gone, holds the output and
+    evidence files open, and keeps the pipes open until it ends. taskkill /T
+    ends the whole tree first; proc.kill() always runs after, in case it
+    could not.
+    """
+    if _WINDOWS:
+        root = os.environ.get("SystemRoot", "C:\\Windows")
+        try:
+            subprocess.run(
+                [f"{root}\\System32\\taskkill.exe", "/T", "/F", "/PID", str(proc.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=_TASKKILL_TIMEOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    proc.kill()
+
+
 def _read_pipe(pipe, chunks: list[bytes], limit: int, total: list[int]) -> None:
     """Read from a pipe incrementally, respecting byte limit."""
     try:
@@ -205,7 +234,7 @@ def execute(
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                proc.kill()
+                _kill_tree(proc)
                 _close_pipes(proc)
                 try:
                     proc.wait(timeout=5)
@@ -215,7 +244,7 @@ def execute(
             if total[0] >= max_bytes:
                 truncated = True
                 terminated = f"output limit ({max_bytes} bytes)"
-                proc.kill()
+                _kill_tree(proc)
                 _close_pipes(proc)
                 try:
                     proc.wait(timeout=5)
