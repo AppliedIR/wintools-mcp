@@ -242,3 +242,56 @@ def test_every_copy_is_named_with_the_one_that_runs(tmp_path, monkeypatch):
     ]
     shown = _tool("get_windows_tool_help")(tool_name="PECmd")
     assert shown["installed_version"] == "1.5.0.0" and len(shown["copies"]) == 2
+
+
+# The probe's reader as shipped, taken before conftest stands in for it
+_READ = getattr(versions, "bounded_output", versions.run_probe)
+
+
+def test_a_probe_of_a_tool_that_writes_megabytes_keeps_only_its_cap():
+    """8 MiB on stdout: at most the cap is ever held, never the whole."""
+    import sys
+    import tracemalloc
+
+    argv = [sys.executable, "-c", "import sys; sys.stdout.write('x' * 8_000_000)"]
+    tracemalloc.start()
+    try:
+        text = _READ(argv)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert len(text) <= 2 * versions.PROBE_BYTES + 1
+    assert peak < 2 * 1024 * 1024, peak
+
+
+def test_every_path_folders_copy_is_listed(tmp_path, monkeypatch):
+    """PATH resolves the first copy; a later PATH folder's copy is listed too."""
+    first, later = tmp_path / "p1", tmp_path / "p2"
+    for d in (first, later):
+        d.mkdir()
+        exe = d / "PECmd.exe"
+        exe.write_bytes(b"MZ-" + d.name.encode())
+        exe.chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(first), str(later), "/usr/bin"]))
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [])
+    environment.clear_binary_cache()
+    assert environment.find_all("PECmd.exe") == [
+        str(first / "PECmd.exe"),
+        str(later / "PECmd.exe"),
+    ]
+    assert environment.find_binary("PECmd.exe") == str(first / "PECmd.exe")
+
+
+def test_a_probe_reads_both_streams_and_ends_at_its_deadline(monkeypatch):
+    import subprocess
+    import sys
+    import time
+
+    said = "import sys; print('v1.2.3'); print('warn', file=sys.stderr)"
+    text = _READ([sys.executable, "-c", said])
+    assert "v1.2.3" in text and "warn" in text
+    monkeypatch.setattr(versions, "PROBE_SECONDS", 0.5)
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        _READ([sys.executable, "-c", "import time; time.sleep(30)"])
+    assert time.monotonic() - start < 10

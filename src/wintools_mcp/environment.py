@@ -57,23 +57,29 @@ def clear_binary_cache() -> None:
 
 
 def _search(name: str, extra_paths: list[Path] | None = None):
-    """Every copy of ``name``, in the order a run looks: (path, from PATH).
+    """Every copy of ``name``, in the order a run looks: (path, the one PATH
+    resolves).
 
-    1. shutil.which() (checks PATH)
+    1. shutil.which() (checks PATH), then any other PATH folder's copy
     2. Each tool folder's direct children (with .exe tried)
     3. Each tool folder's subfolders, at most 4 levels deep (catches
        arbitrary layouts like ZimmermanTools/net9/RECmd/RECmd.exe)
     """
+    wanted = {name.lower()}
+    if not name.lower().endswith(".exe"):
+        wanted.add(f"{name}.exe".lower())
     found = shutil.which(name)
     if found:
         yield found, True
+        # every other PATH folder's copy too: listed, never the one run
+        for d in filter(None, os.environ.get("PATH", "").split(os.pathsep)):
+            for candidate in (Path(d) / name, Path(d) / f"{name}.exe"):
+                if candidate.name.lower() in wanted and candidate.is_file():
+                    yield str(candidate), False
 
     search = list(DEFAULT_TOOL_PATHS)
     if extra_paths:
         search.extend(extra_paths)
-    wanted = {name.lower()}
-    if not name.lower().endswith(".exe"):
-        wanted.add(f"{name}.exe".lower())
 
     for d in search:
         if not d.is_dir():

@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -67,19 +68,66 @@ def file_version(path: str) -> str | None:
         return None
 
 
-def run_probe(argv: list[str]) -> str:
-    """The probe's output (stdout, then stderr), run outside any case: it
-    goes through no op folder and nothing is saved."""
-    r = subprocess.run(
+def bounded_output(argv: list[str]) -> str:
+    """The process's output (stdout, then stderr), at most PROBE_BYTES of
+    each: read as it comes, and the process ended once both are read or
+    PROBE_SECONDS pass, so a tool that writes megabytes never fills memory.
+    Run outside any case: no op folder, nothing saved."""
+    proc = subprocess.Popen(
         argv,
-        capture_output=True,
-        timeout=PROBE_SECONDS,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    return (r.stdout[:PROBE_BYTES] + b"\n" + r.stderr[:PROBE_BYTES]).decode(
-        "utf-8", "replace"
-    )
+    got: dict[str, bytes] = {"out": b"", "err": b""}
+    full = threading.Event()  # a stream reached its cap: the rest isn't read
+
+    def read(pipe, key: str) -> None:
+        buf = bytearray()
+        try:
+            while len(buf) < PROBE_BYTES:
+                chunk = pipe.read1(PROBE_BYTES - len(buf))
+                if not chunk:
+                    break
+                buf += chunk
+            else:
+                full.set()
+        except (OSError, ValueError):  # the pipe closed under us
+            pass
+        got[key] = bytes(buf)
+
+    readers = [
+        threading.Thread(target=read, args=(proc.stdout, "out"), daemon=True),
+        threading.Thread(target=read, args=(proc.stderr, "err"), daemon=True),
+    ]
+    for t in readers:
+        t.start()
+    deadline = time.monotonic() + PROBE_SECONDS
+    while any(t.is_alive() for t in readers) and not full.is_set():
+        if time.monotonic() > deadline:
+            break
+        for t in readers:
+            t.join(0.05)
+    out_of_time = any(t.is_alive() for t in readers) and not full.is_set()
+    if proc.poll() is None:  # still writing (past a cap) or past the deadline
+        proc.kill()
+    for t in readers:
+        t.join(5)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    for pipe in (proc.stdout, proc.stderr):
+        pipe.close()
+    if out_of_time:
+        raise subprocess.TimeoutExpired(argv, PROBE_SECONDS)
+    return (got["out"] + b"\n" + got["err"]).decode("utf-8", "replace")
+
+
+def run_probe(argv: list[str]) -> str:
+    """A version or help probe's output (tests replace this)."""
+    return bounded_output(argv)
 
 
 def _probe(path: str, probe: dict) -> dict:
