@@ -6,10 +6,15 @@ the first that prints usage wins (Hayabusa 4.x answers `dfir-timeline
 anything. At most 8 KB is inline, and a cut help says how to read the rest.
 An acquisition tool and a script are never run for it, and a EULA screen in
 place of the help is said, never accepted. The audit entry carries no help
-text. Tools are stand-ins; their output is synthetic.
+text. Tools are stand-ins; their output is synthetic, except the raw bytes
+under fixtures/raw_output: Sysinternals output captured on a Windows 11
+guest (UTF-16LE with a BOM; stderr UTF-8), read through the real probe.
 """
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 import pytest
 from test_batch_scan import _entries, case  # noqa: F401 - fixtures
@@ -150,3 +155,56 @@ def test_an_argv_refused_with_an_error_is_never_the_help(case, installed):  # no
     r = _help("hayabusa")
     assert "help" not in r
     assert "dfir-timeline --help: error: unrecognized subcommand" in r["help_error"]
+
+
+RAW = Path(__file__).parent / "fixtures" / "raw_output"
+EMIT = (
+    "import sys; out, err = sys.argv[1:3]; "
+    "sys.stdout.buffer.write(open(out, 'rb').read()); sys.stdout.flush(); "
+    "err and sys.stderr.buffer.write(open(err, 'rb').read())"
+)
+
+
+def _prints(monkeypatch, tmp_path, stdout: bytes, stderr: Path | None = None):
+    """The tool prints these bytes: the real probe reads them from a child."""
+    out = tmp_path / "out.bin"
+    out.write_bytes(stdout)
+    argv = [sys.executable, "-c", EMIT, str(out), str(stderr or "")]
+    monkeypatch.setattr(versions, "run_probe", lambda a: versions.bounded_output(argv))
+
+
+@pytest.mark.parametrize("bom", [True, False])
+def test_a_sysinternals_help_in_utf16_is_read_as_text(
+    case,  # noqa: F811
+    installed,
+    monkeypatch,
+    tmp_path,
+    bom,
+):
+    raw = (RAW / "autorunsc-14.3-help.stdout").read_bytes()
+    _prints(
+        monkeypatch,
+        tmp_path,
+        raw if bom else raw[2:],
+        RAW / "autorunsc-14.3-help.stderr",
+    )
+    text = _help("autorunsc")["help"]
+    assert "\x00" not in text and "\ufffd" not in text
+    assert "Sysinternals Autoruns v14.3" in text and "Copyright © 2002-2026" in text
+    assert "Autorunsc shows programs configured to autostart" in text
+
+
+@pytest.mark.parametrize("bom", [True, False])
+def test_a_eula_screen_in_utf16_is_said_and_never_accepted(
+    case,  # noqa: F811
+    installed,
+    monkeypatch,
+    tmp_path,
+    bom,
+):
+    raw = (RAW / "sigcheck-2.90-eula.stdout").read_bytes()
+    _prints(monkeypatch, tmp_path, raw if bom else raw[2:])
+    r = _help("sigcheck")
+    assert "EULA" in r.get("help_not_run", "") and "help" not in r, r.get("help", "")[
+        :200
+    ]

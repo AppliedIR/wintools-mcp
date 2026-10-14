@@ -122,7 +122,10 @@ def bounded_output(argv: list[str]) -> str:
         pipe.close()
     if out_of_time:
         raise subprocess.TimeoutExpired(argv, PROBE_SECONDS)
-    return (got["out"] + b"\n" + got["err"]).decode("utf-8", "replace")
+    from wintools_mcp.executor import _decode_output
+
+    # each stream in its own encoding: Sysinternals tools write UTF-16LE
+    return _decode_output(got["out"]) + "\n" + _decode_output(got["err"])
 
 
 def run_probe(argv: list[str]) -> str:
