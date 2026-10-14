@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import codecs
+import functools
+import inspect
 import logging
 import time
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 
 from wintools_mcp import versions
@@ -148,16 +151,40 @@ def _inside(path: str, case_dir: str) -> bool:
         return False
 
 
+def offload(fn, limiter: list):
+    """A sync tool runs in a worker thread, one at a time (``limiter`` holds
+    the server's CapacityLimiter(1), made on first use), so the event loop
+    keeps answering pings and queues the next call while a tool runs for
+    minutes. An async tool is left as it is."""
+    if inspect.iscoroutinefunction(fn):
+        return fn
+
+    @functools.wraps(fn)
+    async def run(*args, **kwargs):
+        if not limiter:
+            limiter.append(anyio.CapacityLimiter(1))
+        return await anyio.to_thread.run_sync(
+            functools.partial(fn, *args, **kwargs), limiter=limiter[0]
+        )
+
+    return run
+
+
 def create_server(config: WintoolsConfig | None = None) -> FastMCP:
     """Create and configure the wintools MCP server with all tools."""
     if config is None:
         config = get_config()
 
     server = FastMCP("wintools-mcp", instructions=_INSTRUCTIONS)
+    one_at_a_time: list = []  # the server's limiter: tools run one at a time
+
+    def tool(fn):  # every tool: registered, and offloaded when sync
+        return server.tool()(offload(fn, one_at_a_time))
+
     audit = AuditWriter(mcp_name="wintools-mcp", audit_dir=config.audit_dir or None)
 
     # --- Discovery ---
-    @server.tool()
+    @tool
     def scan_tools() -> dict:
         """Scan for all cataloged forensic tools. Reports availability and install guidance."""
         from wintools_mcp.inventory import scan_tools as _scan
@@ -166,7 +193,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         audit.log(tool="scan_tools", params={}, result_summary=result["summary"])
         return result
 
-    @server.tool()
+    @tool
     def list_windows_tools(category: str = "") -> dict:
         """List forensic tools available on this Windows system."""
         try:
@@ -182,7 +209,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         except Exception as e:
             return {"error": f"Discovery failed: {e}"}
 
-    @server.tool()
+    @tool
     def list_missing_windows_tools() -> dict:
         """List Windows tools that are not installed, with installation guidance."""
         try:
@@ -198,7 +225,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         except Exception as e:
             return {"error": f"Discovery failed: {e}"}
 
-    @server.tool()
+    @tool
     def check_windows_tools(tool_names: list[str] | None = None) -> dict:
         """Check which Windows tools are installed and available."""
         try:
@@ -208,7 +235,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         except Exception as e:
             return {"error": f"Tool check failed: {e}"}
 
-    @server.tool()
+    @tool
     def get_windows_tool_help(tool_name: str) -> dict:
         """Get usage information, flags, and caveats for a specific Windows tool."""
         from wintools_mcp.tools.discovery import get_tool_help as _help
@@ -224,7 +251,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         )
         return result
 
-    @server.tool()
+    @tool
     def suggest_windows_tools(artifact_type: str, question: str = "") -> dict:
         """Suggest Windows tools for analyzing a specific artifact type."""
         from wintools_mcp.tools.discovery import suggest_tools as _suggest
@@ -238,7 +265,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return result
 
     # --- Share Info ---
-    @server.tool()
+    @tool
     def get_share_info() -> dict:
         """Get SMB share paths for evidence access from SIFT.
 
@@ -258,7 +285,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return result
 
     # --- KAPE Discovery ---
-    @server.tool()
+    @tool
     def list_kape_targets(list_type: str = "targets") -> dict:
         """List available KAPE targets or modules in structured categories.
 
@@ -313,7 +340,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         }
 
     # --- Batch Execution ---
-    @server.tool()
+    @tool
     def batch_scan(
         tool: str,
         directory: str,
@@ -570,7 +597,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return _utf8(response)
 
     # --- Generic Execution ---
-    @server.tool()
+    @tool
     def run_windows_command(
         command: list[str],
         purpose: str,

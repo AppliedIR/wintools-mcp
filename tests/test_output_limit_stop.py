@@ -48,7 +48,7 @@ def _as_windows_runs(monkeypatch, script):
 
 
 def _run(tool, *args):
-    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn.__wrapped__
     return json.loads(pydantic_core.to_json(fn(command=[tool, *args], purpose="limit")))
 
 

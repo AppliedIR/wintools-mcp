@@ -32,7 +32,7 @@ def _call(tmp_path, command, write=None):
     exe.write_bytes(b"MZ-tool")
     asked: list = []
     calls: list = []
-    run = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    run = srv.create_server()._tool_manager._tools["run_windows_command"].fn.__wrapped__
     with (
         patch(
             "wintools_mcp.tools.generic.find_tool",

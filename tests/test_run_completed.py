@@ -28,7 +28,7 @@ USAGE = "PECmd version 1.5.0.0\n\nUsage: PECmd [options]\n\nOptions:\n  -f <f>  
 
 
 def _tool(name):
-    return srv.create_server()._tool_manager._tools[name].fn
+    return srv.create_server()._tool_manager._tools[name].fn.__wrapped__
 
 
 def _sent(r):

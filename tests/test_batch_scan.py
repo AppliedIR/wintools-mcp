@@ -68,7 +68,7 @@ def ran(monkeypatch):
 def _scan(directory, **k) -> dict:
     from wintools_mcp import server as srv
 
-    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn
+    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn.__wrapped__
     return fn(tool="sigcheck", directory=str(directory), **k)
 
 

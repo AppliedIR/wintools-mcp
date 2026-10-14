@@ -88,7 +88,7 @@ def _popen(write=None, stdout=b"tool output line\n", calls=None):
 
 
 def _run(tools, tool, write=None, stdout=b"tool output line\n", calls=None, **args):
-    run = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    run = srv.create_server()._tool_manager._tools["run_windows_command"].fn.__wrapped__
     with (
         patch(
             "wintools_mcp.tools.generic.find_tool",

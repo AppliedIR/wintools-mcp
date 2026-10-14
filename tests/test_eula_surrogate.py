@@ -80,7 +80,7 @@ def _sent(r: dict) -> dict:
 
 
 def _tool(name: str):
-    return srv.create_server()._tool_manager._tools[name].fn
+    return srv.create_server()._tool_manager._tools[name].fn.__wrapped__
 
 
 @pytest.fixture

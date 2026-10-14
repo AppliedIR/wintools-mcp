@@ -53,7 +53,7 @@ def test_an_exit_code_is_shown_bare(case, ran):  # noqa: F811
 
 def test_a_tool_with_no_meanings_shows_the_bare_code(case, ran):  # noqa: F811
     folder = _files(case / "evidence" / "plain", ["evil.exe"])
-    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn
+    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn.__wrapped__
     r = fn(tool="densityscout", directory=str(folder))
     (row,) = r["results"]
     assert row["exit_code"] == 1 and "exit_meaning" not in row
@@ -77,7 +77,7 @@ def started(monkeypatch):
 
 def test_a_catalog_name_runs_its_binary(case, started):  # noqa: F811
     folder = _files(case / "evidence" / "str", ["a.exe", "b.exe"])
-    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn
+    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn.__wrapped__
     r = fn(tool="strings", directory=str(folder))
     assert started == ["strings64.exe", "strings64.exe"]
     assert r["errors"] == [] and all("error" not in row for row in r["results"])
@@ -114,7 +114,7 @@ def test_a_reply_naming_an_undecodable_file_can_be_sent(case, quiet, save):  # n
     raw = os.fsencode(str(folder)) + b"/bad\xff.exe"
     with open(raw, "wb") as f:
         f.write(b"MZbad")
-    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn.__wrapped__
     r = fn(command=["sigcheck", os.fsdecode(raw)], purpose="check", save_output=save)
     sent = json.loads(pydantic_core.to_json(r))
     assert sent["success"] is True and sent.get("audit_id")
@@ -137,7 +137,7 @@ def test_an_error_naming_an_undecodable_file_can_be_sent(case, monkeypatch, erro
     raw = os.fsencode(str(folder)) + b"/bad\xff.exe"
     with open(raw, "wb") as f:
         f.write(b"MZbad")
-    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn.__wrapped__
     r = fn(command=["sigcheck", os.fsdecode(raw)], purpose="check")
     sent = json.loads(pydantic_core.to_json(r))
     assert (

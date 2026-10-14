@@ -89,7 +89,7 @@ def test_a_run_says_why_it_wasnt_audited(denied, tmp_path, monkeypatch):
     )
     evidence = tmp_path / "evidence.bin"
     evidence.write_text("x")
-    run = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    run = srv.create_server()._tool_manager._tools["run_windows_command"].fn.__wrapped__
     resp = run(command=["sigcheck.exe", str(evidence)], purpose="unit test")
     assert any(
         w.startswith("Audit trail unavailable") and "evidence share not accessible" in w

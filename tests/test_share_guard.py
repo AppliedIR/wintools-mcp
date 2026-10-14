@@ -132,7 +132,7 @@ def _run(monkeypatch, tmp_path, share):
     ran = _stub_tools(monkeypatch, share)
     evidence = tmp_path / "evidence.bin"
     evidence.write_text("x")
-    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn
+    fn = srv.create_server()._tool_manager._tools["run_windows_command"].fn.__wrapped__
     return fn(command=["sigcheck.exe", str(evidence)], purpose="unit test"), ran
 
 
@@ -243,7 +243,7 @@ def _batch(share, tmp_path):
     folder.mkdir()
     for n in ("a.exe", "b.exe"):
         (folder / n).write_text("x")
-    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn
+    fn = srv.create_server()._tool_manager._tools["batch_scan"].fn.__wrapped__
     return fn(tool="sigcheck", directory=str(folder))
 
 

@@ -103,7 +103,11 @@ def hayabusa_at(tmp_path, monkeypatch):
     def at(version):
         monkeypatch.setattr(versions, "file_version", lambda p: version)
         versions.clear()
-        fn = srv.create_server()._tool_manager._tools["get_windows_tool_help"].fn
+        fn = (
+            srv.create_server()
+            ._tool_manager._tools["get_windows_tool_help"]
+            .fn.__wrapped__
+        )
         return fn(tool_name="hayabusa")
 
     return at

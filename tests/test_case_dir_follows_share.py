@@ -42,7 +42,11 @@ def test_a_start_after_a_share_move_puts_the_case_on_the_new_share(tmp_path):
 
 def test_the_share_info_names_every_case_path_on_the_new_share(tmp_path):
     cfg = WintoolsConfig.from_env(config_file=_rejoined(tmp_path))
-    info = server.create_server(cfg)._tool_manager._tools["get_share_info"].fn()
+    info = (
+        server.create_server(cfg)
+        ._tool_manager._tools["get_share_info"]
+        .fn.__wrapped__()
+    )
     for key in ("case_dir", "evidence_dir", "extractions_dir"):
         assert info[key].startswith(NEW), (key, info[key])
 

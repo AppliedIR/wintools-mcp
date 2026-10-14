@@ -46,7 +46,7 @@ def _help(name):
     return (
         srv.create_server()
         ._tool_manager._tools["get_windows_tool_help"]
-        .fn(tool_name=name)
+        .fn.__wrapped__(tool_name=name)
     )
 
 
