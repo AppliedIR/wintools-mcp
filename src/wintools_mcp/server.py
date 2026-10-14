@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import codecs
 import functools
 import inspect
@@ -180,6 +181,26 @@ def _job_run(fn, args, kwargs, pin, run_id: str, began):
             jobs.RUN_ID.reset(token)
 
 
+async def outlast_cancel(func):
+    """``func`` in a worker thread. A cancelled caller still waits for the
+    thread to end before the cancel goes on, so the limits it holds are let go
+    only then: anyio's thread call outlasts an anyio cancel but not a direct
+    Task.cancel()."""
+    worker = asyncio.ensure_future(anyio.to_thread.run_sync(func))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        with anyio.CancelScope(shield=True):
+            while not worker.done():
+                try:
+                    await asyncio.wait({worker})
+                except asyncio.CancelledError:  # cancelled again: keep waiting
+                    pass
+        if not worker.cancelled():
+            worker.exception()  # the cancel is what the caller gets
+        raise
+
+
 def offload(fn, limiter: list):
     """A sync tool runs in a worker thread, one at a time (``limiter`` holds
     the server's CapacityLimiter(1)), so the event loop keeps answering pings
@@ -196,7 +217,7 @@ def offload(fn, limiter: list):
 
         async with run_limiter(limiter):  # held until the thread ends
             pin = snapshot()
-            return await anyio.to_thread.run_sync(
+            return await outlast_cancel(
                 functools.partial(_pinned_run, fn, args, kwargs, pin)
             )
 

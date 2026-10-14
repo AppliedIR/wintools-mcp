@@ -12,7 +12,6 @@ import re
 import threading
 from typing import Any
 
-import anyio
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -277,11 +276,12 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
     if not smb_password:
         return JSONResponse({"error": "smb_password required"}, status_code=400)
     # One update at a time: two interleaved would run with one request's
-    # credentials and save the other's. The attempt itself runs off the event
-    # loop, since it waits on net use and the share; a cancelled request
-    # still waits for it (anyio's thread call), so the locks outlast it.
+    # credentials and save the other's. The attempt, its save and its audit
+    # entry run off the event loop, since they wait on net use and the share;
+    # a cancelled request still waits for them (outlast_cancel), so the locks
+    # outlast them.
     # ...and never under a running tool: it can drop the share the tool uses
-    from wintools_mcp.server import run_limiter
+    from wintools_mcp.server import outlast_cancel, run_limiter
     from wintools_mcp.smb import establish_smb_session
 
     async with (
@@ -292,17 +292,21 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
         smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
         cfg.smb_user = smb_user
         cfg.smb_password = smb_password
-        success = await anyio.to_thread.run_sync(establish_smb_session, cfg)
 
-        # Persist to config.yaml so it survives restart
-        _persist_config_fields(
-            cfg, {"smb_user": smb_user, "smb_password": smb_password}
-        )
-        _control_audit.log(
-            tool="update_smb_credentials",
-            params={"smb_user": smb_user},
-            result_summary=f"session={'ok' if success else 'failed'}",
-        )
+        def update() -> bool:
+            success = establish_smb_session(cfg)
+            # Persist to config.yaml so it survives restart
+            _persist_config_fields(
+                cfg, {"smb_user": smb_user, "smb_password": smb_password}
+            )
+            _control_audit.log(
+                tool="update_smb_credentials",
+                params={"smb_user": smb_user},
+                result_summary=f"session={'ok' if success else 'failed'}",
+            )
+            return success
+
+        success = await outlast_cancel(update)
 
     if success:
         return JSONResponse(

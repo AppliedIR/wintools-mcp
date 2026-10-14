@@ -11,6 +11,7 @@ tool's work is a stand-in that sleeps. Values are synthetic.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -213,3 +214,65 @@ def test_a_cancelled_smb_update_holds_the_tools_until_its_worker_ends(
 
     anyio.run(main)
     assert times["tool"] >= times["smb_end"], times  # never under the update
+
+
+def test_a_directly_cancelled_smb_update_holds_the_tools_and_is_still_saved(
+    case,  # noqa: F811
+    monkeypatch,
+):
+    """asyncio's own Task.cancel(), which anyio's thread call does not
+    outlast: no tool runs until net use ends, and the update is still saved
+    and audited before the cancel goes on."""
+    get_config().api_keys = {KEY: {"examiner": "t"}}
+    monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
+    monkeypatch.setattr(generic, "eula_accepted", lambda key: True, raising=False)
+    order: list = []
+
+    def execute(command, **k):
+        order.append("tool ran")
+        return {"exit_code": 0, "stdout": "done\n", "stderr": "", "command": list(command),
+                "stdout_total_bytes": 5}  # fmt: skip
+
+    monkeypatch.setattr(generic, "execute", execute)
+    started = threading.Event()
+    import wintools_mcp.smb as smb
+
+    def establish(cfg):
+        started.set()
+        time.sleep(1.0)
+        order.append("net use ended")
+        return True
+
+    monkeypatch.setattr(smb, "establish_smb_session", establish)
+    saved: list = []
+    logged: list = []
+    monkeypatch.setattr(
+        http_server, "_persist_config_fields", lambda c, fields: saved.append(fields)
+    )
+    monkeypatch.setattr(http_server._control_audit, "log", lambda **k: logged.append(k))
+    server = srv.create_server()
+    seen: dict = {}
+
+    async def main():
+        task = asyncio.ensure_future(
+            http_server.update_smb_credentials(
+                _request(server, "/config/update-smb", {"smb_password": "pw"})
+            )
+        )
+        while not started.is_set():
+            await anyio.sleep(0.01)
+        task.cancel()  # net use is still running
+        await anyio.sleep(0.05)
+        await server.call_tool(
+            "run_windows_command", {"command": ["strings", "x"], "purpose": "run"}
+        )
+        try:
+            await task
+        except asyncio.CancelledError:
+            seen["cancelled"] = True
+
+    anyio.run(main)
+    assert order == ["net use ended", "tool ran"], order  # never under the update
+    assert seen == {"cancelled": True}
+    assert [f["smb_password"] for f in saved] == ["pw"]
+    assert [e["tool"] for e in logged] == ["update_smb_credentials"]

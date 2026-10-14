@@ -12,6 +12,7 @@ it is. The tool's work here is a stand-in that sleeps.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -135,3 +136,37 @@ def test_a_queued_call_whose_caller_gave_up_never_runs(case, monkeypatch):  # no
 
     anyio.run(main)
     assert gave_up == [True] and ran == ["A"], (gave_up, ran)
+
+
+def test_a_directly_cancelled_tool_holds_the_limit_until_its_thread_ends():
+    """asyncio's own Task.cancel() mid-run: the next tool starts only once
+    the cancelled one's thread has ended."""
+    limiter: list = []
+    started = threading.Event()
+    order: list = []
+
+    def slow():
+        started.set()
+        time.sleep(0.5)
+        order.append("cancelled tool ended")
+
+    def quick():
+        order.append("next tool ran")
+
+    seen: dict = {}
+
+    async def main():
+        task = asyncio.ensure_future(srv.offload(slow, limiter)())
+        while not started.is_set():
+            await anyio.sleep(0.01)
+        task.cancel()
+        await anyio.sleep(0.05)
+        await srv.offload(quick, limiter)()
+        try:
+            await task
+        except asyncio.CancelledError:
+            seen["cancelled"] = True
+
+    anyio.run(main)
+    assert order == ["cancelled tool ended", "next tool ran"], order
+    assert seen == {"cancelled": True}
