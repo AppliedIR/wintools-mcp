@@ -1,4 +1,4 @@
-# yara64 --help (no VERSIONINFO; its help names 4.2.0) (FOR508-Win, yara 4.2.0; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+# yara64 --help (no VERSIONINFO; its help names 4.2.0) (yara 4.2.0, captured 2026-10-14 on a Windows guest)
 YARA 4.2.0, the pattern matching swiss army knife.
 Usage: yara [OPTION]... [NAMESPACE:]RULES_FILE... FILE | DIR | PID
 

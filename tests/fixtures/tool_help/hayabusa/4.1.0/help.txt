@@ -1,4 +1,4 @@
-# hayabusa dfir-timeline --help (FOR508-Win, hayabusa 4.1.0; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+# hayabusa dfir-timeline --help (hayabusa 4.1.0, captured 2026-10-14 on a Windows guest)
 Hayabusa v4.1.0 - Suzumushi Release
 Yamato Security (https://github.com/Yamato-Security/hayabusa - @SecurityYamato)
 

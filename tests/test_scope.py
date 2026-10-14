@@ -98,6 +98,11 @@ def test_a_removed_tool_is_not_listed_and_has_no_help():
         r"\\.\C:",
         r"\\?\Volume{00000000-0000-0000-0000-000000000000}\x.bin",
         r"\??\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\x.bin",
+        r"x.bin,\\evilhost\share",
+        r"C:\case\a;\\evilhost\share",
+        r"-d:\\evilhost\share",
+        r"@\\evilhost\share\list.txt",
+        "https://evilhost/x.bin",
     ],
 )
 def test_another_system_or_a_device_is_refused(case, tmp_path, arg):  # noqa: F811
@@ -121,6 +126,12 @@ def test_a_declared_input_on_another_system_is_refused(
 
 def test_a_local_long_path_runs(case, tmp_path):  # noqa: F811
     _runs(tmp_path, ["strings", r"\\?\C:\Windows\x.bin"])
+
+
+def test_a_doubled_separator_inside_a_path_runs(case, tmp_path):  # noqa: F811
+    """Inside a path, Windows reads a doubled separator as one."""
+    (case / "evidence" / "x.bin").write_bytes(b"synthetic")
+    _runs(tmp_path, ["strings", str(case / "evidence") + "//x.bin"])
 
 
 @pytest.fixture
@@ -184,6 +195,16 @@ def test_run_command_refuses_before_finding_the_tool(case, monkeypatch):  # noqa
         (r"\??\C:\x.bin", False),
         (r"\\evilhost\cases\x.bin", True),
         (r"\\sift.evil\cases\x.bin", True),
+        (r"C:\case\\sub\x.bin", False),
+        (r"C:\\case\x.bin", False),
+        ("C://case/x.bin", False),
+        (r"--f=C:\\case\x.bin", False),
+        (r"sub\\x.bin", False),
+        (r"C:\case\\\sub\x.bin", False),
+        (r"\\?\C:\case\\sub\x.bin", False),
+        (r"C:\case\a,\\evilhost\s", True),
+        (r"-d:\\evilhost\s", True),
+        (r"/d:\\evilhost\s", True),
     ],
 )
 def test_only_the_case_shares_host_is_reached(arg, refused):
@@ -227,7 +248,16 @@ def test_with_no_share_every_host_is_refused():
         (["AppCompatCacheParser", "-F", "SYSTEM", "--csv", "out"], "without -f"),
         (["AppCompatCacheParser", "-f:", "--csv", "out"], "without -f"),
         (["AppCompatCacheParser", "--csv", "out", "-f"], "without -f"),
-        (["yara", "rules.yar", "1234"], "process id"),
+        (["yara", "rules.yar", "1234"], "target 1234 is a process id"),
+        (["yara", "rules.yar", "+1234"], r"target \+1234 is a process id"),
+        (["yara", "rules.yar", "1234", "-s"], "target 1234 is a process id"),
+        (["yara", "rules.yar", " 1234", "-s"], "target  1234 is a process id"),
+        (["yara", "rules.yar", " -1234", "-s"], "target  -1234 is a process id"),
+        (["yara", "rules.yar", "1234", "--timeout=60"], "target 1234 is"),
+        (["yara", "rules.yar", "1234", "-a", "60"], "target 1234 is"),
+        (["yara", "rules.yar", "1234", "-sa", "60"], "target 1234 is"),
+        (["yara", "rules.yar", "１２３４"], "is a process id"),
+        (["yara", "-s", "-d", "x=1", "rules.yar", "1234"], "target 1234 is"),
         (["kape", "--tsource", "C:", "--target", "!SANS_Triage"], "target mode"),
         (["kape", "--target", "!SANS_Triage", "--tdest", "out"], "target mode"),
         (["kape", "--msource", "in", "--module", "m", "--sync"], "another system"),
@@ -256,6 +286,11 @@ def test_a_live_mode_is_refused(case, tmp_path, command, says):  # noqa: F811
         ["AppCompatCacheParser", "-f", "<E>/SYSTEM", "--csv", "out"],
         ["AppCompatCacheParser", "-f:<E>/SYSTEM", "--csv", "out"],
         ["yara", "<E>/rules.yar", "<E>/x.bin"],
+        ["yara", "<E>/rules.yar", "<E>/x.bin", "-a", "60"],
+        ["yara", "<E>/rules.yar", "<E>/x.bin", "-p", "4"],
+        ["yara", "<E>/rules.yar", "<E>/Users", "-p", "4"],
+        ["yara", "-d", "1234", "<E>/rules.yar", "<E>/x.bin"],
+        ["yara", "<E>/1234", "<E>/x.bin"],
         ["kape", "--msource", "<E>/Users", "--module", "m", "--mdest", "out"],
     ],
 )
@@ -263,9 +298,29 @@ def test_the_same_tools_run_on_the_case(case, tmp_path, command):  # noqa: F811
     """<E> is the case's evidence folder, which holds each file named."""
     ev = case / "evidence"
     (ev / "Users").mkdir()
-    for name in ("x.exe", "x.evtx", "SYSTEM", "rules.yar", "x.bin"):
+    for name in ("x.exe", "x.evtx", "SYSTEM", "rules.yar", "x.bin", "1234"):
         (ev / name).write_bytes(b"synthetic")
     _runs(tmp_path, [a.replace("<E>", str(ev)) for a in command])
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["yara", "1234", "x.bin"],
+        ["yara", "1234", "5678", "x.bin"],
+        ["yara", "-a", "60", "rules.yar", "x.bin"],
+        ["yara", "rules.yar", "0x4D2"],
+        ["yara", "rules.yar", "1234 "],
+        ["yara", "rules.yar", "1234", "--"],
+    ],
+)
+def test_a_yara_target_that_is_no_process_id_runs(command):
+    """yara's target is its last positional argument, and strtol must read
+    all of it: a rules file, an option's value, hex or a trailing space is
+    not a process id."""
+    from wintools_mcp.scope import refusal
+
+    assert refusal(command, "", "") == ""
 
 
 def test_autorunsc_runs_on_a_system_in_the_case(case, tmp_path):  # noqa: F811
@@ -288,6 +343,23 @@ def test_autorunsc_on_the_host_or_outside_the_case_is_refused(
         "isn't in the case",
     )
     _refused(tmp_path, ["autorunsc", "-v", "-z", p["WIN"], p["USER"]], "VirusTotal")
+
+
+@pytest.mark.parametrize("option", ["-o", "-a", "/o", "-O"])
+def test_autorunsc_z_given_as_an_options_value_is_refused(
+    case,  # noqa: F811
+    tmp_path,
+    option,
+):
+    """autorunsc's -a and -o take a value: a -z right after one is that value,
+    and autorunsc lists the Windows host's own entries."""
+    p = _offline_system(case)
+    _refused(tmp_path, ["autorunsc", option, "-z", p["WIN"], p["USER"]], "without -z")
+
+
+def test_autorunsc_runs_with_an_output_file(case, tmp_path):  # noqa: F811
+    p = _offline_system(case)
+    _runs(tmp_path, ["autorunsc", "-o", "out.csv", "-z", p["WIN"], p["USER"]])
 
 
 def test_autorunsc_with_no_case_is_refused():

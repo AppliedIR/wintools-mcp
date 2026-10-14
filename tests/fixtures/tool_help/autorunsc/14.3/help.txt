@@ -1,4 +1,4 @@
-# autorunsc -? (FOR508-Win, autorunsc 14.3; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+# autorunsc -? (autorunsc 14.3, captured 2026-10-14 on a Windows guest)
 
 Sysinternals Autoruns v14.3 - Autostart program viewer
 Copyright © 2002-2026 Mark Russinovich

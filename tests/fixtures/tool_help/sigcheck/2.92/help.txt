@@ -1,4 +1,4 @@
-# sigcheck -? (FOR508-Win, sigcheck 2.92; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+# sigcheck -? (sigcheck 2.92, captured 2026-10-14 on a Windows guest)
 
 Sigcheck v2.92 - File version and signature viewer
 Copyright (C) 2004-2026 Mark Russinovich

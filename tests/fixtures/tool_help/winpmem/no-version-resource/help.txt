@@ -1,4 +1,4 @@
-# winpmem -h (no VERSIONINFO; its help names 2.0.1) (FOR508-Win, WinPmem 2.0.1; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+# winpmem -h (no VERSIONINFO; its help names 2.0.1) (WinPmem 2.0.1, captured 2026-10-14 on a Windows guest)
 WinPmem64
 Winpmem - A memory imager for windows.
 Copyright Michael Cohen (scudette@gmail.com) 2012-2014.

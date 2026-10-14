@@ -10,11 +10,11 @@ audit entry carries no help text. Tools are stand-ins; their output is
 synthetic, except:
 - fixtures/raw_output: Sysinternals output captured on a Windows 11 guest
   (UTF-16LE with a BOM; stderr UTF-8), read through the real probe;
-- fixtures/tool_help/autorunsc: autorunsc 14.3's -? on FOR508-Win (banner on
-  stdout, usage on stderr);
-- fixtures/tool_help/winpmem: WinPmem 2.0.1's -h on FOR508-Win (exit -1);
+- fixtures/tool_help/autorunsc: autorunsc 14.3's -? on a Windows guest (banner
+  on stdout, usage on stderr);
+- fixtures/tool_help/winpmem: WinPmem 2.0.1's -h on a Windows guest (exit -1);
 - fixtures/main_help: Hayabusa's `help` (exit 0, stdout only), 4.1.0 on
-  FOR508-Win and 3.9.0 on SIFT.
+  a Windows guest and 3.9.0 on SIFT.
 """
 
 from __future__ import annotations

@@ -46,17 +46,33 @@ def _share_hosts(share_root: str) -> set[str]:
     return hosts - {""}
 
 
+def _path_start(before: str) -> bool:
+    """A ``\\\\`` after ``before`` begins a path: ``before`` is empty, or ends
+    in none of a letter, a digit, ``_ . $ ~ ) ] } -`` and ``\\``, and isn't a
+    drive (``C:``). Anything else before it (``=``, ``,``, ``;``, a space, a
+    quote, ``@``) can end a value, so it begins a new path."""
+    if re.search(r"(?:^|[^\w.$~)\]}\\-])[A-Za-z]:$", before):
+        return False  # C:\\x is C:\x
+    return not re.search(r"[\w.$~)\]}\\-]$", before)
+
+
 def _network(arg: str, share_root: str) -> str:
     """Why ``arg`` names another system or a device, or "" when it doesn't.
 
-    Every ``\\\\`` in it is read as the start of a path, wherever it is (the
-    value of ``--x=\\\\h\\s``, an item of a list), with ``/`` read as ``\\``
-    as Windows reads it. ``\\\\?\\UNC\\host`` and ``\\??\\UNC\\host`` name that
-    host; ``\\\\?\\X:\\`` and ``\\??\\X:\\`` are local. Any other ``\\\\?\\``
-    or ``\\??\\`` path, and ``\\\\.\\`` (a device, such as a raw volume), is
-    refused."""
+    A ``\\\\`` is read as the start of a path wherever a path can begin
+    (``_path_start``): at the argument's start, the value of
+    ``--x=\\\\h\\s``, an item of a list. Inside a path
+    (``C:\\case\\\\sub``, ``C:\\\\case``) it is one separator, as Windows reads
+    it. ``/`` is read as ``\\``, as Windows reads it. ``\\\\?\\UNC\\host`` and
+    ``\\??\\UNC\\host`` name that host; ``\\\\?\\X:\\`` and ``\\??\\X:\\`` are local.
+    Any other ``\\\\?\\`` or ``\\??\\`` path, and ``\\\\.\\`` (a device, such as a
+    raw volume), is refused."""
     n = arg.replace("/", "\\")
-    starts = [(m.start(), m.start() + 2) for m in re.finditer(r"(?=\\\\)", n)]
+    starts = [
+        (m.start(), m.start() + 2)
+        for m in re.finditer(r"(?=\\\\)", n)
+        if _path_start(n[: m.start()])
+    ]
     starts += [(m.start(), m.start() + 1) for m in re.finditer(r"(?=\\\?\?\\)", n)]
     hosts: set[str] | None = None
     for at, rest in starts:
@@ -145,12 +161,21 @@ def _sigcheck(args, case_dir, op_dir) -> str:
     return ""
 
 
+# autorunsc 14.3's options that take values (its help): -z takes two
+_AUTORUNSC_VALUES = {"a": 1, "o": 1, "z": 2}
+
+
 def _autorunsc(args, case_dir, op_dir) -> str:
     for a in args:
         if (_switch(a) or "").startswith("v"):
             return f"autorunsc {a} queries VirusTotal: {_ON_THE_CASE}"
     offline = "-z <systemroot> <userprofile>, both folders of a system in the case"
-    zs = [i for i, a in enumerate(args) if _switch(a) == "z"]
+    zs, i = [], 0
+    while i < len(args):  # an option's values are not options
+        s = _switch(args[i])
+        if s == "z":
+            zs.append(i)
+        i += 1 + _AUTORUNSC_VALUES.get(s or "", 0)
     if not zs:
         return (
             "autorunsc without -z lists the Windows host's own autostart "
@@ -224,11 +249,31 @@ def _appcompatcacheparser(args, case_dir, op_dir) -> str:
     return ""
 
 
+# YARA 4.2.0's short options that take a value (cli/yara.c). In a cluster,
+# only the last one can, and its value is the next argument (cli/args.c).
+# A long option takes its value only after "="
+_YARA_VALUES = "dixtlzkpa"
+
+
 def _yara(args, case_dir, op_dir) -> str:
-    if args and re.fullmatch(r"-?[0-9]+", args[-1].strip()):
+    """yara's target is its last positional argument, read as YARA 4.2.0's
+    cli/args.c reads the command. When no file opens by that name, yara
+    scans the process strtol reads from it whole (cli/yara.c): whitespace,
+    a sign, then digits."""
+    positional = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a[:1] == "-" and a[1:2] not in ("", "-"):  # a short-option cluster
+            if a[-1] in _YARA_VALUES:
+                i += 1  # its value
+        elif not (a[:2] == "--" and len(a) > 2):  # not a long option
+            positional.append(a)
+        i += 1
+    if positional and re.fullmatch(r"\s*[+-]?\d+", positional[-1]):
         return (
-            f"yara's target {args[-1]} is a process id: yara would scan a live "
-            f"process. {_ON_THE_CASE}"
+            f"yara's target {positional[-1]} is a process id: yara would scan a "
+            f"live process. {_ON_THE_CASE}"
         )
     return ""
 

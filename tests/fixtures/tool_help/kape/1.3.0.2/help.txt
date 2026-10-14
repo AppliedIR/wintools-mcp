@@ -1,4 +1,4 @@
-# kape --help (FOR508-Win, kape 1.3.0.2; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+# kape --help (kape 1.3.0.2, captured 2026-10-14 on a Windows guest)
 
 KAPE version 1.3.0.2 Author: Eric Zimmerman (kape@kroll.com)
 

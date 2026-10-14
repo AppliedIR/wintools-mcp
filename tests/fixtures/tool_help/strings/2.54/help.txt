@@ -1,4 +1,4 @@
-# strings -accepteula -? (FOR508-Win, strings 2.54; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+# strings -accepteula -? (strings 2.54, captured 2026-10-14 on a Windows guest)
 
 Strings v2.54 - Search for ANSI and Unicode strings in binary images.
 Copyright (C) 1999-2021 Mark Russinovich
