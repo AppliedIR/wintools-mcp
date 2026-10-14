@@ -100,3 +100,33 @@ def test_an_async_tool_is_left_as_it_is():
         return "ok"
 
     assert srv.offload(already_async, []) is already_async
+
+
+def test_a_queued_call_whose_caller_gave_up_never_runs(case, monkeypatch):  # noqa: F811
+    """B waits behind A; its caller gives up (a timeout) before A ends. B's
+    tool never starts afterwards: its caller was told it failed."""
+    ran: list = []
+    _slow_runs(monkeypatch)
+    real = generic.execute
+
+    def execute(command, **k):
+        ran.append(command[-1])
+        return real(command, **k)
+
+    monkeypatch.setattr(generic, "execute", execute)
+    server = srv.create_server()
+    gave_up = []
+
+    async def main():
+        async def b():
+            with anyio.move_on_after(0.3) as scope:
+                await _call(server, "B")
+            gave_up.append(scope.cancelled_caught)
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_call, server, "A")
+            await anyio.sleep(0.1)
+            tg.start_soon(b)
+
+    anyio.run(main)
+    assert gave_up == [True] and ran == ["A"], (gave_up, ran)

@@ -295,3 +295,15 @@ def test_a_probe_reads_both_streams_and_ends_at_its_deadline(monkeypatch):
     with pytest.raises(subprocess.TimeoutExpired):
         _READ([sys.executable, "-c", "import time; time.sleep(30)"])
     assert time.monotonic() - start < 10
+
+
+def test_a_probe_whose_child_holds_its_pipes_still_ends_at_its_deadline(monkeypatch):
+    """The tool ends, but a child it left keeps its stdout open: the probe
+    returns what was read by the deadline, and never waits for the child."""
+    import time
+
+    monkeypatch.setattr(versions, "PROBE_SECONDS", 1.0)
+    start = time.monotonic()
+    text = _READ(["/bin/sh", "-c", "sleep 30 & echo v9.9.9"])
+    assert time.monotonic() - start < 5
+    assert "v9.9.9" in text

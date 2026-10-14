@@ -80,11 +80,11 @@ def bounded_output(argv: list[str]) -> str:
         stdin=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    got: dict[str, bytes] = {"out": b"", "err": b""}
+    got: dict[str, bytearray] = {"out": bytearray(), "err": bytearray()}
     full = threading.Event()  # a stream reached its cap: the rest isn't read
 
     def read(pipe, key: str) -> None:
-        buf = bytearray()
+        buf = got[key]  # kept as read, even if this reader never ends
         try:
             while len(buf) < PROBE_BYTES:
                 chunk = pipe.read1(PROBE_BYTES - len(buf))
@@ -95,7 +95,6 @@ def bounded_output(argv: list[str]) -> str:
                 full.set()
         except (OSError, ValueError):  # the pipe closed under us
             pass
-        got[key] = bytes(buf)
 
     readers = [
         threading.Thread(target=read, args=(proc.stdout, "out"), daemon=True),
@@ -110,22 +109,27 @@ def bounded_output(argv: list[str]) -> str:
         for t in readers:
             t.join(0.05)
     out_of_time = any(t.is_alive() for t in readers) and not full.is_set()
-    if proc.poll() is None:  # still writing (past a cap) or past the deadline
+    ended = proc.poll() is not None  # the tool itself ended
+    if not ended:  # still writing (past a cap) or past the deadline
         proc.kill()
     for t in readers:
-        t.join(5)
+        t.join(1)
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         pass
-    for pipe in (proc.stdout, proc.stderr):
-        pipe.close()
-    if out_of_time:
+    # a pipe a child of the tool still holds is left to its reader (a daemon):
+    # closing it would wait for that child
+    for t, pipe in zip(readers, (proc.stdout, proc.stderr), strict=True):
+        if not t.is_alive():
+            pipe.close()
+    if out_of_time and not ended:
         raise subprocess.TimeoutExpired(argv, PROBE_SECONDS)
     from wintools_mcp.executor import _decode_output
 
     # each stream in its own encoding: Sysinternals tools write UTF-16LE
-    return _decode_output(got["out"]) + "\n" + _decode_output(got["err"])
+    out, err = bytes(got["out"]), bytes(got["err"])
+    return _decode_output(out) + "\n" + _decode_output(err)
 
 
 def run_probe(argv: list[str]) -> str:
