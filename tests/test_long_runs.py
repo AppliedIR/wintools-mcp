@@ -1,13 +1,14 @@
 """A long run in a case: answered within a wait, then polled with
-get_windows_run; its result is saved in the case.
+get_windows_run; its result is kept in wintools' memory.
 
 - A run longer than the wait answers {state: running, run_id, op_folder,
   message}; get_windows_run(run_id) gives its reply once done, under the
   run's own audit id. A run done within the wait answers as before.
-- The reply is in the run's state file, beside its op folder (never one of
-  its outputs), so a poll after a gateway reconnect still finds it.
-- A run left running by an earlier wintools process is failed (wintools
-  restarted), and that is written to the audit once.
+- A done run gives its reply whatever the wait, even one that ends just as
+  the wait runs out.
+- A poll after a gateway reconnect still gets the reply. After a wintools
+  restart, or once the run is no longer kept, the poll says wintools has no
+  record of it. Finished runs are kept up to a cap, delivered ones go first.
 - Polls write nothing to the audit; only the run's own entry is there. The
   pending-hash markers come with the first delivery only.
 - Runs go one at a time: a second is queued, a poll answers at once while
@@ -23,6 +24,7 @@ import json
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import anyio
 import pytest
@@ -118,40 +120,95 @@ def test_a_short_run_answers_as_before(case, runs):  # noqa: F811
     assert got["data"]["stdout"] == "ran A\n"
 
 
-def test_the_result_is_in_the_case_beside_the_op_folder_never_an_output(case, runs):  # noqa: F811
+def test_a_gateway_reconnect_gets_the_reply_and_a_wintools_restart_is_named(
+    case,  # noqa: F811
+    runs,
+):
     server = srv.create_server()
     seen = {}
 
     async def main():
         seen["first"] = await _run(server, "A")
-        await _done(server, seen["first"]["run_id"])
-        jobs.clear()  # a fresh connection: only the case has it now
-        seen["again"] = await _poll(srv.create_server(), seen["first"]["run_id"])
+        run_id = seen["first"]["run_id"]
+        await jobs._jobs[run_id].done.wait()
+        seen["reconnect"] = await _poll(srv.create_server(), run_id)
+        jobs.clear()  # wintools restarted
+        seen["restart"] = await _poll(srv.create_server(), run_id)
 
     anyio.run(main)
     run_id = seen["first"]["run_id"]
-    state = case / "extractions" / f"{run_id}.state.json"
-    assert json.loads(state.read_text())["state"] == "finished"
-    assert seen["again"]["success"] is True and seen["again"]["audit_id"] == run_id
-    assert not any(o["path"].endswith(".state.json") for o in seen["again"]["outputs"])
+    message = seen["first"]["message"]
+    assert "survives a gateway restart, but not a wintools restart" in message
+    assert seen["reconnect"].get("success") is True
+    assert seen["reconnect"]["audit_id"] == run_id
+    assert seen["restart"]["state"] == "unknown" and seen["restart"]["error"] == (
+        "wintools has no record of this run. It may have restarted. "
+        f"Check extractions/{run_id}/ and re-run if needed."
+    )
+    assert not list((case / "extractions").glob("*.state.json"))
 
 
-def test_a_run_left_by_a_restarted_wintools_is_failed_and_audited_once(case, runs):  # noqa: F811
-    run_id = "wintools-t-20261014-01LOSTRUN"
-    jobs.write_state(jobs.state_file(str(case), run_id),
-                     {"state": "running", "instance": "an-earlier-process",
-                      "tool": "run_windows_command"})  # fmt: skip
+def test_a_done_run_gives_its_reply_even_with_no_wait(case, runs):  # noqa: F811
     server = srv.create_server()
+    seen = {}
 
     async def main():
-        return [await _poll(server, run_id, wait=0) for _ in range(3)]
+        seen["first"] = await _run(server, "A")
+        await jobs._jobs[seen["first"]["run_id"]].done.wait()
+        seen["poll"] = await _poll(server, seen["first"]["run_id"], wait=0)
 
-    polls = anyio.run(main)
-    assert all(p["state"] == "failed" and "restarted" in p["error"] for p in polls), (
-        polls
-    )
-    lost = [e for e in _entries(case) if e.get("audit_id") == run_id]
-    assert len(lost) == 1 and lost[0]["result_summary"]["state"] == "failed"
+    anyio.run(main)
+    assert seen["first"]["state"] == "running"
+    assert seen["poll"].get("success") is True
+    assert seen["poll"]["audit_id"] == seen["first"]["run_id"]
+
+
+def test_a_run_ending_as_the_wait_runs_out_gives_its_reply(case, runs, monkeypatch):  # noqa: F811
+    server = srv.create_server()
+    seen = {}
+    real = jobs.asyncio
+
+    async def wait_for(aw, timeout):  # the run ends just as the wait's time is up
+        await aw
+        raise real.TimeoutError
+
+    async def main():
+        seen["first"] = await _run(server, "A")
+        monkeypatch.setattr(jobs, "asyncio", SimpleNamespace(
+            wait_for=wait_for, shield=real.shield, TimeoutError=real.TimeoutError))  # fmt: skip
+        seen["poll"] = await _poll(server, seen["first"]["run_id"])
+
+    anyio.run(main)
+    assert seen["first"]["state"] == "running"
+    assert seen["poll"].get("success") is True, seen["poll"]
+    assert seen["poll"]["audit_id"] == seen["first"]["run_id"]
+
+
+def test_finished_runs_are_kept_up_to_a_cap_delivered_ones_go_first(
+    case,  # noqa: F811
+    runs,
+    monkeypatch,
+):
+    monkeypatch.setattr(jobs, "KEEP", 2)
+    runs["seconds"].update(A=0.05, C=0.05)
+    server = srv.create_server()
+    seen = {}
+
+    async def main():
+        seen["B"] = await _run(server, "B")  # running: its reply not delivered yet
+        await jobs._jobs[seen["B"]["run_id"]].done.wait()
+        seen["A"] = await _run(server, "A")  # done within the wait: delivered
+        seen["C"] = await _run(server, "C")
+        seen["kept"] = set(jobs._jobs)
+        seen["A again"] = await _poll(server, seen["A"]["audit_id"])
+        seen["B2"] = await _poll(server, seen["B"]["run_id"])
+
+    anyio.run(main)
+    b, c = seen["B"]["run_id"], seen["C"]["audit_id"]
+    assert seen["kept"] == {b, c}  # A, delivered, went before the older B
+    assert seen["A again"]["state"] == "unknown"
+    assert "no record of this run" in seen["A again"]["error"]
+    assert seen["B2"].get("success") is True and seen["B2"]["audit_id"] == b
 
 
 def test_polls_write_no_entries_and_pending_hashes_come_once(case, runs, monkeypatch):  # noqa: F811

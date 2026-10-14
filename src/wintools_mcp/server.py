@@ -266,7 +266,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     limiter=run_limiter(one_at_a_time),
                 )
 
-            return await jobs.start(fn.__name__, run_id, cfg.case_dir, op_folder, work)
+            return await jobs.start(fn.__name__, run_id, op_folder, work)
 
         return server.tool()(run)
 
@@ -274,19 +274,10 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
     async def get_windows_run(run_id: str, wait: int = 30) -> dict:
         """The result of a long run_windows_command or batch_scan (the run_id
         its reply named): waits up to ``wait`` seconds (at most about 60), then
-        gives the reply, or whether it is queued, running, stopped or failed.
-        Poll it every 30 seconds until the run is done."""
-        cfg = get_config()
-
-        def lost(rid: str, record: dict) -> None:
-            audit.log(
-                tool=str(record.get("tool") or "run_windows_command"),
-                params={"run_id": rid},
-                result_summary={"state": "failed", "error": record.get("error", "")},
-                audit_id=rid,
-            )
-
-        return await jobs.poll(run_id, float(wait), cfg.case_dir, lost)
+        gives the reply, or whether it is queued, running, stopped or failed,
+        or that wintools has no record of it (it may have restarted). Poll it
+        every 30 seconds until the run is done."""
+        return await jobs.poll(run_id, float(wait))
 
     # --- Discovery ---
     @tool
