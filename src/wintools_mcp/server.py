@@ -151,20 +151,33 @@ def _inside(path: str, case_dir: str) -> bool:
         return False
 
 
+def run_limiter(limiter: list) -> anyio.CapacityLimiter:
+    """The server's CapacityLimiter(1), made on first use (in its loop)."""
+    if not limiter:
+        limiter.append(anyio.CapacityLimiter(1))
+    return limiter[0]
+
+
+def _pinned_run(fn, args, kwargs):
+    from wintools_mcp.config import pinned_case
+
+    with pinned_case():  # the case active as the run starts is the run's
+        return fn(*args, **kwargs)
+
+
 def offload(fn, limiter: list):
     """A sync tool runs in a worker thread, one at a time (``limiter`` holds
-    the server's CapacityLimiter(1), made on first use), so the event loop
-    keeps answering pings and queues the next call while a tool runs for
-    minutes. An async tool is left as it is."""
+    the server's CapacityLimiter(1)), so the event loop keeps answering pings
+    and queues the next call while a tool runs for minutes. The run keeps
+    the case active when it starts. An async tool is left as it is."""
     if inspect.iscoroutinefunction(fn):
         return fn
 
     @functools.wraps(fn)
     async def run(*args, **kwargs):
-        if not limiter:
-            limiter.append(anyio.CapacityLimiter(1))
         return await anyio.to_thread.run_sync(
-            functools.partial(fn, *args, **kwargs), limiter=limiter[0]
+            functools.partial(_pinned_run, fn, args, kwargs),
+            limiter=run_limiter(limiter),
         )
 
     return run
@@ -177,6 +190,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
     server = FastMCP("wintools-mcp", instructions=_INSTRUCTIONS)
     one_at_a_time: list = []  # the server's limiter: tools run one at a time
+    server.one_at_a_time = one_at_a_time  # an SMB update waits on it too
 
     def tool(fn):  # every tool: registered, and offloaded when sync
         return server.tool()(offload(fn, one_at_a_time))

@@ -109,6 +109,18 @@ def resolve_examiner() -> str:
     return slug
 
 
+def _active_case_id() -> str:
+    """VHIR_ACTIVE_CASE, as it was when the running tool started."""
+    from wintools_mcp.config import pinned
+
+    pin = pinned()
+    return (
+        pin.active_case_env
+        if pin is not None
+        else os.environ.get("VHIR_ACTIVE_CASE", "")
+    )
+
+
 class AuditWriter:
     """Writes audit entries to a per-MCP JSONL file.
 
@@ -158,17 +170,29 @@ class AuditWriter:
             share_guard.before_write()
         except share_guard.ShareRefused:
             return None  # noted for /health
-        case_dir = os.environ.get("VHIR_CASE_DIR", "").strip()
+        from wintools_mcp.config import pinned
+
+        pin = pinned()  # inside a run: the case it started in, as it was
+        case_dir = (
+            pin.case_dir_env
+            if pin is not None
+            else os.environ.get("VHIR_CASE_DIR", "").strip()
+        )
         # Validate: must be a directory with CASE.yaml
         if case_dir:
             path = Path(case_dir)
             if path.is_dir() and (path / "CASE.yaml").exists():
                 return path / "audit"
         # Set-but-wrong or unset: read the active case pointer file
-        try:  # (a local file: unreadable means no active case)
-            case_dir = (Path.home() / ".vhir" / "active_case").read_text().strip()
-        except OSError:
-            return None
+        if pin is not None:
+            case_dir = pin.pointer
+            if case_dir is None:
+                return None
+        else:
+            try:  # (a local file: unreadable means no active case)
+                case_dir = (Path.home() / ".vhir" / "active_case").read_text().strip()
+            except OSError:
+                return None
         if not case_dir:
             return None
         path = Path(case_dir)
@@ -219,7 +243,7 @@ class AuditWriter:
             "tool": tool,
             "audit_id": audit_id,
             "examiner": self.examiner,
-            "case_id": case_id or os.environ.get("VHIR_ACTIVE_CASE", ""),
+            "case_id": case_id or _active_case_id(),
             "source": source,
             "params": params,
             "result_summary": _summarize(result_summary),

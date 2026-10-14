@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+import copy
 import getpass
 import logging
 import os
@@ -243,11 +246,58 @@ class WintoolsConfig:
 _config: WintoolsConfig | None = None
 
 
+@dataclass
+class PinnedCase:
+    """What a run sees of the case: the config, VHIR_CASE_DIR,
+    VHIR_ACTIVE_CASE and the active-case pointer, as they were when it
+    started."""
+
+    config: WintoolsConfig
+    case_dir_env: str
+    active_case_env: str
+    pointer: str | None  # ~/.vhir/active_case, or None if unreadable
+
+
+_pinned: contextvars.ContextVar[PinnedCase | None] = contextvars.ContextVar(
+    "wintools_pinned_case", default=None
+)
+
+
 def get_config(config_file: str | None = None) -> WintoolsConfig:
     global _config
+    pin = _pinned.get()
+    if pin is not None:  # inside a run: the case it started in
+        return pin.config
     if _config is None:
         _config = WintoolsConfig.from_env(config_file)
     return _config
+
+
+def pinned() -> PinnedCase | None:
+    """The running tool's pinned case, or None outside a run."""
+    return _pinned.get()
+
+
+@contextlib.contextmanager
+def pinned_case():
+    """Pin the case active now for the run inside the block: a case
+    activated or deactivated meanwhile doesn't move its audit entry or its
+    outputs."""
+    try:
+        pointer = (Path.home() / ".vhir" / "active_case").read_text().strip()
+    except OSError:
+        pointer = None
+    pin = PinnedCase(
+        config=copy.copy(get_config()),
+        case_dir_env=os.environ.get("VHIR_CASE_DIR", "").strip(),
+        active_case_env=os.environ.get("VHIR_ACTIVE_CASE", ""),
+        pointer=pointer,
+    )
+    token = _pinned.set(pin)
+    try:
+        yield pin
+    finally:
+        _pinned.reset(token)
 
 
 def reset_config() -> None:

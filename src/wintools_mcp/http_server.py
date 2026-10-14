@@ -275,12 +275,17 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
     smb_password = body.get("smb_password", "")
     if not smb_password:
         return JSONResponse({"error": "smb_password required"}, status_code=400)
-    from wintools_mcp.smb import establish_smb_session
-
     # One update at a time: two interleaved would run with one request's
     # credentials and save the other's. The attempt itself runs off the event
     # loop, since it waits on net use and the share.
-    async with request.app.state.smb_update_lock:
+    # ...and never under a running tool: it can drop the share the tool uses
+    from wintools_mcp.server import run_limiter
+    from wintools_mcp.smb import establish_smb_session
+
+    async with (
+        request.app.state.smb_update_lock,
+        run_limiter(request.app.state.one_at_a_time),
+    ):
         # the user name, when not given, is the one in use after the update ahead
         smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
         cfg.smb_user = smb_user
@@ -407,6 +412,7 @@ def create_http_app(config: WintoolsConfig) -> Starlette:
     app = Starlette(routes=routes, lifespan=lifespan)
     # one credentials update at a time (an asyncio lock is its app's: its loop)
     app.state.smb_update_lock = asyncio.Lock()
+    app.state.one_at_a_time = server.one_at_a_time  # the tools' limiter
     return app
 
 
