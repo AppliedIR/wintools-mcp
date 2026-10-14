@@ -18,7 +18,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from wintools_mcp.audit import AuditWriter
-from wintools_mcp.config import WintoolsConfig, get_config
+from wintools_mcp.config import WintoolsConfig, get_config, pinned_case, snapshot
 from wintools_mcp.server import create_server
 
 _control_audit = AuditWriter(mcp_name="wintools-mcp")
@@ -292,6 +292,7 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
         smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
         cfg.smb_user = smb_user
         cfg.smb_password = smb_password
+        pin = snapshot()  # its audit entry goes to the case active now
 
         def update() -> bool:
             success = establish_smb_session(cfg)
@@ -299,11 +300,12 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
             _persist_config_fields(
                 cfg, {"smb_user": smb_user, "smb_password": smb_password}
             )
-            _control_audit.log(
-                tool="update_smb_credentials",
-                params={"smb_user": smb_user},
-                result_summary=f"session={'ok' if success else 'failed'}",
-            )
+            with pinned_case(pin):
+                _control_audit.log(
+                    tool="update_smb_credentials",
+                    params={"smb_user": smb_user},
+                    result_summary=f"session={'ok' if success else 'failed'}",
+                )
             return success
 
         success = await outlast_cancel(update)

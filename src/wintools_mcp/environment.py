@@ -44,10 +44,11 @@ DEFAULT_TOOL_PATHS = [
     Path("C:\\Tools"),
 ]
 
-# A copy KAPE bundles for its modules: run only when no other copy is found
-_KAPE_BIN = re.compile(r"[\\/]modules[\\/]bin[\\/]", re.IGNORECASE)
-# A .NET-version folder of one tool set: the highest N runs
-_NET = re.compile(r"[\\/]net(\d+)[\\/]", re.IGNORECASE)
+# A .NET-version folder of one tool set (the whole folder name): the highest
+# N runs. net4 followed by digits (net45 ... net481) is .NET Framework, below
+# every modern netN.
+_NET = re.compile(r"net(\d+)", re.IGNORECASE)
+_FRAMEWORK = re.compile(r"4\d+")
 
 
 _binary_cache: dict[str, str | None] = {}
@@ -76,11 +77,13 @@ def _search(name: str, extra_paths: list[Path] | None = None):
     Each folder is searched in its direct children (with .exe tried), then its
     subfolders at most 4 levels deep (catches arbitrary layouts like
     ZimmermanTools/net9/RECmd/RECmd.exe); in a folder, net9's copy comes
-    before net6's.
+    before net6's, and both before a .NET Framework one (net48). Paths are
+    judged by their folder names once made absolute, so a relative folder or
+    a drive root is read the same way.
     """
     held = []
     for path, on_path in _copies(name, extra_paths):
-        if _KAPE_BIN.search(path):
+        if _kape_bundled(path):
             held.append((path, on_path))
         else:
             yield path, on_path
@@ -126,21 +129,43 @@ def _in_folders(name: str, wanted: set[str], search: list[Path]):
                         found.append(str(Path(root) / f))
         except OSError:
             pass
-        for path in _highest_net_first(found, len(str(d))):
+        for path in _highest_net_first(found, d):
             yield path, False
 
 
-def _highest_net_first(paths: list[str], under: int) -> list[str]:
+def _names(path: str | Path) -> list[str]:
+    """The names in ``path`` made absolute and normalised (either separator)."""
+    return [p for p in re.split(r"[\\/]+", os.path.abspath(path)) if p]
+
+
+def _kape_bundled(path: str) -> bool:
+    """A copy KAPE bundles for its modules: in a Modules\\bin folder. It runs
+    only when no other copy is found."""
+    folders = [p.lower() for p in _names(path)[:-1]]
+    return ("modules", "bin") in zip(folders, folders[1:], strict=False)
+
+
+def _highest_net_first(paths: list[str], folder: Path) -> list[str]:
     """The copies under a netN folder (Zimmerman's net6 and net9 sets) by N,
-    highest first, each taking a place one of them had; the others stay put.
-    Only the part of a path below its search folder (from ``under``) counts."""
+    highest first, then the .NET Framework ones (net48 before net472), each
+    taking a place one of them had; the others stay put. Only the folders
+    below the search folder count, the innermost netN one."""
+    top = [p.casefold() for p in _names(folder)]
 
-    def n(path: str) -> int | None:
-        found = _NET.findall(path[under:])
-        return int(found[-1]) if found else None
+    def rank(path: str) -> tuple[int, int, str] | None:
+        names = _names(path)
+        if [p.casefold() for p in names[: len(top)]] != top:
+            return None
+        for name in reversed(names[len(top) : -1]):
+            m = _NET.fullmatch(name)
+            if m:
+                n = m.group(1)
+                return (0, 0, n) if _FRAMEWORK.fullmatch(n) else (1, int(n), "")
+        return None
 
-    places = [i for i, p in enumerate(paths) if n(p) is not None]
-    ranked = sorted((paths[i] for i in places), key=lambda p: -(n(p) or 0))
+    ranks = {p: rank(p) for p in paths}
+    places = [i for i, p in enumerate(paths) if ranks[p] is not None]
+    ranked = sorted((paths[i] for i in places), key=ranks.__getitem__, reverse=True)
     out = list(paths)
     for i, path in zip(places, ranked, strict=True):
         out[i] = path

@@ -10,7 +10,10 @@ does; a call that finds QUEUE_LIMIT runs waiting is refused.
 Jobs live in this process only. A gateway restart doesn't touch them; a
 wintools restart forgets them, and a poll then answers that wintools has no
 record of the run. At most KEEP finished jobs are kept: delivered ones go
-first, oldest first, and a forgotten run is answered as an unknown one.
+first, then the oldest finished. They are let go only as a reply is
+delivered, after it's marked delivered, so a run that just finished is never
+let go before its reply is given; a forgotten run is answered as an unknown
+one.
 
 The pending-hash markers (files over the hash limit) are delivered with the
 first delivery of a finished reply only, so the gateway hashes them once.
@@ -21,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import copy
+import itertools
 import os
 from dataclasses import dataclass, field
 from typing import Any
@@ -42,9 +46,11 @@ class Job:
     done: asyncio.Event = field(default_factory=asyncio.Event)
     delivered: bool = False
     task: Any = None
+    finished: int = 0  # finish order
 
 
 _jobs: dict[str, Job] = {}
+_finish_order = itertools.count(1)
 
 # The run id a job's tool body takes as its audit id (set in its thread)
 RUN_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -62,11 +68,14 @@ def waiting() -> int:
 
 
 def _evict() -> None:
-    """Keep at most KEEP finished jobs: delivered ones go first, oldest first."""
+    """Keep at most KEEP finished jobs: delivered ones go first, then the
+    oldest finished. Called once a reply is marked delivered."""
     finished = [j for j in _jobs.values() if j.done.is_set()]
     extra = len(finished) - KEEP
     if extra > 0:
-        for job in sorted(finished, key=lambda j: not j.delivered)[:extra]:
+        for job in sorted(finished, key=lambda j: (not j.delivered, j.finished))[
+            :extra
+        ]:
             del _jobs[job.run_id]
 
 
@@ -142,8 +151,8 @@ async def start(tool: str, run_id: str, op_folder: str, work) -> dict:
         except Exception as e:  # noqa: BLE001 - the run failed: say why
             reply = {"success": False, "error": f"{type(e).__name__}: {e}"}
         job.reply, job.state = reply, outcome(reply)
+        job.finished = next(_finish_order)
         job.done.set()
-        _evict()
 
     job.task = asyncio.get_running_loop().create_task(run())
     return await wait(job, WAIT_SECONDS)

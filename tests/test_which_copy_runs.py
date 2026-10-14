@@ -3,7 +3,9 @@
 The configured folders come first, then PATH, then the default folders with
 C:\\Tools last. A copy KAPE bundles in its Modules\\bin runs only when there is
 no other; every copy is still listed. In one folder, a copy under netN ranks
-by N, highest first.
+by N, highest first, and a .NET Framework one (net48, net472) below them.
+A relative folder, a drive root or "." is read by its folder names the same
+way.
 """
 
 import os
@@ -120,7 +122,74 @@ def test_c_tools_is_searched_last():
     ],
 )
 def test_a_kape_bundled_copy_is_known_by_its_folder(path, bundled):
-    assert bool(environment._KAPE_BIN.search(path)) is bundled
+    assert environment._kape_bundled(path) is bundled
+
+
+def test_a_relative_modules_bin_folder_is_still_kapes(tmp_path, monkeypatch):
+    bundled = _exe(tmp_path / "KAPE" / "Modules" / "bin" / "PECmd.exe")
+    standalone = _exe(tmp_path / "ZimmermanTools" / "PECmd.exe")
+    monkeypatch.chdir(tmp_path / "KAPE")
+    monkeypatch.setattr(environment.shutil, "which", lambda name: str(standalone))
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [])
+    environment.clear_binary_cache()
+    try:
+        found = environment.find_all("PECmd.exe", [Path("Modules/bin")])
+        assert environment.find_binary("PECmd.exe", [Path("Modules/bin")]) == str(
+            standalone
+        )
+    finally:
+        environment.clear_binary_cache()
+    assert found == [str(standalone), str(Path("Modules/bin/PECmd.exe"))]
+    assert Path(found[1]).resolve() == bundled.resolve()
+
+
+def test_net_framework_folders_rank_below_every_modern_net(
+    tmp_path, monkeypatch, no_path, name_order
+):
+    root = tmp_path / "ZimmermanTools"
+    copies = {
+        n: _exe(root / n / "PECmd.exe") for n in ("net472", "net48", "net6", "net9")
+    }
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [root])
+    assert environment.find_all("PECmd.exe") == [
+        str(copies[n]) for n in ("net9", "net6", "net48", "net472")
+    ]
+
+
+def test_dot_as_the_search_folder_still_runs_net9_over_net6(
+    tmp_path, monkeypatch, no_path, name_order
+):
+    net6 = _exe(tmp_path / "net6" / "PECmd.exe")
+    net9 = _exe(tmp_path / "net9" / "PECmd.exe")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [Path(".")])
+    found = environment.find_all("PECmd.exe")
+    assert [Path(p).resolve() for p in found] == [net9.resolve(), net6.resolve()]
+
+
+@pytest.mark.parametrize(
+    ("folder", "paths"),
+    [
+        ("C:\\", ["C:\\net6\\PECmd.exe", "C:\\net9\\PECmd.exe"]),
+        ("/", ["/net6/PECmd.exe", "/net9/PECmd.exe"]),
+        (
+            "\\\\box\\tools",
+            ["\\\\box\\tools\\net6\\PECmd.exe", "\\\\box\\tools\\net9\\PECmd.exe"],
+        ),
+    ],
+)
+def test_a_root_or_share_as_the_search_folder_still_ranks_net9_first(folder, paths):
+    assert environment._highest_net_first(paths, Path(folder)) == paths[::-1]
+
+
+def test_an_unranked_copy_between_ranked_ones_keeps_its_place():
+    paths = ["/t/net6/a.exe", "/t/x/a.exe", "/t/net9/a.exe", "/t/net48/a.exe"]
+    assert environment._highest_net_first(paths, Path("/t")) == [
+        "/t/net9/a.exe",
+        "/t/x/a.exe",
+        "/t/net6/a.exe",
+        "/t/net48/a.exe",
+    ]
 
 
 def test_the_stock_layout_runs_net9_over_net6(

@@ -276,3 +276,43 @@ def test_a_directly_cancelled_smb_update_holds_the_tools_and_is_still_saved(
     assert seen == {"cancelled": True}
     assert [f["smb_password"] for f in saved] == ["pw"]
     assert [e["tool"] for e in logged] == ["update_smb_credentials"]
+
+
+def test_a_case_deactivated_during_an_smb_update_keeps_its_entry_in_that_case(
+    case,  # noqa: F811
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # no active-case pointer
+    monkeypatch.setenv("VHIR_ACTIVE_CASE", "C-1")
+    get_config().api_keys = {KEY: {"examiner": "t"}}
+    started, go = threading.Event(), threading.Event()
+    import wintools_mcp.smb as smb
+
+    def establish(cfg):  # the update, waiting on the share
+        started.set()
+        assert go.wait(5)
+        return True
+
+    monkeypatch.setattr(smb, "establish_smb_session", establish)
+    server = srv.create_server()
+    replies = {}
+
+    async def main():
+        async def update():
+            r = await http_server.update_smb_credentials(
+                _request(server, "/config/update-smb", {"smb_password": "pw"})
+            )
+            replies["update"] = r.status_code
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(update)
+            assert await anyio.to_thread.run_sync(started.wait, 5)
+            r = await http_server.deactivate_case(_request(server, "/cases/deactivate"))
+            replies["deactivate"] = json.loads(r.body)
+            go.set()
+
+    anyio.run(main)
+    assert replies == {"update": 200, "deactivate": {"status": "deactivated"}}
+    (entry,) = [e for e in _entries(case) if e["tool"] == "update_smb_credentials"]
+    assert entry["case_id"] == "C-1"
