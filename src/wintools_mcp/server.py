@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from wintools_mcp.audit import AuditWriter
 from wintools_mcp.catalog import get_tool_def
 from wintools_mcp.config import WintoolsConfig, get_config
-from wintools_mcp.exceptions import WintoolsError
+from wintools_mcp.exceptions import ExecutionTimeoutError, WintoolsError
 from wintools_mcp.response import build_response
 
 logger = logging.getLogger(__name__)
@@ -837,6 +837,9 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 else None,
             )
 
+            if stopped:  # the same key and value on sift: why Valhuntir stopped it
+                response["stopped"] = "output limit"
+
             # Add full output metadata if file was saved
             if exec_result.get("output_file"):
                 response["full_output_path"] = exec_result["output_file"]
@@ -878,6 +881,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
                     **({"error": eula or stopped} if eula or stopped else {}),
+                    **({"stopped": "output limit"} if stopped else {}),
                     **({"eula_note": eula_note} if eula_note else {}),
                 },
                 audit_id=audit_id,
@@ -918,10 +922,13 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 audit_id=audit_id,
                 error=str(e),
             )
+            summary = {"error": str(e)}
+            if isinstance(e, ExecutionTimeoutError):  # Valhuntir's deadline ended it
+                response["stopped"] = summary["stopped"] = "timeout"
             audit.log(
                 tool="run_windows_command",
                 params={"command": command, "purpose": purpose},
-                result_summary={"error": str(e)},
+                result_summary=summary,
                 audit_id=audit_id,
                 elapsed_ms=elapsed * 1000,
             )

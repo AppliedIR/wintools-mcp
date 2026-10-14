@@ -61,12 +61,29 @@ def test_a_run_stopped_at_the_output_limit_is_no_success(case, monkeypatch, tool
     assert r["success"] is False, r
     assert "stopped by wintools at its output limit (4096 bytes)" in r["error"], r
     assert "exit_code_meaning" not in r["metadata"], r
+    assert r["stopped"] == "output limit", r
     (entry,) = [e for e in _entries(case) if e["tool"] == "run_windows_command"]
     assert "output limit (4096 bytes)" in entry["result_summary"]["error"]
+    assert entry["result_summary"]["stopped"] == "output limit"
 
 
 def test_a_run_that_ends_under_the_limit_is_read_as_before(case, monkeypatch):  # noqa: F811
     _as_windows_runs(monkeypatch, UNSIGNED)
     r = _run("sigcheck", "C:\\x")
-    assert r["success"] is True and "error" not in r, r
+    assert r["success"] is True and "error" not in r and "stopped" not in r, r
     assert r["metadata"]["exit_code"] == 1, r
+
+
+def test_a_run_stopped_at_its_deadline_says_so(case, monkeypatch):  # noqa: F811
+    from wintools_mcp.exceptions import ExecutionTimeoutError
+
+    def timed_out(command, **k):
+        raise ExecutionTimeoutError("Command timed out after 300s")
+
+    monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
+    monkeypatch.setattr(generic, "eula_accepted", lambda key: True, raising=False)
+    monkeypatch.setattr(generic, "execute", timed_out)
+    r = _run("procdump", "-ma", "4242")
+    assert r["success"] is False and r["stopped"] == "timeout", r
+    (entry,) = [e for e in _entries(case) if e["tool"] == "run_windows_command"]
+    assert entry["result_summary"]["stopped"] == "timeout"
