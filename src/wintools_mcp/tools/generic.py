@@ -9,12 +9,13 @@ import time as _time
 from collections import OrderedDict
 from pathlib import Path
 
-from wintools_mcp.catalog import PS_SCRIPT_EXCEPTIONS, get_tool_def, validate_command
+from wintools_mcp.catalog import get_tool_def, validate_command
 from wintools_mcp.config import get_config
 from wintools_mcp.environment import find_tool
 from wintools_mcp.exceptions import (
     DenylistError,
     ExecutionTimeoutError,
+    OutOfScopeError,
     ToolNotInCatalogError,
 )
 from wintools_mcp.executor import execute
@@ -87,7 +88,7 @@ def _cache_put(key: str, result: dict) -> None:
 
 
 # Flags that name where a tool writes (a folder or a file)
-OUTPUT_FLAGS = ("--csv", "--json", "-o", "--output", "--tdest", "--mdest")
+OUTPUT_FLAGS = ("--csv", "--json", "-o", "--output", "--mdest")
 
 
 def _make_dir(path: str) -> str | None:
@@ -135,59 +136,6 @@ def _new_folder(path: str) -> str:
         except FileExistsError:
             continue
     raise OSError(f"no free folder name for {path}")
-
-
-def _expand_script_command(command: list[str]) -> list[str]:
-    """Auto-expand script-type tools into PowerShell invocations.
-
-    Transforms ["Get-InjectedThreadEx", ...args] into
-    ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-     "-File", "<resolved_path>", ...args].
-    """
-    td = get_tool_def(command[0])
-    if not td or td.exec_type != "script":
-        return command
-
-    # Find the .ps1 script file from install_paths
-    # Use only the filename stem -- strip any path traversal from user input
-    script_name = Path(command[0]).name
-    script_file = f"{script_name}.ps1"
-    # Check if it's a known PS exception (case-insensitive)
-    if script_file.lower() not in PS_SCRIPT_EXCEPTIONS:
-        return command
-
-    script_path = None
-    for search_dir in td.install_paths or []:
-        search_resolved = Path(search_dir).resolve()
-        candidate = (search_resolved / script_file).resolve()
-        # Verify resolved path stays within the search directory
-        try:
-            candidate.relative_to(search_resolved)
-        except ValueError:
-            continue  # candidate is outside search_dir
-        if candidate.exists():
-            script_path = str(candidate)
-            break
-
-    if not script_path:
-        searched_display = (
-            ", ".join(Path(p).name for p in td.install_paths)
-            if td.install_paths
-            else "no install_paths"
-        )
-        raise ToolNotInCatalogError(
-            f"Script not found: {script_file} (searched: {searched_display}). "
-            f"Use list_missing_windows_tools() for install guidance."
-        )
-
-    return [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        script_path,
-    ] + command[1:]
 
 
 # What a Sysinternals tool prints, in place of running, for an account that
@@ -314,18 +262,20 @@ def run_command(
     if not command:
         raise ValueError("Empty command")
 
-    # Script auto-expansion -- must happen BEFORE validate_command()
-    # so the expanded PowerShell invocation passes the PS exception check
-    requested = command[0]
-    command = _expand_script_command(command)
-    script_path = command[5] if command[0] != requested else None
-
     # Denylist + allowlist validation (always runs, even on cache hits)
     error = validate_command(command)
     if error:
         if "blocked" in error.lower():
             raise DenylistError(error)
         raise ToolNotInCatalogError(error)
+
+    # Nothing reaches another system or a tool's live mode
+    from wintools_mcp.scope import refusal
+
+    cfg = get_config()
+    why = refusal(command, cfg.case_dir, cfg.share_root, op_dir)
+    if why:
+        raise OutOfScopeError(why)
 
     # Resolve binary path -- refuse to proceed if binary is not found
     binary_name = Path(command[0]).name
@@ -336,7 +286,7 @@ def run_command(
             f"Use list_missing_windows_tools() for installation guidance."
         )
     command = [resolved] + command[1:]
-    tool_path = script_path or resolved
+    tool_path = resolved
 
     # Nothing runs into a share that isn't the active case: checked here,
     # after the caller's own pre-work, right before anything is created

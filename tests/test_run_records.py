@@ -244,7 +244,7 @@ def test_stdout_is_saved_as_the_bytes_the_tool_wrote(case, tools, stdout, encodi
     assert any(o["path"] == str(saved) for o in entry["outputs"])
 
 
-def test_an_acquisition_lands_in_the_op_folder_hashed_and_marked(case, tools):
+def test_a_relative_output_name_lands_in_the_op_folder_hashed(case, tools):
     def dump(cmd, kw):  # winpmem <outfile>, relative to where it runs
         (Path(kw["cwd"]) / cmd[-1]).write_bytes(b"FAKE-PHYSMEM")
 
@@ -255,14 +255,7 @@ def test_an_acquisition_lands_in_the_op_folder_hashed_and_marked(case, tools):
     assert {o["path"]: o.get("sha256") for o in entry["outputs"]}[
         str(dump_file)
     ] == sha(dump_file)
-    assert entry["acquisition"] is True and entry["acquisition_tool"] == "winpmem"
-
-
-def test_a_run_that_is_not_an_acquisition_is_not_marked(case, tools):
-    ev = _evtx(case)
-    _run(tools, "evtxecmd", _csv, command=["EvtxECmd", "-f", str(ev)])
-    (entry,) = _entries(case)
-    assert "acquisition" not in entry
+    assert "acquisition" not in entry and "acquisition_tool" not in entry
 
 
 def test_what_a_user_given_output_folder_gains_is_listed_and_nothing_else(case, tools):
@@ -362,9 +355,8 @@ def test_a_relative_input_in_a_case_is_read_from_the_runs_folder(
     assert calls == []  # never run against a file it wouldn't have read
 
 
-def test_an_acquisition_written_outside_the_case_is_recorded_unhashed(
-    case, tools, tmp_path
-):
+def test_a_file_written_outside_the_case_is_not_an_output(case, tools, tmp_path):
+    """Only the run's folder and a named output flag's value are listed."""
     outside = tmp_path / "elsewhere" / "mem.raw"
     outside.parent.mkdir()
 
@@ -373,12 +365,9 @@ def test_an_acquisition_written_outside_the_case_is_recorded_unhashed(
 
     _run(tools, "winpmem", dump, command=["winpmem", str(outside)])
     (entry,) = _entries(case)
-    (rec,) = [o for o in entry["outputs"] if o["path"] == str(outside)]
-    assert rec["outside_case"] is True and "sha256" not in rec
-    assert rec["note"] == (
-        "outside the case: not hashed, not registrable until copied into the case"
-    )
-    assert entry["acquisition"] is True
+    assert outside.read_bytes() == b"FAKE-PHYSMEM"  # it ran
+    assert all(o["path"] != str(outside) for o in entry.get("outputs", []))
+    assert "acquisition" not in entry
 
 
 def test_a_relative_input_is_never_read_from_a_dead_runs_folder(

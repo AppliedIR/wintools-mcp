@@ -4,8 +4,8 @@ refused, loudly and on the record, before anything runs.
 Over the share, a link to a file outside the case isn't followed, so the
 file isn't there for the tool: run anyway, the tool finds nothing and the
 call reads as a success with no input. Only paths on the share are checked,
-and never what the command writes (an output flag's value, an acquisition's
-destination). The share is a local folder that is the active case; a link
+and never what the command writes (an output flag's value, a relative name
+written in the run's folder). The share is a local folder that is the active case; a link
 whose target is gone stands in for one the share doesn't follow. Popen is
 replaced, and no process starts.
 """
@@ -57,13 +57,22 @@ def test_outputs_and_local_paths_are_never_checked(case, tools, tool, command): 
 def test_an_output_on_the_share_not_there_yet_runs(case, tools):  # noqa: F811
     ev = _evtx(case)
     out = case / "extractions" / "evtx-run1"  # on the share, not made yet
-    dest = case / "evidence" / "new-memory.raw"
     calls: list = []
     command = ["EvtxECmd", "-f", str(ev), "--csv", str(out)]
     resp = _run(tools, "evtxecmd", calls=calls, command=command)
     assert resp["success"] is True and len(calls) == 1, resp
-    resp = _run(tools, "winpmem", calls=calls, command=["winpmem", str(dest)])
+    resp = _run(tools, "winpmem", calls=calls, command=["winpmem", "new-memory.raw"])
     assert resp["success"] is True and len(calls) == 2, resp
+
+
+def test_a_bare_path_on_the_share_not_there_yet_is_refused(case, tools):  # noqa: F811
+    """No tool's positional destination is exempt: winpmem's was, as an
+    acquisition."""
+    dest = case / "evidence" / "new-memory.raw"
+    calls: list = []
+    resp = _run(tools, "winpmem", calls=calls, command=["winpmem", str(dest)])
+    assert resp["success"] is False and calls == []
+    assert f"Can't see {dest} over the share" in resp["error"]
 
 
 def test_a_missing_path_off_the_share_is_not_checked(case, tools, tmp_path):  # noqa: F811

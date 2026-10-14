@@ -77,15 +77,7 @@ def test_a_bad_argument_run_completed_with_its_output_and_no_label(case, stand_i
     assert "exit_code_meaning" not in r["metadata"], r["metadata"]
 
 
-def test_procdumps_dump_count_exit_is_a_completed_run(case, stand_in):  # noqa: F811
-    stand_in.update(
-        code=1, out="[22:10:02] Dump 1 complete: 5 MB written in 0.4 seconds\n"
-    )
-    r = _run("procdump", "-ma", "4242")
-    assert r["success"] is True and r["metadata"]["exit_code"] == 1, r
-
-
-@pytest.mark.parametrize("tool, code", [("hollows_hunter", 2), ("sigcheck", 1)])
+@pytest.mark.parametrize("tool, code", [("strings", 2), ("sigcheck", 1)])
 def test_no_exit_code_is_labelled_even_with_knowledge_hints(
     case,  # noqa: F811
     stand_in,
@@ -122,6 +114,6 @@ def test_a_negative_exit_code_is_recorded_as_the_tool_set_it(case, monkeypatch):
     monkeypatch.setattr(executor.subprocess, "Popen", Windows)
     monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
     monkeypatch.setattr(generic, "eula_accepted", lambda key: True, raising=False)
-    r = _run("procdump", "-ma", "99999")
+    r = _run("strings", "C:\\x")
     assert r["metadata"]["exit_code"] == -2, r["metadata"]
     assert r["success"] is True  # it ran; its own output says what happened

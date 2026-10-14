@@ -2,7 +2,7 @@ category: sysinternals
 tools:
   - name: autorunsc
     binary: autorunsc.exe
-    description: "List autostart entries (registry, services, scheduled tasks, etc.)"
+    description: "List the autostart entries (registry, services, scheduled tasks, etc.) of a Windows system in the case: -z <systemroot> <userprofile> is required"
     input_style: flag
     output_format: text
     timeout_seconds: 300
@@ -61,51 +61,9 @@ tools:
       - "strings.exe (32-bit version)"
       - "bstrings.exe (Zimmerman tool with regex support)"
 
-  - name: handle
-    binary: handle64.exe
-    description: "List open file handles by process"
-    input_style: positional
-    output_format: text
-    timeout_seconds: 120
-    fk_tool_name: handle
-    eula_key: Handle
-    help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
-    install_methods:
-      - method: direct
-        url: "https://learn.microsoft.com/en-us/sysinternals/downloads/handle"
-        notes: "Download from Sysinternals suite"
-      - method: chocolatey
-        command: "choco install sysinternals"
-    install_paths:
-      - "C:\\Tools\\SysinternalsSuite"
-      - "C:\\SysinternalsSuite"
-    alternatives:
-      - "handle.exe (32-bit version)"
-
-  - name: procdump
-    binary: procdump64.exe
-    description: "Dump process memory for analysis"
-    input_style: positional
-    output_format: text
-    timeout_seconds: 300
-    fk_tool_name: procdump
-    eula_key: ProcDump
-    help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
-    install_methods:
-      - method: direct
-        url: "https://learn.microsoft.com/en-us/sysinternals/downloads/procdump"
-        notes: "Download from Sysinternals suite"
-      - method: chocolatey
-        command: "choco install sysinternals"
-    install_paths:
-      - "C:\\Tools\\SysinternalsSuite"
-      - "C:\\SysinternalsSuite"
-    alternatives:
-      - "procdump.exe (32-bit version)"
-
   - name: sigcheck
     binary: sigcheck.exe
-    description: "Verify digital signatures and check VirusTotal for files"
+    description: "Verify the digital signatures of files in the case (VirusTotal and the host's own certificate stores are refused)"
     input_style: positional
     output_format: text
     timeout_seconds: 300

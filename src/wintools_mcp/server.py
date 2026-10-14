@@ -60,18 +60,6 @@ Forensic methodology available via forensic-mcp resources.\
 """
 
 
-OUTSIDE_CASE = (
-    "outside the case: not hashed, not registrable until copied into the case"
-)
-
-
-def _drive_root(token: str) -> str | None:
-    """A bare drive letter, as KAPE's --tsource takes it (C or C:), as that
-    drive's root (C:\\); None for anything else."""
-    letter = token[:-1] if token.endswith(":") else token
-    return f"{letter.upper()}:\\" if len(letter) == 1 and letter.isalpha() else None
-
-
 def _real(path: str) -> str:
     """`path` resolved, or as given when it can't be: over SMB Windows can
     fail with an error a non-strict resolve doesn't swallow (WinError 59)."""
@@ -141,16 +129,6 @@ def _utf8(value):
     if isinstance(value, list):
         return [_utf8(v) for v in value]
     return value
-
-
-def _inside(path: str, case_dir: str) -> bool:
-    import os
-
-    root = os.path.realpath(case_dir)
-    try:
-        return os.path.commonpath([os.path.realpath(path), root]) == root
-    except ValueError:  # another drive
-        return False
 
 
 def run_limiter(limiter: list) -> anyio.CapacityLimiter:
@@ -383,17 +361,23 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
     # --- KAPE Discovery ---
     @tool
-    def list_kape_targets(list_type: str = "targets") -> dict:
-        """List available KAPE targets or modules in structured categories.
+    def list_kape_targets(list_type: str = "modules") -> dict:
+        """List the KAPE modules installed, in structured categories.
 
-        KAPE is for PARSING already-collected evidence in the case directory,
-        NOT for live collection from target systems.
+        wintools runs KAPE modules over files already collected into the
+        case. Targets (collection from a drive) aren't run, so aren't listed.
 
         Args:
-            list_type: "targets" or "modules" (default: targets)
+            list_type: "modules" (the only listing)
         """
         import shutil
         import subprocess
+
+        if list_type != "modules":
+            return {
+                "error": "Only KAPE modules are listed: wintools runs modules over "
+                "files already in the case, and doesn't run targets (collection)"
+            }
 
         kape_path = shutil.which("kape") or shutil.which("kape.exe")
         if not kape_path:
@@ -401,7 +385,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 "error": "KAPE not installed. Download from https://www.kroll.com/kape"
             }
 
-        flag = "--tlist" if list_type == "targets" else "--mlist"
+        flag = "--mlist"
         try:
             result = subprocess.run(
                 [kape_path, flag],
@@ -432,7 +416,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             "type": list_type,
             "categories": summary,
             "total": sum(summary.values()),
-            "note": "KAPE parses evidence already in the case directory. NOT for live collection.",
+            "note": "KAPE modules run over files already in the case. A module "
+            "that itself collects live data isn't refused: don't run one.",
             "drill_down": "Pass a category name to see individual entries (not yet implemented).",
         }
 
@@ -461,10 +446,18 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
         from wintools_mcp import operation
         from wintools_mcp.output import to_share_relative
+        from wintools_mcp.scope import refusal
         from wintools_mcp.security import validate_input_path
         from wintools_mcp.share_guard import ShareRefused, before_write
         from wintools_mcp.tools.generic import _make_dir, _new_folder
         from wintools_mcp.tools.generic import run_command as _run
+
+        # Another system's folder is never touched, and the tool is checked
+        # as each file's run will be
+        cfg = get_config()
+        why = refusal([tool, directory], cfg.case_dir, cfg.share_root)
+        if why:
+            return {"error": why}
 
         # Validate directory against blocked paths
         try:
@@ -519,7 +512,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         audit_id = jobs.RUN_ID.get() or audit._next_audit_id()  # a job's: its run id
         # A row and an input for every file the tool was started on, an
         # error included; each input hashed just before its own run
-        cfg = get_config()
         results = []
         inputs = []
         errors = list(unread)
@@ -750,11 +742,31 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             else None
         )
 
-        # Inputs: the server's own reading of the command. One the caller
-        # lists that the reading didn't find is recorded as declared.
         binary = Path(command[0]).name if command else ""
         td = get_tool_def(binary)
 
+        def refused(why: str, suggestions: list[str]) -> dict:
+            """Nothing runs: the refusal is recorded, and answered loudly."""
+            audit.log(
+                tool="run_windows_command",
+                params={"command": command, "purpose": purpose},
+                result_summary={"error": why},
+                audit_id=audit_id,
+                elapsed_ms=(time.monotonic() - start) * 1000,
+            )
+            return _utf8({"success": False, "error": why, "suggestions": suggestions})
+
+        # Before any path is looked at: another system's is never touched
+        from wintools_mcp.scope import refusal
+
+        why = refusal(
+            command or [""], cfg.case_dir, cfg.share_root, op_dir, input_files
+        )
+        if why:
+            return refused(why, [])
+
+        # Inputs: the server's own reading of the command. One the caller
+        # lists that the reading didn't find is recorded as declared.
         def where(path: str) -> str:
             """A path as the tool reads it: a relative one from its op folder."""
             if op_dir and not Path(path).is_absolute():
@@ -766,12 +778,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         if td and td.input_flag and td.input_flag in command:
             idx = command.index(td.input_flag)
             if idx + 1 < len(command):
-                value = where(command[idx + 1])
-                # a bare drive letter is that drive for kape's --tsource only,
-                # unless it names a file in the run's folder
-                tsource = td.input_flag.lower() == "--tsource"
-                drive = _drive_root(command[idx + 1]) if tsource else None
-                parsed = [drive if drive and not Path(value).exists() else value]
+                parsed = [where(command[idx + 1])]
                 detection_method = "catalog"
         if not parsed:
             parsed = [
@@ -786,19 +793,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         found = {_real(p) for p in parsed}
         declared = [where(p) for p in input_files or [] if _real(where(p)) not in found]
 
-        def refused(why: str, suggestions: list[str]) -> dict:
-            """Nothing runs: the refusal is recorded, and answered loudly."""
-            audit.log(
-                tool="run_windows_command",
-                params={"command": command, "purpose": purpose},
-                result_summary={"error": why},
-                audit_id=audit_id,
-                elapsed_ms=(time.monotonic() - start) * 1000,
-            )
-            return _utf8({"success": False, "error": why, "suggestions": suggestions})
-
-        # What the command writes: an output flag's value, and an acquisition's
-        # destination (it may be a bare path). Not there yet, and never refused
+        # What the command writes: an output flag's value. Not there yet, and
+        # never refused
         out_flags = set(OUTPUT_FLAGS)
         if td and td.output_flag:
             out_flags.add(td.output_flag.lower())
@@ -807,8 +803,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             for i in range(1, len(command) - 1)
             if command[i].lower() in out_flags
         }
-        if td and td.acquisition:
-            writes.update(a for a in command[1:] if not a.startswith("-"))
 
         # A path on the share the command names that the share doesn't show,
         # and so no input was found for, is never run on: the tool would find
@@ -877,14 +871,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             for i in range(1, len(command) - 1)
             if command[i].lower() in out_flags and Path(command[i + 1]).is_absolute()
         }
-        if td and td.acquisition:  # its destination may be a bare absolute path
-            for arg in command[1:]:
-                if (
-                    not arg.startswith("-")
-                    and Path(arg).is_absolute()
-                    and arg not in watched
-                ):
-                    watched[arg] = operation.listing(arg)
 
         try:
             exec_result = _run(
@@ -913,11 +899,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     except OSError as e:
                         outputs.append({"path": target, "error": e.strerror or str(e)})
                 for fpath in sorted(set(paths)):
-                    if td and td.acquisition and not _inside(fpath, cfg.case_dir):
-                        outputs.append({"path": fpath, "outside_case": True,
-                                        "note": OUTSIDE_CASE})  # fmt: skip
-                    else:
-                        outputs.append(path_record(fpath, ""))
+                    outputs.append(path_record(fpath, ""))
             tool_path = exec_result.get("tool_path")
             try:
                 settings = operation.settings_record(
@@ -1003,9 +985,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             if op_dir:
                 extra["op_folder"] = response["op_folder"]
                 extra["outputs"] = outputs
-            if td and td.acquisition:
-                extra["acquisition"] = True
-                extra["acquisition_tool"] = td.name
             logged = audit.log(
                 tool="run_windows_command",
                 params={"command": effective, "purpose": purpose},

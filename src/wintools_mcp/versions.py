@@ -224,13 +224,10 @@ def tool_help(path: str | None, td) -> dict:
     it printed, stdout then stderr under STDERR_LABEL, with its exit code.
     Nothing here judges whether it is help (an "invalid option" with exit 1
     is shown as printed). The next argv is tried only when the tool printed
-    nothing at all. Run on every call, outside any case. Never for an
-    acquisition tool or a script; a EULA screen in place of the help is
-    said, never accepted."""
+    nothing at all. Run on every call, outside any case. Never for a
+    script; a EULA screen in place of the help is said, never accepted."""
     if not path:
         return {}
-    if td.acquisition:
-        return {"help_not_run": "An acquisition tool isn't run to read its help."}
     if td.exec_type == "script":
         return {"help_not_run": "A script isn't run to read its help."}
     from wintools_mcp.tools.generic import eula_screen

@@ -52,7 +52,7 @@ def _run(tool, *args):
     return json.loads(pydantic_core.to_json(fn(command=[tool, *args], purpose="limit")))
 
 
-@pytest.mark.parametrize("tool", ["sigcheck", "procdump"])
+@pytest.mark.parametrize("tool", ["sigcheck", "strings"])
 def test_a_run_stopped_at_the_output_limit_is_no_success(case, monkeypatch, tool):  # noqa: F811
     """Its exit 1 is the stop's: never "unsigned files found"."""
     _as_windows_runs(monkeypatch, SPILL)
@@ -99,7 +99,7 @@ def test_a_run_stopped_at_its_deadline_says_so(case, monkeypatch):  # noqa: F811
     monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
     monkeypatch.setattr(generic, "eula_accepted", lambda key: True, raising=False)
     monkeypatch.setattr(generic, "execute", timed_out)
-    r = _run("procdump", "-ma", "4242")
+    r = _run("strings", "C:\\x")
     assert r["success"] is False and r["stopped"] == "timeout", r
     (entry,) = [e for e in _entries(case) if e["tool"] == "run_windows_command"]
     assert entry["result_summary"]["stopped"] == "timeout"

@@ -3,8 +3,8 @@
 A tool installed after setup is found once the not-found window has passed
 (NOT_FOUND_SECONDS; a search of the tool folders costs about 0.25 s a list
 call on a real box), or at once by scan_tools, which looks afresh, so a tool
-removed since is seen as gone too. A script tool is available only when its script and
-its interpreter are both there. Real lookups over a temporary tools folder.
+removed since is seen as gone too. A Perl script tool is available only when its
+script and perl.exe are both there. Real lookups over a temporary tools folder.
 """
 
 from __future__ import annotations
@@ -26,13 +26,6 @@ tools:
     binary: densityscout.exe
     description: "entropy"
     output_format: text
-  - name: Get-InjectedThreadEx
-    binary: powershell.exe
-    description: "injected threads"
-    exec_type: script
-    output_format: text
-    install_paths:
-      - "{scripts}"
   - name: mactime
     binary: mactime.pl
     description: "bodyfile timeline"
@@ -45,7 +38,7 @@ tools:
 
 @pytest.fixture
 def box(tmp_path, monkeypatch):
-    """A catalog of an executable and two scripts, and empty tool folders."""
+    """A catalog of an executable and a script, and empty tool folders."""
     tools, scripts, perl, cat = (
         tmp_path / n for n in ("tools", "scripts", "perl", "cat")
     )
@@ -95,25 +88,6 @@ def test_a_scan_looks_afresh_for_a_tool_removed_since(box, tmp_path, monkeypatch
     exe.unlink()
     names = [t["name"] for t in scan_tools()["missing_tools"]]
     assert "densityscout" in names
-
-
-def test_a_powershell_script_is_available_only_with_its_script(box):
-    tools, scripts, _, clock = box
-    (scripts / "Get-InjectedThreadEx.ps1").write_text("function Get-InjectedThread {}")
-    # the script with no PowerShell to run it isn't the tool
-    assert _available("Get-InjectedThreadEx") is False
-    (scripts / "Get-InjectedThreadEx.ps1").unlink()
-    (tools / "powershell.exe").write_bytes(b"MZ")
-    clock[0] += WINDOW
-    # nor is PowerShell alone
-    assert _available("Get-InjectedThreadEx") is False
-    (scripts / "Get-InjectedThreadEx.ps1").write_text("function Get-InjectedThread {}")
-    tool = next(
-        t for t in list_available_tools() if t["name"] == "Get-InjectedThreadEx"
-    )
-    assert tool["available"] is True and tool["path"].endswith(
-        "Get-InjectedThreadEx.ps1"
-    )
 
 
 def test_a_perl_script_is_available_only_with_perl(box):

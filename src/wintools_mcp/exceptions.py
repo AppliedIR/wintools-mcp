@@ -19,3 +19,7 @@ class ExecutionTimeoutError(WintoolsError):
 
 class DenylistError(WintoolsError):
     pass
+
+
+class OutOfScopeError(WintoolsError):
+    """The command would reach another system, or a tool's live mode."""

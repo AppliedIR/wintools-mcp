@@ -26,6 +26,7 @@ import os
 import pydantic_core
 import pytest
 from test_batch_scan import HEADER, _files, _rows, case  # noqa: F401 - fixtures
+from test_csv_switch import _offline_system
 
 from wintools_mcp import server as srv
 
@@ -127,7 +128,9 @@ def test_an_eula_screen_in_a_batch_is_an_error_not_a_result(case, tools, tool): 
 def test_each_captured_screen_is_the_named_failure(case, tools, tool):  # noqa: F811
     tools["said"], tools["code"] = SCREENS[tool], 1
     target = _files(case / "evidence" / f"cap-{tool}", ["a.exe"]) / "a.exe"
-    args = ["-a", "*"] if tool == "autorunsc" else [str(target)]
+    args = [str(target)]
+    if tool == "autorunsc":
+        args = ["-a", "*", "-z", *_offline_system(case).values()]
     r = _sent(_tool("run_windows_command")(command=[tool, *args], purpose="check"))
     assert r["success"] is False and NAMED in r["error"], r
     assert "exit_code_meaning" not in r["metadata"]

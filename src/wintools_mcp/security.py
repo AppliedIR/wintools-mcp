@@ -8,8 +8,7 @@ from pathlib import Path
 from wintools_mcp.catalog import is_in_catalog
 
 # Flags that could be abused for code execution.
-# NOTE: -e is NOT here — it means "execute" for PowerShell but "scan
-# executables only" for sigcheck. Per-tool blocking handles it below.
+# NOTE: -e is NOT here: it means "scan executables only" for sigcheck.
 _DANGEROUS_FLAGS = {
     "--exec",
     "--command",
@@ -20,12 +19,6 @@ _DANGEROUS_FLAGS = {
 }
 
 _DANGEROUS_PATTERNS = [";", "&&", "||", "`", "$(", "${"]
-
-# Per-tool blocked flags: flags that are dangerous for specific tools.
-# Keys must match binary_name as returned by Path(command[0]).name.
-_TOOL_BLOCKED_FLAGS: dict[str, set[str]] = {
-    "powershell.exe": {"-command", "-c", "-e", "-encodedcommand", "-enc"},
-}
 
 # Protect Valhuntir config directory (tokens, credentials) from being read as
 # input to forensic tools. System directories are NOT blocked — the catalog
@@ -38,14 +31,12 @@ _BLOCKED_DIRECTORIES = (os.path.join(os.path.expanduser("~"), ".vhir"),)
 def sanitize_extra_args(extra_args: list[str], tool_name: str = "") -> list[str]:
     """Validate extra_args to block dangerous flags and shell metacharacters.
 
-    Checks each argument against a global dangerous flag list, per-tool blocked
-    flags, and shell metacharacter patterns. Raises ValueError if any dangerous
+    Checks each argument against a global dangerous flag list and shell
+    metacharacter patterns. Raises ValueError if any dangerous
     input is detected.
     """
     if not extra_args:
         return []
-
-    tool_blocked = _TOOL_BLOCKED_FLAGS.get(tool_name, set())
 
     sanitized = []
     for arg in extra_args:
@@ -55,8 +46,6 @@ def sanitize_extra_args(extra_args: list[str], tool_name: str = "") -> list[str]
             )
         # Split on both = and : to catch Windows-style flags (/out:path)
         flag = arg.lower().split("=")[0].split(":")[0]
-        if flag in tool_blocked:
-            raise ValueError(f"Blocked dangerous flag '{arg}' for {tool_name}")
         if flag in _DANGEROUS_FLAGS:
             raise ValueError(
                 f"Blocked dangerous flag '{arg}' in extra_args for {tool_name}"

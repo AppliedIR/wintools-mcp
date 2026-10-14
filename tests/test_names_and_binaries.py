@@ -49,15 +49,10 @@ def _call(tmp_path, command, write=None):
 
 @pytest.mark.parametrize(
     "name, binary",
-    [
-        ("strings", "strings64.exe"),
-        ("procdump", "procdump64.exe"),
-        ("handle", "handle64.exe"),
-        ("moneta", "moneta64.exe"),
-    ],
+    [("strings", "strings64.exe")],
 )
 def test_a_catalog_name_runs_as_its_binary(case, tmp_path, name, binary):  # noqa: F811
-    args = ["--pid", "1234"] if name == "moneta" else ["-accepteula", "-nobanner"]
+    args = ["-accepteula", "-nobanner"]
     resp, asked, ran = _call(tmp_path, [name, *args])
     assert resp["success"] is True, resp
     assert asked == [binary] and ran[0][1:] == args
@@ -88,9 +83,7 @@ def test_the_catalog_resolves_a_name_or_a_binary_in_any_folder():
     assert get_tool_def("powershell.exe") is None  # a script's interpreter is no tool
 
 
-def test_a_script_named_by_its_catalog_name_is_never_run_as_its_interpreter(
-    case,  # noqa: F811
-    tmp_path,
-):
-    resp, _, _ = _call(tmp_path, ["Get-InjectedThreadEx", "-Aggressive"])
-    assert "Arbitrary PowerShell" not in str(resp)
+def test_a_former_script_tool_is_not_in_the_catalog(case, tmp_path):  # noqa: F811
+    resp, asked, ran = _call(tmp_path, ["Get-InjectedThreadEx", "-Aggressive"])
+    assert resp["success"] is False and asked == [] and ran == [], resp
+    assert "not in the approved tool catalog" in str(resp), resp

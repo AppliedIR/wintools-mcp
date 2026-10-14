@@ -50,35 +50,31 @@ def test_chainsaw_names_only_the_options_v2_has(case, tmp_path):  # noqa: F811
     assert resp["success"] is True and ran[0][1:] == args
 
 
-def test_winpmem_takes_its_image_path_as_an_argument(case, tmp_path):  # noqa: F811
-    """WinPmem 2.0.1 help: "winpmem.exe [option] [output path]"; no -o."""
-    dest = str(case / "evidence" / "mem.raw")
-    resp, _, ran = _call(tmp_path, ["winpmem.exe", dest])
-    assert resp["success"] is True and ran[0][1:] == [dest]
+def test_winpmem_takes_its_output_path_as_an_argument(case, tmp_path):  # noqa: F811
+    """WinPmem 2.0.1 help (tests/fixtures/tool_help/winpmem): "winpmem.exe
+    [option] [output path]"; no -o. A relative name is the run's folder."""
+    resp, _, ran = _call(tmp_path, ["winpmem.exe", "mem.raw"])
+    assert resp["success"] is True and ran[0][1:] == ["mem.raw"], resp
 
 
-def test_moneta_names_its_required_m_and_p(case, tmp_path):  # noqa: F811
-    """Moneta v1.0 help: "REQUIRED -m {*|region|referenced|ioc} -p {*|PID}";
-    no -a; "--option {from-base|statistics}"."""
-    resp, _, ran = _call(tmp_path, ["moneta64.exe", "-m", "ioc", "-p", "1234"])
-    assert resp["success"] is True and ran[0][1:] == ["-m", "ioc", "-p", "1234"]
-
-
-def test_autorunsc_and_hollows_hunter_find_their_knowledge():
-    """The forensic-knowledge names their caveats are found by: autorunsc,
-    HollowsHunter."""
+def test_autorunsc_finds_its_knowledge():
+    """The forensic-knowledge name its caveats are found by: autorunsc."""
     assert get_tool_def("autorunsc").knowledge_name == "autorunsc"
-    assert get_tool_def("hollows_hunter").knowledge_name == "HollowsHunter"
 
 
-def test_kape_reads_a_bare_drive_letter_as_that_drive(case, tmp_path, monkeypatch):  # noqa: F811
-    """KAPE help: "tsource  Target source drive to copy files from (C, D:, or F:\\
-    for example)". Here a folder named C:\\ in the working folder stands in for
-    the drive."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "C:\\").mkdir()
-    args = ["--tsource", "C", "--target", "KapeTriage", "--tdest", str(case / "out")]
+def test_kape_reads_the_folder_its_msource_names(case, tmp_path):  # noqa: F811
+    """KAPE 1.3.0.2 help: "msource  Directory containing files to process"."""
+    collected = case / "evidence" / "collected"
+    collected.mkdir()
+    args = [
+        "--msource",
+        str(collected),
+        "--module",
+        "PECmd",
+        "--mdest",
+        str(case / "out"),
+    ]
     resp, _, ran = _call(tmp_path, ["kape.exe", *args])
     assert resp["success"] is True and ran[0][1:] == args, resp
     entry = _entries(case)[-1]
-    assert [i["path"] for i in entry["inputs"]] == [str((tmp_path / "C:\\").resolve())]
+    assert [i["path"] for i in entry["inputs"]] == [str(collected.resolve())]

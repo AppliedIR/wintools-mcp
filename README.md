@@ -80,7 +80,16 @@ graph TB
     S -->|"clean"| E["EXECUTE<br/>subprocess.run(shell=False)"]
 ```
 
-All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML catalog files can run. Dangerous binaries (cmd, powershell, wscript, etc.) are unconditionally blocked by a hardcoded denylist. Arguments are checked for shell metacharacters, dangerous flags (execution-related: `-e`, `--exec`, `--command`, `-enc`), and response-file syntax (`@filename`).
+All execution uses `subprocess.run(shell=False)`. Only tools defined in YAML catalog files can run. Dangerous binaries (cmd, powershell, wscript, etc.) are unconditionally blocked by a hardcoded denylist. Arguments are checked for shell metacharacters, dangerous flags (execution-related: `--exec`, `--command`, `-enc`), and response-file syntax (`@filename`).
+
+### What wintools won't run
+
+wintools runs tools on data already in the case. It doesn't collect: a command is refused, before any path in it is touched, when it
+
+- names another system: a `\\host\...` path (also `//host/...`, `\\?\UNC\host\...` and `\??\UNC\host\...`) whose host isn't the case share's host, or a device (`\\.\...`, a volume path);
+- puts a tool in its own live mode on the Windows host: sigcheck `-v`, `-o`, `-t`; autorunsc `-v`, or without `-z <systemroot> <userprofile>` inside the case; Hayabusa `--live-analysis`/`-l` and `update-rules`; EvtxECmd, SQLECmd and RECmd `--sync`; SBECmd `-l`; AppCompatCacheParser without `-f <SYSTEM hive>`; yara with a process id as its target; KAPE target mode (`--tsource`, `--target`, `--tdest`), `--sync`, `--rlc` and the upload switches (`--sc*`, `--s3*`, `--as*`, `--sftp*`).
+
+Not checked: a KAPE module that itself collects live data, a `_kape.cli` file of saved KAPE commands, and a file a tool reads (a rules file).
 
 ## Quick Start
 
@@ -128,7 +137,7 @@ See [SETUP.md](SETUP.md) for detailed deployment options and SMB configuration.
 
 | Tool | Description |
 |------|-------------|
-| `list_kape_targets` | List available KAPE targets or modules in structured categories. KAPE is for parsing already-collected evidence, not live collection. |
+| `list_kape_targets` | List the installed KAPE modules in structured categories. wintools runs KAPE modules over files already in the case, not targets (collection). |
 
 ### Batch Execution (1 tool)
 
@@ -146,17 +155,16 @@ All per-tool wrappers (Zimmerman suite, Hayabusa, mactime) are consolidated into
 
 ## Tool Catalog
 
-Tools are defined in YAML catalog files under `data/catalog/`. The catalog currently contains **31 tool entries** across 7 files:
+Tools are defined in YAML catalog files under `data/catalog/`. The catalog currently contains **25 tool entries** across 6 files:
 
 | File | Count | Tools |
 |------|-------|-------|
 | `zimmerman.yaml` | 14 | AmcacheParser, AppCompatCacheParser, EvtxECmd, JLECmd, LECmd, MFTECmd, PECmd, RBCmd, RECmd, SBECmd, SQLECmd, SrumECmd, WxTCmd, bstrings |
-| `sysinternals.yaml` | 5 | autorunsc, sigcheck, strings, handle, procdump |
-| `memory.yaml` | 4 | winpmem, dumpit, moneta, hollows_hunter |
+| `sysinternals.yaml` | 3 | autorunsc, sigcheck, strings |
+| `memory.yaml` | 1 | winpmem |
 | `timeline.yaml` | 3 | Hayabusa, chainsaw, mactime |
 | `analysis.yaml` | 3 | capa, yara, densityscout |
 | `collection.yaml` | 1 | KAPE |
-| `scripts.yaml` | 1 | Get-InjectedThreadEx |
 
 Each entry defines the binary name, input style, output format, timeout, FK knowledge name, install methods, and search paths:
 

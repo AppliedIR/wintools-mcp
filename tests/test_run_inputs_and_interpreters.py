@@ -1,11 +1,10 @@
 """A run's input is what its command names, and a script tool is available
 wherever its interpreter would be found for the run.
 
-- Only KAPE's --tsource reads a bare drive letter as that drive. Another
-  tool's input flag given "C" names a file C in the run's folder, so a run
-  whose file is missing is refused naming that file, never the drive root.
-- A PowerShell script tool is available when powershell.exe is only in the
-  configured tool paths: the run finds it there, and so does the check.
+- An input flag given "C" names a file C in the run's folder, so a run whose
+  file is missing is refused naming that file, never the drive root. KAPE's
+  --tsource, which read "C" as the drive, is refused as collection.
+- A Perl script tool is available where perl.exe would be found for the run.
 """
 
 from __future__ import annotations
@@ -32,10 +31,11 @@ def test_another_tools_input_flag_names_a_file_not_a_drive(case, tmp_path):  # n
     )  # its op folder's C
 
 
-def test_kape_still_reads_a_bare_drive_letter_as_the_drive(case, tmp_path):  # noqa: F811
+def test_kape_target_mode_on_a_drive_is_refused(case, tmp_path):  # noqa: F811
     args = ["--tsource", "C", "--target", "KapeTriage", "--tdest", str(case / "out")]
     resp, _, ran = _call(tmp_path, ["kape.exe", *args])
-    assert resp["success"] is False and ran == [] and "C:\\" in resp["error"]
+    assert resp["success"] is False and ran == [], resp
+    assert "target mode collects from a drive" in resp["error"]
 
 
 @pytest.fixture
@@ -67,19 +67,6 @@ def interpreters(tmp_path, monkeypatch):
 def _script(kind: str):
     return next(t for t in catalog.load_catalog().values() if t.exec_type == "script"
                 and t.binary.lower().endswith(".pl") == (kind == "perl"))  # fmt: skip
-
-
-def test_a_powershell_script_is_available_with_powershell_only_in_tool_paths(
-    interpreters, tmp_path, monkeypatch
-):
-    exe, configure = interpreters
-    td = _script("powershell")
-    scripts = tmp_path / "scripts"
-    scripts.mkdir()
-    (scripts / f"{td.name}.ps1").write_text("# ps1\n")
-    monkeypatch.setattr(td, "install_paths", [str(scripts)])
-    configure([exe(tmp_path / "tools", "powershell.exe")])
-    assert environment.tool_path(td) == str(scripts / f"{td.name}.ps1")
 
 
 def test_a_perl_scripts_availability_is_as_before(interpreters, tmp_path, monkeypatch):

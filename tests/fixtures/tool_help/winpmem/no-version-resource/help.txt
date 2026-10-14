@@ -1,0 +1,25 @@
+# winpmem -h (no VERSIONINFO; its help names 2.0.1) (FOR508-Win, WinPmem 2.0.1; test-bf 2026-10-14, 065-items/wintools-help-fixtures)
+WinPmem64
+Winpmem - A memory imager for windows.
+Copyright Michael Cohen (scudette@gmail.com) 2012-2014.
+
+Version 2.0.1 Oct 13 2020
+Usage:
+  C:\Forensic_Program_Files\WinPmem\winpmem.exe [option] [output path]
+
+Option:
+  -l    Load the driver and exit.
+  -u    Unload the driver and exit.
+  -d [filename]
+        Extract driver to this file (Default use random name).
+  -h    Display this help.
+  -w    Turn on write mode.
+  -0    Use MmMapIoSpace method.
+  -1    Use \\Device\PhysicalMemory method (Default for 32bit OS).
+  -2    Use PTE remapping (AMD64 only - Default for 64bit OS).
+
+NOTE: an output filename of - will write the image to STDOUT.
+
+Examples:
+C:\Forensic_Program_Files\WinPmem\winpmem.exe physmem.raw
+Writes an image to physmem.raw

@@ -62,23 +62,6 @@ BLOCKED_BINARIES = frozenset(
     }
 )
 
-PS_SCRIPT_EXCEPTIONS = frozenset(
-    {
-        "get-injectedthreadex.ps1",
-    }
-)
-
-_PS_BANNED_FLAGS = frozenset(
-    {
-        "-command",
-        "-c",
-        "-encodedcommand",
-        "-e",
-        "-enc",
-        "-invoke-expression",
-    }
-)
-
 
 def _find_catalog_dir() -> Path:
     global _CATALOG_DIR
@@ -137,8 +120,6 @@ class ToolDefinition:
     # Settings the tool reads beside its binary (folders, relative to it):
     # their hashes are recorded with each run
     settings_paths: list[str] = field(default_factory=list)
-    # Its outputs are acquired evidence (a memory or disk image)
-    acquisition: bool = False
     # A Sysinternals tool's key under HKCU\Software\Sysinternals: its
     # EulaAccepted value says whether the account running wintools has
     # accepted the tool's EULA. Not accepted, the run passes -accepteula and
@@ -253,7 +234,6 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 install_paths=tool_entry.get("install_paths", []),
                 alternatives=tool_entry.get("alternatives", []),
                 settings_paths=list(tool_entry.get("settings_paths", [])),
-                acquisition=bool(tool_entry.get("acquisition", False)),
                 eula_key=str(tool_entry.get("eula_key", "")),
             )
             _catalog_cache[name.lower()] = td
@@ -315,10 +295,7 @@ def validate_command(cmd: list[str]) -> str | None:
 
     binary = Path(cmd[0]).name.lower()
 
-    # Check if this is a controlled PS script exception
     if binary in ("powershell.exe", "pwsh.exe"):
-        if _is_valid_ps_exception(cmd):
-            return None
         return "Arbitrary PowerShell execution is blocked"
 
     # Check denylist (hardcoded)
@@ -330,37 +307,6 @@ def validate_command(cmd: list[str]) -> str | None:
         return f"Binary '{binary}' is not in the approved tool catalog"
 
     return None
-
-
-def _is_valid_ps_exception(cmd: list[str]) -> bool:
-    """Validate a PowerShell command matches the controlled exception pattern."""
-    flags = [f.lower() for f in cmd[1:]]
-
-    for flag in flags:
-        if flag in _PS_BANNED_FLAGS:
-            return False
-
-    if "-noprofile" not in flags:
-        return False
-
-    try:
-        ep_idx = next(i for i, f in enumerate(flags) if f == "-executionpolicy")
-        if flags[ep_idx + 1] != "bypass":
-            return False
-    except (StopIteration, IndexError):
-        return False
-
-    try:
-        file_idx = next(i for i, f in enumerate(flags) if f == "-file")
-        script_path = cmd[file_idx + 2]  # +2 because flags is offset by 1 from cmd
-        # Handle both / and \ separators (cross-platform)
-        script_name = script_path.replace("\\", "/").split("/")[-1].lower()
-        if script_name not in PS_SCRIPT_EXCEPTIONS:
-            return False
-    except (StopIteration, IndexError):
-        return False
-
-    return True
 
 
 def clear_catalog_cache() -> None:

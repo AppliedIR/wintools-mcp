@@ -17,13 +17,21 @@ def more_tools(tools, tmp_path):  # noqa: F811
     return {**tools, "autorunsc": str(autorunsc)}
 
 
+def _offline_system(case):  # noqa: F811
+    """autorunsc -z's folders: a Windows system's in the case."""
+    win, user = case / "evidence" / "Windows", case / "evidence" / "Users" / "u"
+    user.mkdir(parents=True, exist_ok=True)
+    win.mkdir(exist_ok=True)
+    return {"WIN": str(win), "USER": str(user)}
+
+
 @pytest.mark.parametrize(
     "tool, args",
     [
         ("sigcheck", ["-h", "-nobanner", "FILE"]),
         ("sigcheck", ["-accepteula", "-nobanner", "-h", "-c", "FILE"]),
-        ("autorunsc", ["-accepteula", "-c", "-h", "-s"]),
-        ("autorunsc", ["-accepteula", "-h", "-s"]),
+        ("autorunsc", ["-accepteula", "-c", "-h", "-s", "-z", "WIN", "USER"]),
+        ("autorunsc", ["-accepteula", "-h", "-s", "-z", "WIN", "USER"]),
     ],
 )
 def test_nothing_is_appended_to_the_command(case, more_tools, tool, args, monkeypatch):  # noqa: F811
@@ -32,7 +40,8 @@ def test_nothing_is_appended_to_the_command(case, more_tools, tool, args, monkey
 
     monkeypatch.setattr(generic, "eula_accepted", lambda key: True)
     ev = str(_evtx(case))
-    args = [ev if a == "FILE" else a for a in args]
+    system = {"FILE": ev, **_offline_system(case)}
+    args = [system.get(a, a) for a in args]
     calls: list = []
     resp = _run(more_tools, tool, calls=calls, command=[tool, *args])
     assert resp["success"] is True, resp

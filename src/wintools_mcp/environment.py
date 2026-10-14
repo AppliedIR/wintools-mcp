@@ -34,8 +34,6 @@ DEFAULT_TOOL_PATHS = [
     Path("C:\\Tools\\Volatility3"),
     Path("C:\\Tools\\KAPE"),
     Path("C:\\Tools\\MemProcFS"),
-    Path("C:\\Tools\\Moneta"),
-    Path("C:\\Tools\\HollowsHunter"),
     Path("C:\\Tools\\CAPA"),
     Path("C:\\Tools\\SysinternalsSuite"),
     Path("C:\\Tools\\Chainsaw"),
@@ -287,20 +285,12 @@ def get_environment_info() -> dict:
 
 def tool_path(td) -> str | None:
     """Where a cataloged tool runs from, or None when it can't run here. An
-    executable is its binary, found. A script is there only when its file and
-    its interpreter both are: a PowerShell script is `<name>.ps1` in its
-    install paths (where it's run from), with Windows PowerShell; a Perl
-    script is its binary, found, with perl.exe."""
+    executable is its binary, found. A Perl script is there only when its
+    file and its interpreter both are: its binary, found, with perl.exe."""
     if td.exec_type != "script":
         return find_tool(td.binary)
     extra = [Path(p) for p in td.install_paths or []]
     if td.binary.lower().endswith(".pl"):
         script = find_tool(td.binary)
         return script if script and find_binary("perl.exe", extra) else None
-    script = next(
-        (str(d / f"{td.name}.ps1") for d in extra if (d / f"{td.name}.ps1").is_file()),
-        None,
-    )
-    return (
-        script if script and find_tool("powershell.exe") else None
-    )  # as the run finds it
+    return None

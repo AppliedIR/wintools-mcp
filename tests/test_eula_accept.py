@@ -19,6 +19,7 @@ import types
 import pydantic_core
 import pytest
 from test_batch_scan import _entries, _files, case  # noqa: F401 - fixtures
+from test_csv_switch import _offline_system
 from test_eula_surrogate import EULA
 
 from wintools_mcp import catalog
@@ -28,8 +29,7 @@ from wintools_mcp.tools import generic
 ON_BEHALF = "was accepted on the examiner's behalf"
 FLAG = "-accepteula"
 # each tool's key under Software\\Sysinternals, by the binary run
-KEYS = {"autorunsc": "AutoRuns", "strings64": "Strings", "handle64": "Handle",
-        "procdump64": "ProcDump", "sigcheck": "sigcheck"}  # fmt: skip
+KEYS = {"autorunsc": "AutoRuns", "strings64": "Strings", "sigcheck": "sigcheck"}
 ACCOUNT = "nt authority\\system"  # whoami, as SYSTEM (measured on the guest)
 
 
@@ -138,12 +138,13 @@ def test_once_accepted_a_run_is_clean(case, box):  # noqa: F811
 
 @pytest.mark.parametrize(
     "tool, key",
-    [("autorunsc", "AutoRuns"), ("strings", "Strings"), ("handle", "Handle"),
-     ("procdump", "ProcDump"), ("sigcheck", "sigcheck")],
-)  # fmt: skip
+    [("autorunsc", "AutoRuns"), ("strings", "Strings"), ("sigcheck", "sigcheck")],
+)
 def test_an_accepted_tool_runs_unchanged_with_no_note(case, box, tool, key):  # noqa: F811
     box["accepted"][key] = True
-    args = ["-a", "*"] if tool == "autorunsc" else [_target(case)]
+    args = [_target(case)]
+    if tool == "autorunsc":
+        args = ["-a", "*", "-z", *_offline_system(case).values()]
     r, entry = _run(case, tool, *args)
     assert r["success"] is True, r
     ((argv),) = box["runs"]
@@ -227,7 +228,7 @@ def test_a_tool_without_an_eula_is_never_checked(case, box, monkeypatch):  # noq
 
 def test_every_sysinternals_tool_has_its_key_and_only_those():
     keyed = {td.name for td in catalog.load_catalog().values() if td.eula_key}
-    assert keyed == {"autorunsc", "strings", "handle", "procdump", "sigcheck"}
+    assert keyed == {"autorunsc", "strings", "sigcheck"}
 
 
 # --- the registry read, with a stand-in winreg -------------------------------

@@ -5,14 +5,14 @@ what the tool printed, stdout then stderr under "# --- stderr ---", with its
 exit code: nothing judges whether it is help. The next argv is asked only
 when the tool printed nothing at all. Hayabusa is asked its main help, which
 lists its subcommands on 3.x and 4.x. At most 8 KB is inline, and a cut help
-says how to read the rest. An acquisition tool and a script are never run
-for it, and a EULA screen in place of the help is said, never accepted. The
+says how to read the rest. A script is never run for it, and a EULA screen in place of the help is said, never accepted. The
 audit entry carries no help text. Tools are stand-ins; their output is
 synthetic, except:
 - fixtures/raw_output: Sysinternals output captured on a Windows 11 guest
   (UTF-16LE with a BOM; stderr UTF-8), read through the real probe;
 - fixtures/tool_help/autorunsc: autorunsc 14.3's -? on FOR508-Win (banner on
   stdout, usage on stderr);
+- fixtures/tool_help/winpmem: WinPmem 2.0.1's -h on FOR508-Win (exit -1);
 - fixtures/main_help: Hayabusa's `help` (exit 0, stdout only), 4.1.0 on
   FOR508-Win and 3.9.0 on SIFT.
 """
@@ -110,12 +110,22 @@ def test_a_long_help_is_cut_and_says_how_to_read_it(case, installed):  # noqa: F
     assert "run_windows_command" in r["help_cut"] and "--help" in r["help_cut"]
 
 
-@pytest.mark.parametrize("name", ["winpmem", "dumpit", "mactime"])
-def test_an_acquisition_tool_or_a_script_is_never_run_for_help(case, installed, name):  # noqa: F811
-    r = _help(name)
+def test_a_script_is_never_run_for_help(case, installed):  # noqa: F811
+    r = _help("mactime")
     assert (
         installed["asked"] == [] and "isn't run to read its help" in r["help_not_run"]
     )
+
+
+def test_winpmem_is_asked_only_its_help_switch(case, installed):  # noqa: F811
+    """With no argument WinPmem 2.0.1 writes an image: only -h is sent."""
+    fixture = FIXTURES / "tool_help" / "winpmem" / "no-version-resource" / "help.txt"
+    said = fixture.read_text().split("\n", 1)[1]  # past the fixture's header line
+    installed["said"]["-h"] = (-1, said, "")
+    r = _help("winpmem")
+    assert installed["asked"] == [["-h"]], installed["asked"]
+    assert r["help_argv"] == ["-h"] and r["help_exit_code"] == -1
+    assert r["help"].startswith("WinPmem64\nWinpmem - A memory imager for windows.")
 
 
 def test_a_eula_screen_is_said_and_never_accepted(case, installed):  # noqa: F811

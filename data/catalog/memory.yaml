@@ -2,8 +2,8 @@ category: memory
 tools:
   - name: winpmem
     binary: winpmem.exe
-    description: "Acquire physical memory dump for analysis"
-    acquisition: true
+    help_argv: [["-h"]]  # its help (tests/fixtures/tool_help/winpmem)
+    description: "WinPmem (help: tests/fixtures/tool_help/winpmem, 2.0.1). A relative output name is written in the run's folder and recorded"
     input_style: positional
     output_format: text
     timeout_seconds: 600
@@ -12,53 +12,6 @@ tools:
       - method: github
         url: "https://github.com/Velocidex/WinPmem/releases"
         notes: "Download latest release binary"
-    install_paths:
-      - "C:\\Tools\\Memory"
-      - "C:\\Tools"
-
-  - name: dumpit
-    binary: dumpit.exe
-    description: "One-click physical memory acquisition"
-    acquisition: true
-    input_style: positional
-    output_format: text
-    timeout_seconds: 600
-    fk_tool_name: dumpit
-    install_methods:
-      - method: direct
-        url: "https://www.magnetforensics.com/resources/magnet-dumpit-for-windows/"
-        notes: "Download from Magnet Forensics (requires registration)"
-    install_paths:
-      - "C:\\Tools\\Memory"
-      - "C:\\Tools"
-
-  - name: moneta
-    binary: moneta64.exe
-    description: "Detect malware through virtual memory analysis (injected threads, hollowed processes)"
-    input_style: flag
-    output_format: text
-    timeout_seconds: 300
-    fk_tool_name: moneta
-    install_methods:
-      - method: github
-        url: "https://github.com/forrest-orr/moneta/releases"
-        notes: "Download pre-built binary"
-    install_paths:
-      - "C:\\Tools\\Memory"
-      - "C:\\Tools"
-
-  - name: hollows_hunter
-    binary: hollows_hunter.exe
-    help_argv: [["/help"]]  # with no argument it scans every process
-    description: "Scan running processes for hollowed/injected code using PE-sieve (/pid or /pname: one per call, ';' lists are blocked)"
-    input_style: flag
-    output_format: text
-    timeout_seconds: 300
-    fk_tool_name: HollowsHunter
-    install_methods:
-      - method: github
-        url: "https://github.com/hasherezade/hollows_hunter/releases"
-        notes: "Download pre-built binary"
     install_paths:
       - "C:\\Tools\\Memory"
       - "C:\\Tools"
