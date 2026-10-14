@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import logging
+import os
 import threading
 import time as _time
 from collections import OrderedDict
@@ -32,12 +33,20 @@ def _cache_key(
     command: list[str],
     input_files: list[str] | None = None,
     cwd: str | None = None,
+    tool: str | None = None,
 ) -> str:
-    """Build cache key from command + input file hashes + cwd."""
+    """Build cache key from command + input file hashes + cwd + the tool file
+    (its size and time: an updated tool is a new key)."""
     h = hashlib.sha256()
     h.update("|".join(command).encode())
     if cwd:
         h.update(f"cwd:{cwd}".encode())
+    if tool:
+        try:
+            st = os.stat(tool)
+            h.update(f"tool:{tool}:{st.st_size}:{st.st_mtime_ns}".encode())
+        except OSError:
+            h.update(f"tool:{tool}".encode())
     for path in sorted(input_files or []):
         try:
             p = Path(path)
@@ -339,7 +348,7 @@ def run_command(
     # case: a cached reply isn't a run, and every run is recorded
     cache_key = None
     if not no_cache and not save_output and not get_config().case_dir:
-        cache_key = _cache_key(command, input_files, cwd=cwd)
+        cache_key = _cache_key(command, input_files, cwd=cwd, tool=tool_path)
         cached = _cache_get(cache_key)
         if cached is not None:
             logger.info("Cache hit for %s", command[0])

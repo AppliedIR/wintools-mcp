@@ -122,7 +122,9 @@ class ToolDefinition:
     description: str = ""
     common_flags: list[dict] = field(default_factory=list)
     fk_tool_name: str = ""
-    version_flag: str = "--version"
+    # Asked only when the file has no VERSIONINFO: {"argv": [...], "pattern":
+    # a regex whose first group is the version}
+    version_probe: dict = field(default_factory=dict)
     install_methods: list[InstallMethod] = field(default_factory=list)
     install_paths: list[str] = field(default_factory=list)
     alternatives: list[str] = field(default_factory=list)
@@ -204,7 +206,7 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 description=tool_entry.get("description", ""),
                 common_flags=tool_entry.get("common_flags", []),
                 fk_tool_name=tool_entry.get("fk_tool_name", ""),
-                version_flag=tool_entry.get("version_flag", "--version"),
+                version_probe=dict(tool_entry.get("version_probe") or {}),
                 install_methods=install_methods,
                 install_paths=tool_entry.get("install_paths", []),
                 alternatives=tool_entry.get("alternatives", []),

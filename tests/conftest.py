@@ -2,21 +2,31 @@
 
 import pytest
 
+from wintools_mcp import versions
 from wintools_mcp.catalog import clear_catalog_cache
 from wintools_mcp.config import reset_config
 from wintools_mcp.response import reset_call_counter
 
 
 @pytest.fixture(autouse=True)
-def _clean_state():
-    """Reset caches before and after each test."""
+def _clean_state(monkeypatch):
+    """Reset caches before and after each test. No test runs a tool to read
+    its version: a probe here fails as an unrunnable one does (its own rows
+    replace versions.run_probe)."""
+
+    def not_run(argv):
+        raise OSError("version probes are not run in tests")
+
+    monkeypatch.setattr(versions, "run_probe", not_run)
     clear_catalog_cache()
     reset_config()
     reset_call_counter()
+    versions.clear()
     yield
     clear_catalog_cache()
     reset_config()
     reset_call_counter()
+    versions.clear()
 
 
 @pytest.fixture

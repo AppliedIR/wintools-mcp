@@ -26,7 +26,11 @@ tools:
     timeout_seconds: 1800
     fk_tool_name: Hayabusa
     settings_paths: ["rules", "config"]
-    version_flag: "--version"
+    # Hayabusa's own version, should its file carry no VERSIONINFO: `help`
+    # prints "Hayabusa vX" first on 3.x and 4.x (its --version fails on 3.9.0)
+    version_probe:
+      argv: ["help"]
+      pattern: "Hayabusa v?([0-9][^\\s]*)"
     install_methods:
       - method: github
         url: "https://github.com/Yamato-Security/hayabusa/releases"

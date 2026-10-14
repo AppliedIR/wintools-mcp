@@ -56,64 +56,78 @@ def clear_binary_cache() -> None:
     _not_found.clear()
 
 
-def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
-    """Find a binary on the system.
+def _search(name: str, extra_paths: list[Path] | None = None):
+    """Every copy of ``name``, in the order a run looks: (path, from PATH).
 
-    Search order:
     1. shutil.which() (checks PATH)
-    2. Default tool paths
-    3. Extra paths from config
+    2. Each tool folder's direct children (with .exe tried)
+    3. Each tool folder's subfolders, at most 4 levels deep (catches
+       arbitrary layouts like ZimmermanTools/net9/RECmd/RECmd.exe)
     """
-    cache_key = f"{name}|{'|'.join(str(p) for p in (extra_paths or []))}"
-    if cache_key in _binary_cache:
-        return _binary_cache[cache_key]
-    looked = _not_found.get(cache_key)
-    if looked is not None and time.monotonic() - looked < NOT_FOUND_SECONDS:
-        return None
-
     found = shutil.which(name)
     if found:
-        _binary_cache[cache_key] = found
-        return found
+        yield found, True
 
     search = list(DEFAULT_TOOL_PATHS)
     if extra_paths:
         search.extend(extra_paths)
+    wanted = {name.lower()}
+    if not name.lower().endswith(".exe"):
+        wanted.add(f"{name}.exe".lower())
 
     for d in search:
         if not d.is_dir():
             continue
         candidate = d / name
         if candidate.is_file():
-            return str(candidate)
-        # Also check without .exe if not already included
+            yield str(candidate), False
         if not name.lower().endswith(".exe"):
             candidate_exe = d / f"{name}.exe"
             if candidate_exe.is_file():
-                return str(candidate_exe)
-        # Subdirectory walk via os.walk with depth limit (catches arbitrary
-        # layouts like ZimmermanTools/net9/RECmd/RECmd.exe)
+                yield str(candidate_exe), False
         try:
-            d_str = str(d)
-            d_depth = d_str.count(os.sep)
+            d_depth = str(d).count(os.sep)
             for root, dirs, files in os.walk(d):
-                # Max 4 levels deep from search root
                 if root.count(os.sep) - d_depth >= 4:
                     dirs.clear()
                     continue
                 for f in files:
-                    if f.lower() == name.lower():
-                        return str(Path(root) / f)
-                    if (
-                        not name.lower().endswith(".exe")
-                        and f.lower() == f"{name}.exe".lower()
-                    ):
-                        return str(Path(root) / f)
+                    if f.lower() in wanted:
+                        yield str(Path(root) / f), False
         except OSError:
             continue
 
+
+def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:
+    """The copy of ``name`` a run uses: the first that _search() finds. A PATH
+    hit is kept, and checked again on each call: a copy since removed is
+    looked for afresh."""
+    cache_key = f"{name}|{'|'.join(str(p) for p in (extra_paths or []))}"
+    cached = _binary_cache.get(cache_key)
+    if cached is not None:
+        if os.path.isfile(cached):
+            return cached
+        del _binary_cache[cache_key]  # gone since: look again
+    looked = _not_found.get(cache_key)
+    if looked is not None and time.monotonic() - looked < NOT_FOUND_SECONDS:
+        return None
+
+    for path, on_path in _search(name, extra_paths):
+        if on_path:
+            _binary_cache[cache_key] = path
+        return path
+
     _not_found[cache_key] = time.monotonic()  # a tool installed later is found soon
     return None
+
+
+def find_all(name: str, extra_paths: list[Path] | None = None) -> list[str]:
+    """Every copy of ``name``, in the order a run looks (the first is the one
+    that runs), each once."""
+    seen: dict[str, str] = {}
+    for path, _ in _search(name, extra_paths):
+        seen.setdefault(os.path.normcase(os.path.abspath(path)), path)
+    return list(seen.values())
 
 
 def find_tool(binary_name: str) -> str | None:
@@ -142,6 +156,21 @@ def find_tool(binary_name: str) -> str | None:
                 extra.append(p)
 
     return find_binary(binary_name, extra or None)
+
+
+def tool_copies(binary_name: str) -> list[str]:
+    """Every copy of a cataloged binary, searched where find_tool searches;
+    the first is the one that runs."""
+    from wintools_mcp.catalog import load_catalog
+    from wintools_mcp.config import get_config
+
+    extra: list[Path] = list(get_config().tool_paths or [])
+    bn = binary_name.lower()
+    td = next((t for t in load_catalog().values() if t.binary.lower() == bn), None)
+    for ip in td.install_paths if td else []:
+        if Path(ip) not in extra:
+            extra.append(Path(ip))
+    return find_all(binary_name, extra or None)
 
 
 def get_windows_version() -> dict:

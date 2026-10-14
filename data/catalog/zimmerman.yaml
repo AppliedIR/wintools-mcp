@@ -9,7 +9,6 @@ tools:
     output_flag: "--csv"
     timeout_seconds: 300
     fk_tool_name: AmcacheParser
-    version_flag: "--version"
     install_methods:
       - method: direct
         url: "https://ericzimmerman.github.io/#!index.md"

@@ -51,6 +51,7 @@ def build_response(
     output_files: list[dict] | None = None,
     extractions: list[str] | None = None,
     tool_ran: bool = True,
+    tool_version: dict | None = None,
 ) -> dict:
     """The reply. With ``tool_ran`` False (the tool showed a screen in place
     of running) there is no output to interpret: no FK content. An exit code
@@ -124,6 +125,8 @@ def build_response(
         metadata["exit_code"] = exit_code
     if command:
         metadata["command"] = command
+    # the file that ran and its version: in every reply shape, parsed ones too
+    metadata.update(tool_version or {})
     if metadata:
         response["metadata"] = metadata
 

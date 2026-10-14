@@ -6,8 +6,9 @@ import itertools
 import logging
 from typing import Any
 
+from wintools_mcp import versions
 from wintools_mcp.catalog import get_tool_def, load_catalog
-from wintools_mcp.environment import tool_path
+from wintools_mcp.environment import tool_copies, tool_path
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +112,33 @@ def check_tools(tool_names: list[str] | None = None) -> dict:
             "binary": td.binary,
             "available": path is not None,
             "path": path,
+            **_installed(td, path),
         }
     return results
+
+
+def _installed(td, path: str | None) -> dict:
+    """The version of the copy that runs, and every other copy found (with
+    its version), so a second copy is never silent."""
+    if not path:
+        return {}
+    info = versions.tool_version(path, td)
+    out = {"installed_version": info["tool_version"], "resolved_path": path}
+    if info.get("version_probe_output"):
+        out["version_probe_output"] = info["version_probe_output"]
+    if td.exec_type == "script":
+        return out
+    copies = tool_copies(td.binary)
+    if len(copies) > 1:
+        out["copies"] = [
+            {
+                "path": c,
+                "version": versions.tool_version(c, td)["tool_version"],
+                "runs": c == path,
+            }  # fmt: skip
+            for c in copies
+        ]
+    return out
 
 
 def get_tool_help(tool_name: str) -> dict:
@@ -136,6 +162,7 @@ def get_tool_help(tool_name: str) -> dict:
     result["available"] = path is not None
     if path:
         result["path"] = path
+        result.update(_installed(td, path))
 
     # FK enrichment
     if fk_loader:

@@ -8,6 +8,7 @@ import time
 
 from mcp.server.fastmcp import FastMCP
 
+from wintools_mcp import versions
 from wintools_mcp.audit import AuditWriter
 from wintools_mcp.catalog import get_tool_def
 from wintools_mcp.config import WintoolsConfig, get_config
@@ -397,6 +398,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         errors = list(unread)
         refused = False
         eula_note = ""  # one per batch: the tool is the same for every file
+        version: dict = {}  # and so is the file that runs it
         start = _time.monotonic()
         for i, filepath in enumerate(all_files):
             if _time.monotonic() - start > timeout:
@@ -431,6 +433,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     [binary, filepath], purpose=f"batch scan {i + 1}/{len(all_files)}"
                 )
                 row["exit_code"] = r.get("exit_code")
+                version = version or versions.tool_version(r.get("tool_path"), td)
                 eula_note = eula_note or r.get("eula_note", "")
                 if r.get("eula_screen"):  # not a result
                     row["error"] = r["eula_screen"]
@@ -473,6 +476,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         }
         if eula_note:
             response["eula_note"] = eula_note
+        response.update(version)
         if not results or refused:  # nothing ran, or the share isn't the case's
             response["note"] = note
             return _utf8(response)
@@ -545,6 +549,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 "output_file": outputs[0]["share_path"] if outputs else "",
                 "output_sha256": outputs[0].get("sha256", "") if outputs else "",
                 **({"eula_note": eula_note} if eula_note else {}),
+                **version,
             },
             audit_id=audit_id,
             elapsed_ms=elapsed * 1000,
@@ -802,6 +807,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 resp_format = exec_result.get("_output_format", "text")
 
             exit_code = exec_result["exit_code"]
+            version = versions.tool_version(tool_path, td)  # the file that ran
             eula = exec_result.get("eula_screen")  # the tool didn't run: no result
             stopped = (  # wintools stopped it: its exit code is no result either
                 f"{binary} was stopped by wintools at its {exec_result['terminated']}: "
@@ -823,6 +829,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 elapsed_seconds=elapsed,
                 exit_code=exit_code,
                 command=command,
+                tool_version=version,
                 error=eula or stopped,
                 tool_ran=not eula,
                 fk_tool_name=fk_name,
@@ -882,6 +889,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
                     **({"error": eula or stopped} if eula or stopped else {}),
                     **({"stopped": "output limit"} if stopped else {}),
+                    **version,
                     **({"eula_note": eula_note} if eula_note else {}),
                 },
                 audit_id=audit_id,
