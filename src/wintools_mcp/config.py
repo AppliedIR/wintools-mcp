@@ -278,21 +278,29 @@ def pinned() -> PinnedCase | None:
     return _pinned.get()
 
 
-@contextlib.contextmanager
-def pinned_case():
-    """Pin the case active now for the run inside the block: a case
-    activated or deactivated meanwhile doesn't move its audit entry or its
-    outputs."""
+def snapshot() -> PinnedCase:
+    """The case as it is now: what a run started now keeps. Taken on the
+    event loop, where activate and deactivate change the case without an
+    await, so it never sees half of one."""
     try:
         pointer = (Path.home() / ".vhir" / "active_case").read_text().strip()
     except OSError:
         pointer = None
-    pin = PinnedCase(
+    return PinnedCase(
         config=copy.copy(get_config()),
         case_dir_env=os.environ.get("VHIR_CASE_DIR", "").strip(),
         active_case_env=os.environ.get("VHIR_ACTIVE_CASE", ""),
         pointer=pointer,
     )
+
+
+@contextlib.contextmanager
+def pinned_case(pin: PinnedCase | None = None):
+    """Pin the case for the run inside the block (the one active now, or
+    ``pin``): a case activated or deactivated meanwhile doesn't move its
+    audit entry or its outputs."""
+    if pin is None:
+        pin = snapshot()
     token = _pinned.set(pin)
     try:
         yield pin

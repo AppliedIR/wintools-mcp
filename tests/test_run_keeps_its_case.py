@@ -12,14 +12,16 @@ tool's work is a stand-in that sleeps. Values are synthetic.
 from __future__ import annotations
 
 import json
+import threading
 import time
+from types import SimpleNamespace
 
 import anyio
 from starlette.applications import Starlette
 from starlette.requests import Request
 from test_batch_scan import _entries, case  # noqa: F401 - fixtures
 
-from wintools_mcp import http_server
+from wintools_mcp import config, http_server
 from wintools_mcp import server as srv
 from wintools_mcp.config import get_config
 from wintools_mcp.tools import generic
@@ -111,3 +113,103 @@ def test_an_smb_update_mid_run_waits_for_the_run(case, monkeypatch):  # noqa: F8
 
     anyio.run(main)
     assert updated and ended and updated[0] >= ended[0]  # after the run, never during
+
+
+def test_a_case_deactivated_while_the_run_reads_it_never_splits_its_pin(
+    case,  # noqa: F811
+    monkeypatch,
+):
+    """A deactivation that lands between the pin's config copy and its
+    VHIR_CASE_DIR read (the copy waits up to 1 s for one) must not give the
+    run one case in its config and none in its environment."""
+    get_config().api_keys = {KEY: {"examiner": "t"}}
+    monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
+    monkeypatch.setattr(generic, "eula_accepted", lambda key: True, raising=False)
+    pins: list = []
+
+    def execute(command, **k):
+        pins.append(config.pinned())
+        return {"exit_code": 0, "stdout": "done\n", "stderr": "", "command": list(command),
+                "stdout_total_bytes": 5}  # fmt: skip
+
+    monkeypatch.setattr(generic, "execute", execute)
+    copied, deactivated = threading.Event(), threading.Event()
+    real_copy = config.copy.copy
+
+    def copy_then_switch(obj):
+        out = real_copy(obj)
+        if not copied.is_set():
+            copied.set()
+            deactivated.wait(1.0)  # a deactivation, if the loop is free to run one
+        return out
+
+    monkeypatch.setattr(config, "copy", SimpleNamespace(copy=copy_then_switch))
+    server = srv.create_server()
+
+    async def main():
+        async def run():
+            await server.call_tool(
+                "run_windows_command", {"command": ["strings", "x"], "purpose": "run"}
+            )
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run)
+            while not copied.is_set():
+                await anyio.sleep(0.01)
+            await http_server.deactivate_case(_request(server, "/cases/deactivate"))
+            deactivated.set()
+
+    anyio.run(main)
+    (pin,) = pins
+    assert bool(pin.config.case_dir) == bool(pin.case_dir_env), pin
+    assert pin.case_dir_env  # the case active as the run started
+
+
+def test_a_cancelled_smb_update_holds_the_tools_until_its_worker_ends(
+    case,  # noqa: F811
+    monkeypatch,
+):
+    get_config().api_keys = {KEY: {"examiner": "t"}}
+    monkeypatch.setattr(generic, "find_tool", lambda name: f"C:/Tools/{name}")
+    monkeypatch.setattr(generic, "eula_accepted", lambda key: True, raising=False)
+    times: dict = {}
+
+    def execute(command, **k):
+        times["tool"] = time.monotonic()
+        return {"exit_code": 0, "stdout": "done\n", "stderr": "", "command": list(command),
+                "stdout_total_bytes": 5}  # fmt: skip
+
+    monkeypatch.setattr(generic, "execute", execute)
+    started = threading.Event()
+    import wintools_mcp.smb as smb
+
+    def establish(cfg):
+        started.set()
+        time.sleep(1.0)
+        times["smb_end"] = time.monotonic()
+        return True
+
+    monkeypatch.setattr(smb, "establish_smb_session", establish)
+    server = srv.create_server()
+
+    async def main():
+        scope = anyio.CancelScope()
+
+        async def update():
+            with scope:
+                await http_server.update_smb_credentials(
+                    _request(server, "/config/update-smb", {"smb_password": "pw"})
+                )
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(update)
+            while not started.is_set():
+                await anyio.sleep(0.01)
+            scope.cancel()  # the caller gave up: net use is still running
+            await anyio.sleep(0.05)
+            await server.call_tool(
+                "run_windows_command", {"command": ["strings", "x"], "purpose": "run"}
+            )
+
+    anyio.run(main)
+    assert times["tool"] >= times["smb_end"], times  # never under the update

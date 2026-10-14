@@ -158,10 +158,10 @@ def run_limiter(limiter: list) -> anyio.CapacityLimiter:
     return limiter[0]
 
 
-def _pinned_run(fn, args, kwargs):
+def _pinned_run(fn, args, kwargs, pin):
     from wintools_mcp.config import pinned_case
 
-    with pinned_case():  # the case active as the run starts is the run's
+    with pinned_case(pin):  # the case active as the run started is the run's
         return fn(*args, **kwargs)
 
 
@@ -169,16 +169,21 @@ def offload(fn, limiter: list):
     """A sync tool runs in a worker thread, one at a time (``limiter`` holds
     the server's CapacityLimiter(1)), so the event loop keeps answering pings
     and queues the next call while a tool runs for minutes. The run keeps
-    the case active when it starts. An async tool is left as it is."""
+    the case active when it starts: its pin is taken on the loop, once the
+    run holds the limiter and before its thread starts. An async tool is left
+    as it is."""
     if inspect.iscoroutinefunction(fn):
         return fn
 
     @functools.wraps(fn)
     async def run(*args, **kwargs):
-        return await anyio.to_thread.run_sync(
-            functools.partial(_pinned_run, fn, args, kwargs),
-            limiter=run_limiter(limiter),
-        )
+        from wintools_mcp.config import snapshot
+
+        async with run_limiter(limiter):  # held until the thread ends
+            pin = snapshot()
+            return await anyio.to_thread.run_sync(
+                functools.partial(_pinned_run, fn, args, kwargs, pin)
+            )
 
     return run
 

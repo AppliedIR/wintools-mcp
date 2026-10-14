@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pydantic_core
 import pytest
@@ -304,6 +305,11 @@ def test_a_probe_whose_child_holds_its_pipes_still_ends_at_its_deadline(monkeypa
 
     monkeypatch.setattr(versions, "PROBE_SECONDS", 1.0)
     start = time.monotonic()
-    text = _READ(["/bin/sh", "-c", "sleep 30 & echo v9.9.9"])
+    grandchild = "import time; time.sleep(30)"
+    tool = (
+        "import subprocess, sys; "
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); print('v9.9.9')"
+    )
+    text = _READ([sys.executable, "-c", tool])
     assert time.monotonic() - start < 5
     assert "v9.9.9" in text

@@ -12,6 +12,7 @@ import re
 import threading
 from typing import Any
 
+import anyio
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -277,7 +278,8 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
         return JSONResponse({"error": "smb_password required"}, status_code=400)
     # One update at a time: two interleaved would run with one request's
     # credentials and save the other's. The attempt itself runs off the event
-    # loop, since it waits on net use and the share.
+    # loop, since it waits on net use and the share; a cancelled request
+    # still waits for it (anyio's thread call), so the locks outlast it.
     # ...and never under a running tool: it can drop the share the tool uses
     from wintools_mcp.server import run_limiter
     from wintools_mcp.smb import establish_smb_session
@@ -290,7 +292,7 @@ async def update_smb_credentials(request: Request) -> JSONResponse:
         smb_user = body.get("smb_user", cfg.smb_user or "vhir-smb")
         cfg.smb_user = smb_user
         cfg.smb_password = smb_password
-        success = await asyncio.to_thread(establish_smb_session, cfg)
+        success = await anyio.to_thread.run_sync(establish_smb_session, cfg)
 
         # Persist to config.yaml so it survives restart
         _persist_config_fields(
