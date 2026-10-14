@@ -46,6 +46,8 @@ DEFAULT_TOOL_PATHS = [
 
 # A copy KAPE bundles for its modules: run only when no other copy is found
 _KAPE_BIN = re.compile(r"[\\/]modules[\\/]bin[\\/]", re.IGNORECASE)
+# A .NET-version folder of one tool set: the highest N runs
+_NET = re.compile(r"[\\/]net(\d+)[\\/]", re.IGNORECASE)
 
 
 _binary_cache: dict[str, str | None] = {}
@@ -73,7 +75,8 @@ def _search(name: str, extra_paths: list[Path] | None = None):
 
     Each folder is searched in its direct children (with .exe tried), then its
     subfolders at most 4 levels deep (catches arbitrary layouts like
-    ZimmermanTools/net9/RECmd/RECmd.exe).
+    ZimmermanTools/net9/RECmd/RECmd.exe); in a folder, net9's copy comes
+    before net6's.
     """
     held = []
     for path, on_path in _copies(name, extra_paths):
@@ -111,6 +114,7 @@ def _in_folders(name: str, wanted: set[str], search: list[Path]):
             candidate_exe = d / f"{name}.exe"
             if candidate_exe.is_file():
                 yield str(candidate_exe), False
+        found: list[str] = []
         try:
             d_depth = str(d).count(os.sep)
             for root, dirs, files in os.walk(d):
@@ -119,9 +123,28 @@ def _in_folders(name: str, wanted: set[str], search: list[Path]):
                     continue
                 for f in files:
                     if f.lower() in wanted:
-                        yield str(Path(root) / f), False
+                        found.append(str(Path(root) / f))
         except OSError:
-            continue
+            pass
+        for path in _highest_net_first(found, len(str(d))):
+            yield path, False
+
+
+def _highest_net_first(paths: list[str], under: int) -> list[str]:
+    """The copies under a netN folder (Zimmerman's net6 and net9 sets) by N,
+    highest first, each taking a place one of them had; the others stay put.
+    Only the part of a path below its search folder (from ``under``) counts."""
+
+    def n(path: str) -> int | None:
+        found = _NET.findall(path[under:])
+        return int(found[-1]) if found else None
+
+    places = [i for i, p in enumerate(paths) if n(p) is not None]
+    ranked = sorted((paths[i] for i in places), key=lambda p: -(n(p) or 0))
+    out = list(paths)
+    for i, path in zip(places, ranked, strict=True):
+        out[i] = path
+    return out
 
 
 def find_binary(name: str, extra_paths: list[Path] | None = None) -> str | None:

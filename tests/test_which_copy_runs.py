@@ -2,9 +2,11 @@
 
 The configured folders come first, then PATH, then the default folders with
 C:\\Tools last. A copy KAPE bundles in its Modules\\bin runs only when there is
-no other; every copy is still listed.
+no other; every copy is still listed. In one folder, a copy under netN ranks
+by N, highest first.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -24,6 +26,19 @@ def no_path(monkeypatch):
     environment.clear_binary_cache()
     yield
     environment.clear_binary_cache()
+
+
+@pytest.fixture
+def name_order(monkeypatch):
+    """Folders listed in name order, as NTFS lists them."""
+    walk = os.walk
+
+    def listed(top, *args, **kwargs):
+        for root, dirs, files in walk(top, *args, **kwargs):
+            dirs.sort(key=str.lower)
+            yield root, dirs, sorted(files, key=str.lower)
+
+    monkeypatch.setattr(environment.os, "walk", listed)
 
 
 def test_the_standalone_copy_runs_over_kapes_bundled_one(
@@ -106,3 +121,64 @@ def test_c_tools_is_searched_last():
 )
 def test_a_kape_bundled_copy_is_known_by_its_folder(path, bundled):
     assert bool(environment._KAPE_BIN.search(path)) is bundled
+
+
+def test_the_stock_layout_runs_net9_over_net6(
+    tmp_path, monkeypatch, no_path, name_order
+):
+    root = tmp_path / "Forensic_Program_Files"
+    kape = _exe(root / "kape" / "Modules" / "bin" / "PECmd.exe")
+    net6 = _exe(root / "ZimmermanTools" / "net6" / "PECmd.exe")
+    net9 = _exe(root / "ZimmermanTools" / "net9" / "PECmd.exe")
+    evtx6 = _exe(root / "ZimmermanTools" / "net6" / "EvtxeCmd" / "EvtxECmd.exe")
+    evtx9 = _exe(root / "ZimmermanTools" / "net9" / "EvtxeCmd" / "EvtxECmd.exe")
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [root])
+    assert environment.find_binary("PECmd.exe") == str(net9)
+    assert environment.find_all("PECmd.exe") == [str(net9), str(net6), str(kape)]
+    assert environment.find_binary("EvtxECmd.exe") == str(evtx9)
+    assert environment.find_all("EvtxECmd.exe") == [str(evtx9), str(evtx6)]
+
+
+def test_net_folders_rank_by_number_not_name(
+    tmp_path, monkeypatch, no_path, name_order
+):
+    root = tmp_path / "ZimmermanTools"
+    net9 = _exe(root / "net9" / "PECmd.exe")
+    net10 = _exe(root / "net10" / "PECmd.exe")
+    net11 = _exe(root / "net11" / "PECmd.exe")
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [root])
+    assert environment.find_all("PECmd.exe") == [str(net11), str(net10), str(net9)]
+
+
+def test_a_copy_outside_a_net_folder_keeps_its_place(
+    tmp_path, monkeypatch, no_path, name_order
+):
+    root = tmp_path / "ZimmermanTools"
+    top = _exe(root / "PECmd.exe")
+    net6 = _exe(root / "net6" / "PECmd.exe")
+    net9 = _exe(root / "net9" / "PECmd.exe")
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [root])
+    assert environment.find_binary("PECmd.exe") == str(top)
+    assert environment.find_all("PECmd.exe") == [str(top), str(net9), str(net6)]
+
+
+def test_a_net_folder_above_the_search_folder_does_not_rank(
+    tmp_path, monkeypatch, no_path, name_order
+):
+    first = _exe(tmp_path / "net9" / "tools" / "a" / "PECmd.exe")
+    later = _exe(tmp_path / "net9" / "tools" / "net10" / "PECmd.exe")
+    monkeypatch.setattr(
+        environment, "DEFAULT_TOOL_PATHS", [tmp_path / "net9" / "tools"]
+    )
+    assert environment.find_all("PECmd.exe") == [str(first), str(later)]
+
+
+def test_a_configured_net6_still_runs_before_a_default_net9(
+    tmp_path, monkeypatch, no_path
+):
+    configured = _exe(tmp_path / "configured" / "net6" / "PECmd.exe")
+    default = _exe(tmp_path / "default" / "net9" / "PECmd.exe")
+    monkeypatch.setattr(environment, "DEFAULT_TOOL_PATHS", [tmp_path / "default"])
+    extra = [tmp_path / "configured"]
+    assert environment.find_binary("PECmd.exe", extra) == str(configured)
+    assert environment.find_all("PECmd.exe", extra) == [str(configured), str(default)]
