@@ -214,10 +214,13 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         from wintools_mcp.tools.discovery import get_tool_help as _help
 
         result = _help(tool_name)
+        summary = {k: v for k, v in result.items() if k != "help"}  # no help text
+        if "help" in result:
+            summary["help_chars"] = len(result["help"])
         audit.log(
             tool="get_windows_tool_help",
             params={"tool_name": tool_name},
-            result_summary=result,
+            result_summary=summary,
         )
         return result
 

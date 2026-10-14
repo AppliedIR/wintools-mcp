@@ -65,6 +65,7 @@ tools:
 
   - name: hollows_hunter
     binary: hollows_hunter.exe
+    help_argv: [["/help"]]  # with no argument it scans every process
     description: "Scan running processes for hollowed/injected code using PE-sieve (/pid or /pname: one per call, ';' lists are blocked)"
     input_style: flag
     output_format: text

@@ -163,6 +163,7 @@ def get_tool_help(tool_name: str) -> dict:
     if path:
         result["path"] = path
         result.update(_installed(td, path))
+        result.update(versions.tool_help(path, td))  # the tool's own, every call
 
     # FK enrichment
     if fk_loader:

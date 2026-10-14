@@ -125,6 +125,9 @@ class ToolDefinition:
     # Asked only when the file has no VERSIONINFO: {"argv": [...], "pattern":
     # a regex whose first group is the version}
     version_probe: dict = field(default_factory=dict)
+    # The argv that print the tool's own help, tried in order (default
+    # --help, then -h)
+    help_argv: list[list[str]] = field(default_factory=list)
     install_methods: list[InstallMethod] = field(default_factory=list)
     install_paths: list[str] = field(default_factory=list)
     alternatives: list[str] = field(default_factory=list)
@@ -207,6 +210,9 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 common_flags=tool_entry.get("common_flags", []),
                 fk_tool_name=tool_entry.get("fk_tool_name", ""),
                 version_probe=dict(tool_entry.get("version_probe") or {}),
+                help_argv=[
+                    [str(a) for a in argv] for argv in tool_entry.get("help_argv") or []
+                ],
                 install_methods=install_methods,
                 install_paths=tool_entry.get("install_paths", []),
                 alternatives=tool_entry.get("alternatives", []),

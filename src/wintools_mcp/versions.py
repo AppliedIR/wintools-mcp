@@ -96,6 +96,59 @@ def _probe(path: str, probe: dict) -> dict:
     return {"tool_version": UNKNOWN, "version_probe_output": first[:200]}
 
 
+HELP_INLINE = 8192
+DEFAULT_HELP = [["--help"], ["-h"]]
+_USAGE = re.compile(r"(?im)(^\s*(usage|options|arguments|commands)\s*:|\busage:)")
+
+
+def _shown(text: str, argv: list[str]) -> dict:
+    """The help as the reply carries it: at most HELP_INLINE characters, and
+    when cut, how to read the rest."""
+    text = text.strip("\n")
+    out = {"help": text[:HELP_INLINE], "help_argv": argv,
+           "help_source": "the installed tool's own output, as text"}  # fmt: skip
+    if len(text) > HELP_INLINE:
+        out["help_cut"] = (
+            f"The help is cut at {HELP_INLINE:,} of {len(text):,} characters: run "
+            f"the tool with {' '.join(argv)} through run_windows_command for all of it"
+        )
+    return out
+
+
+def tool_help(path: str | None, td) -> dict:
+    """The installed tool's own help, asked with its catalog `help_argv` (the
+    first that prints usage wins; else the first that prints anything). Run
+    on every call, outside any case. Never for an acquisition tool or a
+    script; a EULA screen in place of the help is said, never accepted."""
+    if not path:
+        return {}
+    if td.acquisition:
+        return {"help_not_run": "An acquisition tool isn't run to read its help."}
+    if td.exec_type == "script":
+        return {"help_not_run": "A script isn't run to read its help."}
+    from wintools_mcp.tools.generic import eula_screen
+
+    first, errors = None, []
+    for argv in td.help_argv or DEFAULT_HELP:
+        try:
+            text = run_probe([path, *argv])
+        except (OSError, subprocess.SubprocessError) as e:
+            errors.append(f"{' '.join(argv)}: {e}")
+            continue
+        if eula_screen(text):
+            return {"help_not_run": (
+                f"{td.binary} showed its license (EULA) screen: the account running "
+                "wintools hasn't accepted it. A run accepts it and says so."
+            )}  # fmt: skip
+        if _USAGE.search(text):
+            return _shown(text, argv)
+        if first is None and text.strip():
+            first = (text, argv)
+    if first:
+        return _shown(*first)
+    return {"help_error": "; ".join(errors) or "the tool printed no help"}
+
+
 def clear() -> None:
     """Forget every version read."""
     with _lock:

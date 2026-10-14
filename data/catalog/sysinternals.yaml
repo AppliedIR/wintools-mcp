@@ -8,6 +8,7 @@ tools:
     timeout_seconds: 300
     fk_tool_name: autorunsc
     eula_key: AutoRuns
+    help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
     common_flags:
       - flag: "-a *"
         description: "Scan all autostart categories"
@@ -41,6 +42,7 @@ tools:
     timeout_seconds: 300
     fk_tool_name: strings
     eula_key: Strings
+    help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
     common_flags:
       - flag: "-a"
         description: "ASCII-only. The default scans ASCII and Unicode; don't pass it for IOC sweeps."
@@ -71,6 +73,7 @@ tools:
     timeout_seconds: 120
     fk_tool_name: handle
     eula_key: Handle
+    help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
     common_flags:
       - flag: "-a"
         description: "Show all handle information"
@@ -98,6 +101,7 @@ tools:
     timeout_seconds: 300
     fk_tool_name: procdump
     eula_key: ProcDump
+    help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
     common_flags:
       - flag: "-ma"
         description: "Full dump (all memory)"
@@ -125,6 +129,7 @@ tools:
     timeout_seconds: 300
     fk_tool_name: sigcheck
     eula_key: sigcheck
+    help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
     common_flags:
       - flag: "-c"
         description: "Output as CSV"
