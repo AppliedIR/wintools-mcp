@@ -8,11 +8,6 @@ tools:
     output_format: text
     timeout_seconds: 300
     fk_tool_name: Get-InjectedThreadEx
-    common_flags:
-      - flag: "-ExecutionPolicy Bypass"
-        description: "Bypass execution policy for unsigned script"
-      - flag: "-File"
-        description: "Path to Get-InjectedThreadEx.ps1 script"
     install_methods:
       - method: github
         url: "https://gist.github.com/jaredcatkinson/23905d34537ce4b5b1818c3e6405c1d2"

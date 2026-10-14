@@ -225,16 +225,9 @@ def test_a_tool_without_an_eula_is_never_checked(case, box, monkeypatch):  # noq
     assert FLAG not in box["runs"][0]
 
 
-def test_every_tool_that_takes_the_flag_has_its_key_and_only_those():
-    flagged = {
-        td.name
-        for td in catalog.load_catalog().values()
-        if any(f.get("flag") == "-accepteula" for f in td.common_flags)
-    }
+def test_every_sysinternals_tool_has_its_key_and_only_those():
     keyed = {td.name for td in catalog.load_catalog().values() if td.eula_key}
-    assert (
-        flagged == keyed == {"autorunsc", "strings", "handle", "procdump", "sigcheck"}
-    )
+    assert keyed == {"autorunsc", "strings", "handle", "procdump", "sigcheck"}
 
 
 # --- the registry read, with a stand-in winreg -------------------------------

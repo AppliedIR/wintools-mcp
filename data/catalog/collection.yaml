@@ -9,23 +9,6 @@ tools:
     timeout_seconds: 1800
     fk_tool_name: KAPE
     settings_paths: ["Targets", "Modules"]
-    common_flags:
-      - flag: "--tsource"
-        description: "Target source: a drive (C, D: or F:\\) or a directory"
-      - flag: "--tdest"
-        description: "Target destination directory"
-      - flag: "--target"
-        description: "Target name(s) to collect"
-      - flag: "--msource"
-        description: "Module source directory"
-      - flag: "--mdest"
-        description: "Module destination directory"
-      - flag: "--module"
-        description: "Module name(s) to run"
-      - flag: "--tlist"
-        description: "List available targets: --tlist . (a value is required)"
-      - flag: "--mlist"
-        description: "List available modules: --mlist . (a value is required)"
     install_methods:
       - method: direct
         url: "https://www.kroll.com/en/services/cyber-risk/incident-response-litigation-support/kroll-artifact-parser-extractor-kape"

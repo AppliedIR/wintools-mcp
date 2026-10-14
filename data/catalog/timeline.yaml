@@ -2,27 +2,22 @@ category: timeline
 tools:
   - name: hayabusa
     binary: hayabusa.exe
-    description: "Sigma-based Windows event log analysis; needs a command, e.g. dfir-timeline -d <evtx folder> -o <file.csv> -w"
+    description: "Sigma-based Windows event log analysis; its commands differ by version (3.x csv-timeline, 4.x dfir-timeline): see get_windows_tool_help"
+    # Each recipe's flags are in that version's own help (tests/fixtures/tool_help)
+    recipes:
+      - task: "Timeline of a folder of .evtx files as CSV, without questions"
+        versions: ">=3.9,<4"
+        argv: ["csv-timeline", "-d", "<evtx folder>", "-o", "<file.csv>", "-w"]
+        notes: "3.x: -t is --threads, not an output type"
+      - task: "Timeline of one .evtx file as CSV, without questions"
+        versions: ">=3.9,<4"
+        argv: ["csv-timeline", "-f", "<file.evtx>", "-o", "<file.csv>", "-w"]
+      - task: "The same, with times in UTC"
+        versions: ">=3.9,<4"
+        argv: ["csv-timeline", "-d", "<evtx folder>", "-o", "<file.csv>", "-w", "-U"]
     input_style: flag
     input_flag: "-d"
     output_format: csv
-    common_flags:
-      - flag: "dfir-timeline"
-        description: "Command: create a DFIR timeline (CSV by default)"
-      - flag: "-d"
-        description: "Directory of multiple .evtx files"
-      - flag: "-f"
-        description: "File path to one .evtx file"
-      - flag: "-o"
-        description: "Save the timeline to a file (e.g. results.csv)"
-      - flag: "-t"
-        description: "Output format: csv (default), json, or jsonl"
-      - flag: "-w"
-        description: "Do not ask questions (needed for an unattended run)"
-      - flag: "-m"
-        description: "Minimum level for rules to load (default: informational)"
-      - flag: "-U"
-        description: "Output time in UTC (default: local time)"
     timeout_seconds: 1800
     fk_tool_name: Hayabusa
     settings_paths: ["rules", "config"]
@@ -47,19 +42,6 @@ tools:
     output_format: text
     timeout_seconds: 1800
     fk_tool_name: chainsaw
-    common_flags:
-      - flag: "-r"
-        description: "A path containing additional Chainsaw rules to hunt with"
-      - flag: "-s"
-        description: "A path containing Sigma rules to hunt with (needs --mapping)"
-      - flag: "--mapping"
-        description: "A mapping file telling Chainsaw how to use third-party (Sigma) rules"
-      - flag: "--csv"
-        description: "Switch: print the output in CSV format"
-      - flag: "--json"
-        description: "Switch: print the output in JSON format"
-      - flag: "--full"
-        description: "Print the full values for the tabular output"
     install_methods:
       - method: github
         url: "https://github.com/WithSecureLabs/chainsaw/releases"

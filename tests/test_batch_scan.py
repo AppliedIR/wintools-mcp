@@ -414,12 +414,3 @@ def test_a_failed_audit_write_is_a_warning(case, ran, monkeypatch):
     monkeypatch.setattr(audit_mod.AuditWriter, "log", lambda *a, **k: None)
     resp = _scan(_dlls(case, 3, 0))
     assert any("Audit trail unavailable" in w for w in resp["warnings"])
-
-
-def test_strings_dash_a_is_described_as_ascii_only():
-    from wintools_mcp.catalog import get_tool_def
-
-    flags = {f["flag"]: f["description"] for f in get_tool_def("strings").common_flags}
-    text = flags["-a"].lower()
-    assert "ascii-only" in text and "ascii and unicode" in text
-    assert "ioc" in text

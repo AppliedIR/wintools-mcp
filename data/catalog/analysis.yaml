@@ -7,17 +7,6 @@ tools:
     output_format: text
     timeout_seconds: 600
     fk_tool_name: capa
-    common_flags:
-      - flag: "-v"
-        description: "Verbose output (show matched rules with evidence)"
-      - flag: "-vv"
-        description: "Very verbose (show all rule matches and features)"
-      - flag: "-j"
-        description: "Output as JSON"
-      - flag: "-r"
-        description: "Path to rules directory"
-      - flag: "-f"
-        description: "Input format (pe, sc32, sc64, dotnet, freeze)"
     install_methods:
       - method: github
         url: "https://github.com/mandiant/capa/releases"
@@ -33,17 +22,6 @@ tools:
     output_format: text
     timeout_seconds: 300
     fk_tool_name: yara
-    common_flags:
-      - flag: "-r"
-        description: "Recursively search directories"
-      - flag: "-s"
-        description: "Print matching strings"
-      - flag: "-m"
-        description: "Print metadata"
-      - flag: "-C"
-        description: "Use compiled rules"
-      - flag: "-c"
-        description: "Print count of matches only"
     install_methods:
       - method: github
         url: "https://github.com/VirusTotal/yara/releases"
@@ -63,17 +41,6 @@ tools:
     output_format: text
     timeout_seconds: 300
     fk_tool_name: densityscout
-    common_flags:
-      - flag: "-r"
-        description: "Recursive directory scan"
-      - flag: "-pe"
-        description: "Only scan PE files"
-      - flag: "-o"
-        description: "Output file"
-      - flag: "-l"
-        description: "Lower density boundary"
-      - flag: "-u"
-        description: "Upper density boundary"
     install_methods:
       - method: direct
         url: "https://cert.at/en/downloads/software/software-densityscout"

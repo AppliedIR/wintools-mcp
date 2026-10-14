@@ -15,10 +15,6 @@ from test_run_records import _entries, _evtx, case  # noqa: F401  (fixture)
 from wintools_mcp.catalog import get_tool_def
 
 
-def _flags(name: str) -> list[str]:
-    return [f["flag"] for f in get_tool_def(name).common_flags]
-
-
 def test_sbecmd_reads_the_folder_its_d_names(case, tmp_path):  # noqa: F811
     """SBECmd help: "-d <d>  Directory to look for registry hives"; no -f."""
     hives = case / "evidence" / "hives"
@@ -43,14 +39,12 @@ def test_hayabusa_runs_its_command_as_given(case, tmp_path):  # noqa: F811
     args = ["dfir-timeline", "-d", str(case / "evidence"), "-w"]
     resp, _, ran = _call(tmp_path, ["hayabusa.exe", *args])
     assert resp["success"] is True and ran[0][1:] == args  # no --json-output <folder>
-    assert {"dfir-timeline", "-d", "-o", "-t", "-w"} <= set(_flags("hayabusa"))
 
 
 def test_chainsaw_names_only_the_options_v2_has(case, tmp_path):  # noqa: F811
     """chainsaw hunt (github.com/WithSecureLabs/chainsaw): -r/--rule,
     -s/--sigma, --mapping, --full, and the --csv/--json switches; no --rules
     or --lateral-all."""
-    assert _flags("chainsaw") == ["-r", "-s", "--mapping", "--csv", "--json", "--full"]
     args = ["hunt", str(case / "evidence"), "-s", "sigma", "--mapping", "map.yml"]
     resp, _, ran = _call(tmp_path, ["chainsaw.exe", *args])
     assert resp["success"] is True and ran[0][1:] == args
@@ -58,7 +52,6 @@ def test_chainsaw_names_only_the_options_v2_has(case, tmp_path):  # noqa: F811
 
 def test_winpmem_takes_its_image_path_as_an_argument(case, tmp_path):  # noqa: F811
     """WinPmem 2.0.1 help: "winpmem.exe [option] [output path]"; no -o."""
-    assert "-o" not in _flags("winpmem")
     dest = str(case / "evidence" / "mem.raw")
     resp, _, ran = _call(tmp_path, ["winpmem.exe", dest])
     assert resp["success"] is True and ran[0][1:] == [dest]
@@ -67,19 +60,13 @@ def test_winpmem_takes_its_image_path_as_an_argument(case, tmp_path):  # noqa: F
 def test_moneta_names_its_required_m_and_p(case, tmp_path):  # noqa: F811
     """Moneta v1.0 help: "REQUIRED -m {*|region|referenced|ioc} -p {*|PID}";
     no -a; "--option {from-base|statistics}"."""
-    flags = _flags("moneta")
-    assert flags[:2] == ["-m", "-p"] and "-a" not in flags
     resp, _, ran = _call(tmp_path, ["moneta64.exe", "-m", "ioc", "-p", "1234"])
     assert resp["success"] is True and ran[0][1:] == ["-m", "ioc", "-p", "1234"]
 
 
-def test_sigcheck_and_autorunsc_and_hollows_hunter_say_what_their_help_says():
-    """sigcheck help: "-i  Show catalog name and signing chain"; "-o  Performs
-    Virus Total lookups of hashes captured in a CSV". The forensic-knowledge
-    names their hints are found by: autorunsc, HollowsHunter."""
-    sig = {f["flag"]: f["description"] for f in get_tool_def("sigcheck").common_flags}
-    assert sig["-i"] == "Show catalog name and signing chain"
-    assert sig["-o"].startswith("VirusTotal lookups of hashes in a CSV")
+def test_autorunsc_and_hollows_hunter_find_their_knowledge():
+    """The forensic-knowledge names their caveats are found by: autorunsc,
+    HollowsHunter."""
     assert get_tool_def("autorunsc").knowledge_name == "autorunsc"
     assert get_tool_def("hollows_hunter").knowledge_name == "HollowsHunter"
 

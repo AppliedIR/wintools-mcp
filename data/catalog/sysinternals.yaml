@@ -9,21 +9,6 @@ tools:
     fk_tool_name: autorunsc
     eula_key: AutoRuns
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
-    common_flags:
-      - flag: "-a *"
-        description: "Scan all autostart categories"
-      - flag: "-c"
-        description: "Output as CSV"
-      - flag: "-h"
-        description: "Show file hashes"
-      - flag: "-s"
-        description: "Verify digital signatures"
-      - flag: "-v"
-        description: "Query VirusTotal"
-      - flag: "-z"
-        description: "Scan offline Windows system via mounted image. LIMITATION: Only registry-based ASEPs. Does NOT detect WMI persistence or scheduled tasks offline."
-      - flag: "-accepteula"
-        description: "Accept EULA (required for first run)"
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns"
@@ -43,15 +28,6 @@ tools:
     fk_tool_name: strings
     eula_key: Strings
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
-    common_flags:
-      - flag: "-a"
-        description: "ASCII-only. The default scans ASCII and Unicode; don't pass it for IOC sweeps."
-      - flag: "-n"
-        description: "Minimum string length (default 3)"
-      - flag: "-u"
-        description: "Unicode strings only"
-      - flag: "-accepteula"
-        description: "Accept EULA (required for first run)"
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/strings"
@@ -74,13 +50,6 @@ tools:
     fk_tool_name: handle
     eula_key: Handle
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
-    common_flags:
-      - flag: "-a"
-        description: "Show all handle information"
-      - flag: "-p"
-        description: "Filter by process name or PID"
-      - flag: "-accepteula"
-        description: "Accept EULA (required for first run)"
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/handle"
@@ -102,13 +71,6 @@ tools:
     fk_tool_name: procdump
     eula_key: ProcDump
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
-    common_flags:
-      - flag: "-ma"
-        description: "Full dump (all memory)"
-      - flag: "-mp"
-        description: "Mini plus dump"
-      - flag: "-accepteula"
-        description: "Accept EULA (required for first run)"
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/procdump"
@@ -130,27 +92,6 @@ tools:
     fk_tool_name: sigcheck
     eula_key: sigcheck
     help_argv: [["-?"]]  # -h is a switch here (hashes): usage is -?
-    common_flags:
-      - flag: "-c"
-        description: "Output as CSV"
-      - flag: "-e"
-        description: "Scan executable images only"
-      - flag: "-s"
-        description: "Recurse subdirectories"
-      - flag: "-u"
-        description: "Show unsigned files only (with a VirusTotal check: files unknown to VT or with detections)"
-      - flag: "-v"
-        description: "Query VirusTotal"
-      - flag: "-h"
-        description: "Show file hashes"
-      - flag: "-r"
-        description: "Disable CRL revocation check — required on offline/air-gapped workstations"
-      - flag: "-o"
-        description: "VirusTotal lookups of hashes in a CSV made earlier with -h -c (the offline-system workflow); the CSV is the positional argument. Free API: 4 req/min, 500/day"
-      - flag: "-i"
-        description: "Show catalog name and signing chain"
-      - flag: "-accepteula"
-        description: "Accept EULA (required for first run)"
     install_methods:
       - method: direct
         url: "https://learn.microsoft.com/en-us/sysinternals/downloads/sigcheck"

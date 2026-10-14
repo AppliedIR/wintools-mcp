@@ -8,11 +8,6 @@ tools:
     output_format: text
     timeout_seconds: 600
     fk_tool_name: winpmem
-    common_flags:
-      - flag: "<output path>"
-        description: "Positional: the raw image file to write (e.g. winpmem.exe C:\\case\\mem.raw)"
-      - flag: "-2"
-        description: "Use PTE remapping (AMD64 only; the default on 64-bit)"
     install_methods:
       - method: github
         url: "https://github.com/Velocidex/WinPmem/releases"
@@ -44,17 +39,6 @@ tools:
     output_format: text
     timeout_seconds: 300
     fk_tool_name: moneta
-    common_flags:
-      - flag: "-m"
-        description: "Required: the memory to select: * | region | referenced | ioc"
-      - flag: "-p"
-        description: "Required: the process to scan: a PID, or * for all"
-      - flag: "--option"
-        description: "from-base | statistics"
-      - flag: "--filter"
-        description: "unsigned-module | clr-prvx | clr-heap | metadata-modules"
-      - flag: "-d"
-        description: "Dump the selected memory"
     install_methods:
       - method: github
         url: "https://github.com/forrest-orr/moneta/releases"
@@ -71,13 +55,6 @@ tools:
     output_format: text
     timeout_seconds: 300
     fk_tool_name: HollowsHunter
-    common_flags:
-      - flag: "/loop"
-        description: "Continuous scanning mode"
-      - flag: "/dir"
-        description: "Output directory for dumps"
-      - flag: "/json"
-        description: "Output results as JSON"
     install_methods:
       - method: github
         url: "https://github.com/hasherezade/hollows_hunter/releases"

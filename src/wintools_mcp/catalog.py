@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -120,7 +121,9 @@ class ToolDefinition:
     output_flag: str = ""  # e.g. "--csv" — server auto-injects output dir if user omits
     timeout_seconds: int = 600
     description: str = ""
-    common_flags: list[dict] = field(default_factory=list)
+    # Tested calls, each tagged with the versions it was checked on:
+    # [{task, versions (">=14.3,<15"), argv, notes}]
+    recipes: list[dict] = field(default_factory=list)
     fk_tool_name: str = ""
     # Asked only when the file has no VERSIONINFO: {"argv": [...], "pattern":
     # a regex whose first group is the version}
@@ -145,6 +148,31 @@ class ToolDefinition:
     @property
     def knowledge_name(self) -> str:
         return self.fk_tool_name or self.name
+
+
+def _release(version: str) -> tuple[int, ...] | None:
+    """A version's numbers ("v4.2.0" -> (4, 2, 0)); None when it has none."""
+    nums = re.findall(r"\d+", version.split("-")[0].split("+")[0])
+    return tuple(int(n) for n in nums) if nums else None
+
+
+def version_in(version: str, versions: str) -> bool:
+    """Whether ``version`` is in a range such as ">=4.0,<5" (every comma
+    clause must hold; >=, >, <=, <, ==). An unreadable version is in none."""
+    have = _release(version or "")
+    if have is None:
+        return False
+    for clause in filter(None, (c.strip() for c in versions.split(","))):
+        m = re.match(r"(>=|<=|==|>|<)\s*(.+)", clause)
+        want = _release(m.group(2)) if m else None
+        if want is None:
+            return False
+        n = max(len(have), len(want))
+        a, b = have + (0,) * (n - len(have)), want + (0,) * (n - len(want))
+        holds = {">=": a >= b, "<=": a <= b, "==": a == b, ">": a > b, "<": a < b}
+        if not holds[m.group(1)]:
+            return False
+    return True
 
 
 _catalog_loaded = False
@@ -207,7 +235,7 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 output_flag=tool_entry.get("output_flag", ""),
                 timeout_seconds=tool_entry.get("timeout_seconds", 600),
                 description=tool_entry.get("description", ""),
-                common_flags=tool_entry.get("common_flags", []),
+                recipes=[dict(r) for r in tool_entry.get("recipes") or []],
                 fk_tool_name=tool_entry.get("fk_tool_name", ""),
                 version_probe=dict(tool_entry.get("version_probe") or {}),
                 help_argv=[

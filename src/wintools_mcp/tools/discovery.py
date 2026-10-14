@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from wintools_mcp import versions
-from wintools_mcp.catalog import get_tool_def, load_catalog
+from wintools_mcp.catalog import get_tool_def, load_catalog, version_in
 from wintools_mcp.environment import tool_copies, tool_path
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,6 @@ def get_tool_help(tool_name: str) -> dict:
         "input_style": td.input_style,
         "input_flag": td.input_flag,
         "output_format": td.output_format,
-        "common_flags": td.common_flags,
     }
 
     path = tool_path(td)
@@ -164,6 +163,7 @@ def get_tool_help(tool_name: str) -> dict:
         result["path"] = path
         result.update(_installed(td, path))
         result.update(versions.tool_help(path, td))  # the tool's own, every call
+    result.update(_recipes(td, result.get("installed_version", "")))
 
     # FK enrichment
     if fk_loader:
@@ -185,6 +185,32 @@ def get_tool_help(tool_name: str) -> dict:
             logger.warning("FK enrichment failed for %s: %s", td.knowledge_name, e)
 
     return result
+
+
+def _recipes(td, version: str) -> dict:
+    """The tool's tested calls for the installed version, and the rest, each
+    named with the versions it was checked on. A version none was checked on
+    is said."""
+    if not td.recipes:
+        return {}
+    ours = [r for r in td.recipes if version_in(version, str(r.get("versions", "")))]
+    others = [
+        {**r, "note": f"tested on {r.get('versions', '?')} only"}
+        for r in td.recipes
+        if r not in ours
+    ]
+    out: dict[str, Any] = {"recipes": ours}
+    if others:
+        out["recipes_other_versions"] = others
+    if not ours:
+        ranges = sorted({str(r.get("versions", "?")) for r in td.recipes})
+        known = version and version != versions.UNKNOWN
+        named = version if known else "of an unknown version"
+        out["no_recipe"] = (
+            f"No recipe for {td.name} {named}; "
+            f"tested on {', '.join(ranges)}. Use the tool's own help."
+        )
+    return out
 
 
 def suggest_tools(artifact_type: str, question: str = "") -> dict:
