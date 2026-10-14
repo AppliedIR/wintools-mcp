@@ -7,11 +7,12 @@ import functools
 import inspect
 import logging
 import time
+from pathlib import Path
 
 import anyio
 from mcp.server.fastmcp import FastMCP
 
-from wintools_mcp import versions
+from wintools_mcp import jobs, versions
 from wintools_mcp.audit import AuditWriter
 from wintools_mcp.catalog import get_tool_def
 from wintools_mcp.config import WintoolsConfig, get_config
@@ -165,6 +166,20 @@ def _pinned_run(fn, args, kwargs, pin):
         return fn(*args, **kwargs)
 
 
+def _job_run(fn, args, kwargs, pin, run_id: str, began):
+    """A job's tool body, in its worker thread: the case pinned when it was
+    asked for, and the run id as its audit id."""
+    from wintools_mcp.config import pinned_case
+
+    with pinned_case(pin):
+        token = jobs.RUN_ID.set(run_id)
+        try:
+            began()
+            return fn(*args, **kwargs)
+        finally:
+            jobs.RUN_ID.reset(token)
+
+
 def offload(fn, limiter: list):
     """A sync tool runs in a worker thread, one at a time (``limiter`` holds
     the server's CapacityLimiter(1)), so the event loop keeps answering pings
@@ -201,6 +216,56 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return server.tool()(offload(fn, one_at_a_time))
 
     audit = AuditWriter(mcp_name="wintools-mcp", audit_dir=config.audit_dir or None)
+
+    def job_tool(fn):
+        """A tool whose runs can be long: in an active case it runs as a job
+        (jobs.py), answered within jobs.WAIT_SECONDS and polled after with
+        get_windows_run. Without a case it runs as any tool does."""
+        as_any_tool = offload(fn, one_at_a_time)
+
+        @functools.wraps(fn)
+        async def run(*args, **kwargs):
+            from wintools_mcp.config import snapshot
+            from wintools_mcp.output import to_share_relative
+
+            cfg = get_config()
+            if not cfg.case_dir:
+                return await as_any_tool(*args, **kwargs)
+            # on the loop, as the call comes in: the run's case, where its op
+            # folder and state file are
+            pin = snapshot()
+            run_id = audit._next_audit_id()
+            op_folder = to_share_relative(
+                str(Path(cfg.case_dir) / "extractions" / run_id), cfg.share_root
+            )
+
+            async def work(began):
+                return await anyio.to_thread.run_sync(
+                    functools.partial(_job_run, fn, args, kwargs, pin, run_id, began),
+                    limiter=run_limiter(one_at_a_time),
+                )
+
+            return await jobs.start(fn.__name__, run_id, cfg.case_dir, op_folder, work)
+
+        return server.tool()(run)
+
+    @server.tool()
+    async def get_windows_run(run_id: str, wait: int = 30) -> dict:
+        """The result of a long run_windows_command or batch_scan (the run_id
+        its reply named): waits up to ``wait`` seconds (at most about 60), then
+        gives the reply, or whether it is queued, running, stopped or failed.
+        Poll it every 30 seconds until the run is done."""
+        cfg = get_config()
+
+        def lost(rid: str, record: dict) -> None:
+            audit.log(
+                tool=str(record.get("tool") or "run_windows_command"),
+                params={"run_id": rid},
+                result_summary={"state": "failed", "error": record.get("error", "")},
+                audit_id=rid,
+            )
+
+        return await jobs.poll(run_id, float(wait), cfg.case_dir, lost)
 
     # --- Discovery ---
     @tool
@@ -359,7 +424,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         }
 
     # --- Batch Execution ---
-    @tool
+    @job_tool
     def batch_scan(
         tool: str,
         directory: str,
@@ -438,7 +503,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         td = get_tool_def(tool)
         binary = td.binary if td and td.exec_type != "script" else tool
 
-        audit_id = audit._next_audit_id()
+        audit_id = jobs.RUN_ID.get() or audit._next_audit_id()  # a job's: its run id
         # A row and an input for every file the tool was started on, an
         # error included; each input hashed just before its own run
         cfg = get_config()
@@ -616,7 +681,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         return _utf8(response)
 
     # --- Generic Execution ---
-    @tool
+    @job_tool
     def run_windows_command(
         command: list[str],
         purpose: str,
@@ -657,7 +722,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         from wintools_mcp.tools.generic import run_command as _run
 
         start = time.monotonic()
-        audit_id = audit._next_audit_id()
+        audit_id = jobs.RUN_ID.get() or audit._next_audit_id()  # a job's: its run id
 
         from wintools_mcp import operation
         from wintools_mcp.output import to_share_relative
@@ -812,7 +877,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             exec_result = _run(
                 command,
                 purpose=purpose,
-                timeout=timeout or None,
+                # the catalog's own limit for a long tool (KAPE: 1800 s), not the default
+                timeout=timeout or (td.timeout_seconds if td else 0) or None,
                 save_output=save_output,
                 op_dir=op_dir,
             )

@@ -6,6 +6,7 @@ from wintools_mcp import versions
 from wintools_mcp.catalog import clear_catalog_cache
 from wintools_mcp.config import reset_config
 from wintools_mcp.response import reset_call_counter
+from wintools_mcp.tools import generic
 
 
 @pytest.fixture(autouse=True)
@@ -22,6 +23,7 @@ def _clean_state(monkeypatch):
     reset_config()
     reset_call_counter()
     versions.clear()
+    generic._result_cache.clear()  # a no-case run's cached reply is that test's
     yield
     clear_catalog_cache()
     reset_config()

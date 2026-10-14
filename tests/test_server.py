@@ -76,11 +76,12 @@ class TestCreateServer:
         assert "run_mactime" not in tool_names
 
     def test_total_tool_count(self, test_catalog):
-        """10 core tools: 6 discovery + 1 share info + 1 KAPE + 1 batch + 1 generic."""
+        """11 core tools: 6 discovery + 1 share info + 1 KAPE + 1 batch + 1 generic
+        + get_windows_run (a long run's result)."""
         config = WintoolsConfig()
         server = create_server(config)
         tool_names = [t.name for t in server._tool_manager._tools.values()]
-        assert len(tool_names) == 10
+        assert len(tool_names) == 11
 
     def test_server_has_get_share_info(self, test_catalog):
         """get_share_info tool is registered."""

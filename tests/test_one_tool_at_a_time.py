@@ -104,7 +104,12 @@ def test_an_async_tool_is_left_as_it_is():
 
 def test_a_queued_call_whose_caller_gave_up_never_runs(case, monkeypatch):  # noqa: F811
     """B waits behind A; its caller gives up (a timeout) before A ends. B's
-    tool never starts afterwards: its caller was told it failed."""
+    tool never starts afterwards: its caller was told it failed. (No active
+    case: a run in a case is a job, which runs whatever its caller does.)"""
+    from wintools_mcp.config import get_config
+
+    monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
+    get_config().case_dir = ""
     ran: list = []
     _slow_runs(monkeypatch)
     real = generic.execute
