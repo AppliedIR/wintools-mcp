@@ -36,8 +36,9 @@ tools:
     settings_paths: ["rules", "config"]
     # Hayabusa's own version, should its file carry no VERSIONINFO: `help`
     # prints "Hayabusa vX" first on 3.x and 4.x (its --version fails on 3.9.0)
-    # 4.x has dfir-timeline, 3.x csv-timeline: the subcommand's own help
-    help_argv: [["dfir-timeline", "--help"], ["csv-timeline", "--help"], ["help"]]
+    # its main help lists the subcommands on every version (4.x has
+    # dfir-timeline, 3.x csv-timeline); the recipes name the timeline command
+    help_argv: [["help"]]
     version_probe:
       argv: ["help"]
       pattern: "Hayabusa v?([0-9][^\\s]*)"

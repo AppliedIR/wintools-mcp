@@ -257,11 +257,11 @@ def test_a_probe_of_a_tool_that_writes_megabytes_keeps_only_its_cap():
     argv = [sys.executable, "-c", "import sys; sys.stdout.write('x' * 8_000_000)"]
     tracemalloc.start()
     try:
-        text = _READ(argv)
+        _, out, err = _READ(argv)
         peak = tracemalloc.get_traced_memory()[1]
     finally:
         tracemalloc.stop()
-    assert len(text) <= 2 * versions.PROBE_BYTES + 1
+    assert len(out) + len(err) <= 2 * versions.PROBE_BYTES
     assert peak < 2 * 1024 * 1024, peak
 
 
@@ -289,8 +289,10 @@ def test_a_probe_reads_both_streams_and_ends_at_its_deadline(monkeypatch):
     import time
 
     said = "import sys; print('v1.2.3'); print('warn', file=sys.stderr)"
-    text = _READ([sys.executable, "-c", said])
-    assert "v1.2.3" in text and "warn" in text
+    code, out, err = _READ(
+        [sys.executable, "-c", "import sys; " + said + "; sys.exit(3)"]
+    )
+    assert "v1.2.3" in out and "warn" in err and code == 3
     monkeypatch.setattr(versions, "PROBE_SECONDS", 0.5)
     start = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
@@ -310,6 +312,6 @@ def test_a_probe_whose_child_holds_its_pipes_still_ends_at_its_deadline(monkeypa
         "import subprocess, sys; "
         f"subprocess.Popen([sys.executable, '-c', {grandchild!r}]); print('v9.9.9')"
     )
-    text = _READ([sys.executable, "-c", tool])
+    code, out, _ = _READ([sys.executable, "-c", tool])
     assert time.monotonic() - start < 5
-    assert "v9.9.9" in text
+    assert "v9.9.9" in out and code == 0

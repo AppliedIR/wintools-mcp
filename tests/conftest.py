@@ -13,12 +13,13 @@ from wintools_mcp.tools import generic
 def _clean_state(monkeypatch):
     """Reset caches before and after each test. No test runs a tool to read
     its version: a probe here fails as an unrunnable one does (its own rows
-    replace versions.run_probe)."""
+    replace versions.run_probe and versions.run_help)."""
 
     def not_run(argv):
         raise OSError("version probes are not run in tests")
 
     monkeypatch.setattr(versions, "run_probe", not_run)
+    monkeypatch.setattr(versions, "run_help", not_run, raising=False)
     clear_catalog_cache()
     reset_config()
     reset_call_counter()

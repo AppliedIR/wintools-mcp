@@ -68,11 +68,12 @@ def file_version(path: str) -> str | None:
         return None
 
 
-def bounded_output(argv: list[str]) -> str:
-    """The process's output (stdout, then stderr), at most PROBE_BYTES of
+def bounded_output(argv: list[str]) -> tuple[int | None, str, str]:
+    """The process's exit code, stdout and stderr, at most PROBE_BYTES of
     each: read as it comes, and the process ended once both are read or
     PROBE_SECONDS pass, so a tool that writes megabytes never fills memory.
-    Run outside any case: no op folder, nothing saved."""
+    The exit code is None when the process hadn't ended. Run outside any
+    case: no op folder, nothing saved."""
     proc = subprocess.Popen(
         argv,
         stdout=subprocess.PIPE,
@@ -125,15 +126,21 @@ def bounded_output(argv: list[str]) -> str:
             pipe.close()
     if out_of_time and not ended:
         raise subprocess.TimeoutExpired(argv, PROBE_SECONDS)
-    from wintools_mcp.executor import _decode_output
+    from wintools_mcp.executor import _decode_output, signed_exit
 
     # each stream in its own encoding: Sysinternals tools write UTF-16LE
     out, err = bytes(got["out"]), bytes(got["err"])
-    return _decode_output(out) + "\n" + _decode_output(err)
+    return signed_exit(proc.returncode), _decode_output(out), _decode_output(err)
 
 
 def run_probe(argv: list[str]) -> str:
-    """A version or help probe's output (tests replace this)."""
+    """A version probe's output, stdout then stderr (tests replace this)."""
+    _, out, err = bounded_output(argv)
+    return out + "\n" + err
+
+
+def run_help(argv: list[str]) -> tuple[int | None, str, str]:
+    """A help probe's exit code, stdout and stderr (tests replace this)."""
     return bounded_output(argv)
 
 
@@ -153,14 +160,19 @@ def _probe(path: str, probe: dict) -> dict:
 
 HELP_INLINE = 8192
 DEFAULT_HELP = [["--help"], ["-h"]]
-_USAGE = re.compile(r"(?im)(^\s*(usage|options|arguments|commands)\s*:|\busage:)")
+STDERR_LABEL = "# --- stderr ---"
 
 
-def _shown(text: str, argv: list[str]) -> dict:
-    """The help as the reply carries it: at most HELP_INLINE characters, and
-    when cut, how to read the rest."""
+def as_shown(out: str, err: str) -> str:
+    """Both streams, stdout first, stderr under its label."""
+    return f"{out}\n{STDERR_LABEL}\n{err}\n"
+
+
+def _shown(text: str, argv: list[str], code: int | None) -> dict:
+    """The help as the reply carries it, with its exit code: at most
+    HELP_INLINE characters, and when cut, how to read the rest."""
     text = text.strip("\n")
-    out = {"help": text[:HELP_INLINE], "help_argv": argv,
+    out = {"help": text[:HELP_INLINE], "help_argv": argv, "help_exit_code": code,
            "help_source": "the installed tool's own output, as text"}  # fmt: skip
     if len(text) > HELP_INLINE:
         out["help_cut"] = (
@@ -170,19 +182,14 @@ def _shown(text: str, argv: list[str]) -> dict:
     return out
 
 
-def _refused(text: str) -> bool:
-    """The tool refused the argv: its first line is an error (clap's
-    "error: unrecognized subcommand", whose own Usage line is no help)."""
-    first = next((line.strip() for line in text.splitlines() if line.strip()), "")
-    return first.lower().startswith("error:")
-
-
 def tool_help(path: str | None, td) -> dict:
-    """The installed tool's own help, asked with its catalog `help_argv` (the
-    first that prints usage wins; else the first that prints anything; an
-    argv the tool refuses with an error is never its help). Run on every
-    call, outside any case. Never for an acquisition tool or a script; a
-    EULA screen in place of the help is said, never accepted."""
+    """The installed tool's own help, asked with its catalog `help_argv`: what
+    it printed, stdout then stderr under STDERR_LABEL, with its exit code.
+    Nothing here judges whether it is help (an "invalid option" with exit 1
+    is shown as printed). The next argv is tried only when the tool printed
+    nothing at all. Run on every call, outside any case. Never for an
+    acquisition tool or a script; a EULA screen in place of the help is
+    said, never accepted."""
     if not path:
         return {}
     if td.acquisition:
@@ -191,28 +198,21 @@ def tool_help(path: str | None, td) -> dict:
         return {"help_not_run": "A script isn't run to read its help."}
     from wintools_mcp.tools.generic import eula_screen
 
-    first, errors = None, []
+    errors = []
     for argv in td.help_argv or DEFAULT_HELP:
         try:
-            text = run_probe([path, *argv])
+            code, out, err = run_help([path, *argv])
         except (OSError, subprocess.SubprocessError) as e:
             errors.append(f"{' '.join(argv)}: {e}")
             continue
-        if eula_screen(text):
+        if eula_screen(out) or eula_screen(err):
             return {"help_not_run": (
                 f"{td.binary} showed its license (EULA) screen: the account running "
                 "wintools hasn't accepted it. A run accepts it and says so."
             )}  # fmt: skip
-        if _refused(text):  # e.g. a subcommand this version doesn't have
-            first_line = next(line for line in text.splitlines() if line.strip())
-            errors.append(f"{' '.join(argv)}: {first_line.strip()}")
-            continue
-        if _USAGE.search(text):
-            return _shown(text, argv)
-        if first is None and text.strip():
-            first = (text, argv)
-    if first:
-        return _shown(*first)
+        if out.strip() or err.strip():
+            return _shown(as_shown(out, err), argv, code)
+        errors.append(f"{' '.join(argv)}: printed nothing (exit code {code})")
     return {"help_error": "; ".join(errors) or "the tool printed no help"}
 
 

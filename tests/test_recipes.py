@@ -99,6 +99,12 @@ def hayabusa_at(tmp_path, monkeypatch):
         "wintools_mcp.tools.discovery.tool_copies", lambda b: [str(exe)]
     )
     monkeypatch.setattr(versions, "run_probe", lambda argv: "Usage: hayabusa.exe\n")
+    monkeypatch.setattr(
+        versions,
+        "run_help",
+        lambda argv: (0, "Usage: hayabusa.exe\n", ""),
+        raising=False,
+    )
 
     def at(version):
         monkeypatch.setattr(versions, "file_version", lambda p: version)

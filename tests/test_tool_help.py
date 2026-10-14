@@ -1,14 +1,20 @@
 """get_windows_tool_help gives the installed tool's own help.
 
-It is asked on every call with the tool's catalog help argv, tried in order:
-the first that prints usage wins (Hayabusa 4.x answers `dfir-timeline
---help`, 3.x only `csv-timeline --help`); with none, the first that prints
-anything. At most 8 KB is inline, and a cut help says how to read the rest.
-An acquisition tool and a script are never run for it, and a EULA screen in
-place of the help is said, never accepted. The audit entry carries no help
-text. Tools are stand-ins; their output is synthetic, except the raw bytes
-under fixtures/raw_output: Sysinternals output captured on a Windows 11
-guest (UTF-16LE with a BOM; stderr UTF-8), read through the real probe.
+It is asked on every call with the tool's catalog help argv. The reply is
+what the tool printed, stdout then stderr under "# --- stderr ---", with its
+exit code: nothing judges whether it is help. The next argv is asked only
+when the tool printed nothing at all. Hayabusa is asked its main help, which
+lists its subcommands on 3.x and 4.x. At most 8 KB is inline, and a cut help
+says how to read the rest. An acquisition tool and a script are never run
+for it, and a EULA screen in place of the help is said, never accepted. The
+audit entry carries no help text. Tools are stand-ins; their output is
+synthetic, except:
+- fixtures/raw_output: Sysinternals output captured on a Windows 11 guest
+  (UTF-16LE with a BOM; stderr UTF-8), read through the real probe;
+- fixtures/tool_help/autorunsc: autorunsc 14.3's -? on FOR508-Win (banner on
+  stdout, usage on stderr);
+- fixtures/main_help: Hayabusa's `help` (exit 0, stdout only), 4.1.0 on
+  FOR508-Win and 3.9.0 on SIFT.
 """
 
 from __future__ import annotations
@@ -23,23 +29,8 @@ from test_eula_surrogate import EULA
 from wintools_mcp import environment, versions
 from wintools_mcp import server as srv
 
-H3 = "Hayabusa v3.9.0\n\nUsage: hayabusa.exe csv-timeline <INPUT> [OPTIONS]\n\nOptions:\n  -d, --directory <DIR>\n  -t, --threads <NUMBER>\n"
-# What each version prints for the other's subcommand (clap, on stderr; the probe
-# reads stdout, then stderr): Hayabusa 3.9.0 on SIFT, and 4.1.0 on a Windows guest
-NO_DFIR_3 = (
-    "\nerror: unrecognized subcommand 'dfir-timeline'\n\n"
-    "  tip: a similar subcommand exists: 'csv-timeline'\n\n"
-    "Usage: hayabusa [COMMAND]\n\nFor more information, try 'help'.\n"
-)
-NO_CSV_4 = (
-    "\nerror: unrecognized subcommand 'csv-timeline'\n\n"
-    "  tip: a similar subcommand exists: 'dfir-timeline'\n\n"
-    "Usage: hayabusa.exe [COMMAND]\n\nFor more information, try 'help'.\n"
-)
-H4 = (
-    "Hayabusa v4.1.0 - Suzumushi Release\n\nUsage:\n"
-    "  hayabusa.exe dfir-timeline <INPUT> [OPTIONS]\n\nOptions:\n  -t, --output-type <TYPE>\n"
-)
+FIXTURES = Path(__file__).parent / "fixtures"
+LABEL = "# --- stderr ---"
 
 
 def _help(name):
@@ -65,11 +56,12 @@ def installed(tmp_path, monkeypatch):
     monkeypatch.setattr(versions, "file_version", lambda p: "1.0.0.0")
     state = {"said": {}, "asked": []}
 
-    def run_probe(argv):
+    def run_help(argv):  # said: stdout (exit 0), or (exit code, stdout, stderr)
         state["asked"].append(argv[1:])
-        return state["said"].get(" ".join(argv[1:]), "")
+        said = state["said"].get(" ".join(argv[1:]), "")
+        return (0, said, "") if isinstance(said, str) else said
 
-    monkeypatch.setattr(versions, "run_probe", run_probe)
+    monkeypatch.setattr(versions, "run_help", run_help, raising=False)
     return state
 
 
@@ -78,22 +70,29 @@ def test_the_help_is_the_tools_own(case, installed):  # noqa: F811
         "PECmd version 1.5.0.0\n\nUsage: PECmd [options]\n  -f <f>\n"
     )
     r = _help("PECmd")
-    assert r["help"].startswith("PECmd version 1.5.0.0") and r["help_argv"] == [
-        "--help"
-    ]
+    assert (
+        r.get("help")
+        == f"PECmd version 1.5.0.0\n\nUsage: PECmd [options]\n  -f <f>\n\n{LABEL}"
+    )
+    assert r["help_argv"] == ["--help"] and r["help_exit_code"] == 0
     assert r["help_source"] == "the installed tool's own output, as text"
 
 
-def test_hayabusa_3_answers_its_csv_timeline_help(case, installed):  # noqa: F811
-    installed["said"].update(
-        {"dfir-timeline --help": NO_DFIR_3, "csv-timeline --help": H3}
-    )
+@pytest.mark.parametrize(
+    "version, timeline", [("3.9.0", "csv-timeline"), ("4.1.0", "dfir-timeline")]
+)
+def test_hayabusa_is_asked_its_main_help_which_lists_its_subcommands(
+    case,  # noqa: F811
+    installed,
+    version,
+    timeline,
+):
+    printed = (FIXTURES / "main_help" / f"hayabusa-{version}.stdout").read_text()
+    installed["said"]["help"] = printed
     r = _help("hayabusa")
-    assert r["help_argv"] == ["csv-timeline", "--help"] and "--threads" in r["help"]
-    assert installed["asked"] == [
-        ["dfir-timeline", "--help"],
-        ["csv-timeline", "--help"],
-    ]
+    assert installed["asked"] == [["help"]]
+    assert r.get("help", "").startswith(f"Hayabusa v{version}")
+    assert f"  {timeline}  " in r["help"] and r["help_exit_code"] == 0
 
 
 def test_a_sysinternals_tool_is_asked_with_its_usage_flag(case, installed):  # noqa: F811
@@ -131,30 +130,50 @@ def test_the_audit_entry_carries_no_help_text(case, installed):  # noqa: F811
     (entry,) = [e for e in _entries(case) if e["tool"] == "get_windows_tool_help"]
     assert "help" not in entry["result_summary"]
     assert entry["result_summary"]["help_chars"] == len(
-        "Usage: tool [options]\n  -f <file>"
+        f"Usage: tool [options]\n  -f <file>\n\n{LABEL}"
     )
 
 
-def test_hayabusa_4_answers_its_dfir_timeline_help(case, installed):  # noqa: F811
-    installed["said"].update(
-        {"dfir-timeline --help": H4, "csv-timeline --help": NO_CSV_4}
-    )
-    r = _help("hayabusa")
-    assert (
-        r["help_argv"] == ["dfir-timeline", "--help"] and "--output-type" in r["help"]
-    )
-    assert installed["asked"] == [["dfir-timeline", "--help"]]
-
-
-def test_an_argv_refused_with_an_error_is_never_the_help(case, installed):  # noqa: F811
-    """Every argv refused: no help, and each error named."""
-    installed["said"].update(
-        {"dfir-timeline --help": NO_DFIR_3, "csv-timeline --help": NO_CSV_4,
-         "help": "error: unexpected argument\n"}
+def test_an_error_is_shown_as_printed_with_its_exit_code(case, installed):  # noqa: F811
+    """An "invalid option" is the tool's own answer: shown, never judged, and
+    no other argv is asked."""
+    installed["said"]["--help"] = (
+        1, "", "invalid option -- '-'\nTry 'tool -h' for more information.\n"
     )  # fmt: skip
-    r = _help("hayabusa")
+    r = _help("PECmd")
+    assert installed["asked"] == [["--help"]]
+    assert r.get("help") == (
+        f"{LABEL}\ninvalid option -- '-'\nTry 'tool -h' for more information."
+    )
+    assert r["help_exit_code"] == 1 and r["help_argv"] == ["--help"]
+
+
+def test_usage_on_stderr_is_kept_under_its_label(case, installed):  # noqa: F811
+    """autorunsc -?: its banner on stdout, its usage on stderr; both shown."""
+    captured = (FIXTURES / "tool_help" / "autorunsc" / "14.3" / "help.txt").read_text()
+    out, err = captured.split("\n", 1)[1].split("\n--- stderr ---\n")
+    installed["said"]["-?"] = (0, out, err)
+    shown = _help("autorunsc").get("help", "")
+    banner = shown.index("Sysinternals Autoruns v14.3")
+    usage = shown.index("Usage: C:\\Forensic_Program_Files\\SysinternalsSuite")
+    assert banner < shown.index(f"\n{LABEL}\n") < usage
+    assert "-nobanner" in shown
+
+
+def test_the_next_argv_is_asked_only_when_both_streams_are_empty(case, installed):  # noqa: F811
+    installed["said"].update({"--help": (1, "", " \n"), "-h": "Usage: PECmd\n"})
+    r = _help("PECmd")
+    assert installed["asked"] == [["--help"], ["-h"]]
+    assert r.get("help_argv") == ["-h"] and r["help"].startswith("Usage: PECmd")
+
+
+def test_a_tool_that_prints_nothing_names_each_argv(case, installed):  # noqa: F811
+    installed["said"].update({"--help": (1, "", ""), "-h": (0, "", "")})
+    r = _help("PECmd")
     assert "help" not in r
-    assert "dfir-timeline --help: error: unrecognized subcommand" in r["help_error"]
+    assert r["help_error"] == (
+        "--help: printed nothing (exit code 1); -h: printed nothing (exit code 0)"
+    )
 
 
 RAW = Path(__file__).parent / "fixtures" / "raw_output"
@@ -170,7 +189,7 @@ def _prints(monkeypatch, tmp_path, stdout: bytes, stderr: Path | None = None):
     out = tmp_path / "out.bin"
     out.write_bytes(stdout)
     argv = [sys.executable, "-c", EMIT, str(out), str(stderr or "")]
-    monkeypatch.setattr(versions, "run_probe", lambda a: versions.bounded_output(argv))
+    monkeypatch.setattr(versions, "run_help", lambda a: versions.bounded_output(argv))
 
 
 @pytest.mark.parametrize("bom", [True, False])
