@@ -367,6 +367,48 @@ def test_autorunsc_runs_with_an_output_file(case, tmp_path):  # noqa: F811
     _runs(tmp_path, ["autorunsc", "-o", "out.csv", "-z", p["WIN"], p["USER"]])
 
 
+_SHARE = r"\\10.0.1.95\vhir-cases"
+
+
+@pytest.fixture
+def windows_paths(monkeypatch):
+    """scope reads paths as Windows does."""
+    import ntpath
+    import types
+
+    from wintools_mcp import scope
+
+    monkeypatch.setattr(scope, "os", types.SimpleNamespace(path=ntpath))
+
+
+@pytest.mark.parametrize("case_dir", [_SHARE, _SHARE + "\\"])
+def test_autorunsc_runs_on_a_case_that_is_a_whole_share(windows_paths, case_dir):
+    from wintools_mcp.scope import refusal
+
+    system = _SHARE + r"\evidence\LBHOST\C"
+    command = ["autorunsc", "-a", "*", "-c", "-z"]
+    command += [system + r"\Windows", system + r"\Users\u1"]
+    assert refusal(command, case_dir, _SHARE) == ""
+
+
+@pytest.mark.parametrize(
+    "system",
+    [
+        r"C:",
+        r"\\10.0.1.95\vhir-cases2\evidence\LBHOST\C",
+        r"\\10.0.1.95\other",
+    ],
+)
+def test_autorunsc_outside_a_case_that_is_a_whole_share_is_refused(
+    windows_paths,
+    system,
+):
+    from wintools_mcp.scope import refusal
+
+    command = ["autorunsc", "-z", system + r"\Windows", system + r"\Users\u1"]
+    assert "isn't in the case" in refusal(command, _SHARE, _SHARE)
+
+
 def test_autorunsc_with_no_case_is_refused():
     from wintools_mcp.scope import refusal
 

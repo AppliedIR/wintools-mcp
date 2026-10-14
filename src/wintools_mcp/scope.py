@@ -122,10 +122,17 @@ def _cluster_has(arg: str, flag: str, takes_value: str) -> bool:
     return False
 
 
+def _as_root(path: str) -> str:
+    """A bare share (``\\\\host\\share``) as its root folder: Windows reads it
+    as having no root, and commonpath won't compare it with a path under it."""
+    drive, rest = os.path.splitdrive(path)
+    return drive + os.path.sep if drive and not rest else path
+
+
 def _inside(path: str, case_dir: str) -> bool:
-    root = os.path.realpath(case_dir)
+    root = _as_root(os.path.realpath(case_dir))
     try:
-        return os.path.commonpath([os.path.realpath(path), root]) == root
+        return os.path.commonpath([_as_root(os.path.realpath(path)), root]) == root
     except ValueError:  # another drive
         return False
 

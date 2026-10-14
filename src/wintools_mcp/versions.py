@@ -187,10 +187,10 @@ def _inline(out: str, err: str) -> str:
     and at least STDERR_INLINE characters of stderr stay: a long usage text
     never hides the error. Each cut stream is marked where it is cut."""
     text = as_shown(out, err).strip("\n")
-    if len(text) <= HELP_INLINE or not err.strip():
-        return text[:HELP_INLINE]
+    if len(text) <= HELP_INLINE:
+        return text
     out, err = out.strip("\n"), err.strip("\n")
-    label = f"\n{STDERR_LABEL}\n"
+    label = f"\n{STDERR_LABEL}" + ("\n" if err else "")
     err_room = max(STDERR_INLINE, HELP_INLINE - len(label) - len(out))
     if len(err) > err_room:
         mark = _cut_mark("stderr")

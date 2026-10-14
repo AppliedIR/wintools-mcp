@@ -295,6 +295,19 @@ def test_a_long_usage_never_hides_the_error(case, installed):  # noqa: F811
     assert r["help_exit_code"] == 2 and "run_windows_command" in r["help_cut"]
 
 
+@pytest.mark.parametrize("err", ["", "\n", "  \n"])
+def test_a_long_usage_alone_is_marked_where_it_is_cut(case, installed, err):  # noqa: F811
+    """Nothing (or only blank lines) on stderr: stdout's cut is still marked,
+    and the stderr label stays, as on an uncut help."""
+    installed["said"]["--help"] = (0, "u" * 9000 + "\n", err)
+    r = _help("PECmd")
+    head, _, tail = r["help"].partition(f"\n{LABEL}")
+    assert head.endswith("\n[stdout cut here]"), r["help"][-200:]
+    assert tail.strip() == ""
+    assert len(r["help"]) <= versions.HELP_INLINE
+    assert "run_windows_command" in r["help_cut"]
+
+
 def test_a_long_stderr_keeps_its_start_inline_and_marks_the_cut(case, installed):  # noqa: F811
     installed["said"]["--help"] = (2, "u" * 9000, "error: first\n" + "e" * 5000)
     r = _help("PECmd")
