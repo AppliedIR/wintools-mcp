@@ -432,11 +432,9 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 )
                 row["exit_code"] = r.get("exit_code")
                 eula_note = eula_note or r.get("eula_note", "")
-                if r.get("eula_screen"):  # not a result: no meaning
+                if r.get("eula_screen"):  # not a result
                     row["error"] = r["eula_screen"]
                     errors.append(f"{filepath}: {r['eula_screen']}")
-                elif td and r.get("exit_code") in td.exit_code_meanings:
-                    row["exit_meaning"] = td.exit_code_meanings[r["exit_code"]]
                 row["stdout_bytes"] = r.get("stdout_total_bytes", 0)
                 row["preview"] = (r.get("stdout") or "")[:500]
             except ShareRefused as e:  # every file after it would be refused too
@@ -811,14 +809,10 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 if exec_result.get("terminated")
                 else ""
             )
-            success = (
-                not eula
-                and not stopped
-                and (td.is_success(exit_code) if td else exit_code == 0)
-            )
-            exit_code_meaning = (
-                td.exit_code_meanings.get(exit_code) if td and not stopped else None
-            )
+            # The run completed: it started, wintools didn't stop it, and no
+            # EULA screen took its place. What its exit code means differs by
+            # tool and version: the reply gives the bare code and the output
+            success = not eula and not stopped
 
             response = build_response(
                 tool_name="run_windows_command",
@@ -828,7 +822,6 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 output_format=resp_format,
                 elapsed_seconds=elapsed,
                 exit_code=exit_code,
-                exit_code_meaning=exit_code_meaning,
                 command=command,
                 error=eula or stopped,
                 tool_ran=not eula,

@@ -41,6 +41,14 @@ _BLOCKED_OUTPUT_DIRS_POSIX = (
 )
 
 
+def signed_exit(code: int | None) -> int | None:
+    """An exit code as the tool set it: Windows hands a negative one to
+    Python as its unsigned 32-bit value (-2 arrives as 4294967294)."""
+    if isinstance(code, int) and code >= 1 << 31:
+        return code - (1 << 32)
+    return code
+
+
 def _validate_output_dir(resolved_path: Path) -> None:
     """Raise ValueError if resolved_path is inside a blocked system directory."""
     path_str = str(resolved_path)
@@ -238,7 +246,7 @@ def execute(
         stdout_encoding = _stdout_encoding(stdout_raw)
 
         response: dict[str, Any] = {
-            "exit_code": proc.returncode,
+            "exit_code": signed_exit(proc.returncode),
             "stdout": stdout,
             "stderr": _truncate(stderr, config.max_output_bytes // 10),
             "elapsed_seconds": round(elapsed, 2),

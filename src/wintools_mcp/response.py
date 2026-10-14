@@ -48,14 +48,13 @@ def build_response(
     command: list[str] | None = None,
     error: str | None = None,
     fk_tool_name: str | None = None,
-    exit_code_meaning: str | None = None,
     output_files: list[dict] | None = None,
     extractions: list[str] | None = None,
     tool_ran: bool = True,
 ) -> dict:
     """The reply. With ``tool_ran`` False (the tool showed a screen in place
-    of running) there is no output to interpret: no FK content and no
-    exit-code meaning, only the bare code."""
+    of running) there is no output to interpret: no FK content. An exit code
+    is always the bare code: what it means is read from the tool's output."""
     call_num = next(_call_counter)
 
     response: dict[str, Any] = {
@@ -123,20 +122,6 @@ def build_response(
         metadata["elapsed_seconds"] = round(elapsed_seconds, 2)
     if exit_code is not None:
         metadata["exit_code"] = exit_code
-        # Catalog exit_code_meanings override FK hints
-        meaning = exit_code_meaning if tool_ran else None
-        if not meaning and fk_loader and tool_ran:
-            try:
-                tool_info = fk_loader.get_tool(fk_name)
-                if tool_info:
-                    hints = tool_info.get("exit_code_hints") or {}
-                    meaning = hints.get(exit_code)
-            except Exception as e:
-                logger.warning(
-                    "FK exit_code_hints lookup failed for %s: %s", fk_name, e
-                )
-        if meaning:
-            metadata["exit_code_meaning"] = meaning
     if command:
         metadata["command"] = command
     if metadata:

@@ -1,11 +1,11 @@
-"""batch_scan says which subfolders it didn't scan, gives an exit code its
-catalog meaning, runs a catalog name's binary, and scans the rest of a folder
-when one entry can't be read; run_windows_command's reply can always be sent.
+"""batch_scan says which subfolders it didn't scan, gives each exit code
+bare, runs a catalog name's binary, and scans the rest of a folder when one
+entry can't be read; run_windows_command's reply can always be sent.
 
 - batch_scan reads one folder, not its subfolders: the note says how many it
   left.
-- A row whose exit code has a catalog meaning (sigcheck's 1: unsigned files
-  found) carries it; the summary's exit-code keys stay as they are.
+- A row carries its exit code bare: what it means differs by tool and
+  version, and the output says; the summary's exit-code keys stay as they are.
 - A catalog name (strings) runs its binary (strings64.exe), as
   run_windows_command does.
 - An entry whose type can't be read (a symlink loop) is an error of its own;
@@ -43,11 +43,11 @@ def test_a_flat_folder_says_nothing_of_subfolders(case, ran):  # noqa: F811
     assert len(ran) == 2 and "subfolder" not in r["note"]
 
 
-def test_an_exit_code_shows_its_catalog_meaning(case, ran):  # noqa: F811
+def test_an_exit_code_is_shown_bare(case, ran):  # noqa: F811
     r = _scan(_files(case / "evidence" / "mixed", ["evil.exe", "good.exe"]))
     rows = {os.path.basename(row["file"]): row for row in r["results"]}
-    assert rows["evil.exe"]["exit_meaning"] == "unsigned files found"
-    assert rows["good.exe"]["exit_meaning"] == "all files signed"
+    assert (rows["evil.exe"]["exit_code"], rows["good.exe"]["exit_code"]) == (1, 0)
+    assert not any("exit_meaning" in row for row in rows.values()), rows
     assert r["exit_codes"] == {"0": 1, "1": 1}  # the summary's keys as they were
 
 

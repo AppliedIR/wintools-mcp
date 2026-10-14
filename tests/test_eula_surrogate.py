@@ -2,11 +2,11 @@
 results.
 
 - A Sysinternals tool run by an account that hasn't accepted its EULA prints
-  the license and exits 1. sigcheck's catalog reads exit 1 as "unsigned
-  files found", so the screen is an error of its own, named, with no exit
-  meaning, in batch_scan rows and in run_windows_command. A real exit 1
-  still means what it says, and the license text in a tool's real output
-  (strings over a Sysinternals binary) isn't the screen.
+  the license and exits 1, as sigcheck does for unsigned files, so the screen
+  is an error of its own, named, in batch_scan rows and in
+  run_windows_command. A real exit 1 is still a result, and the license text
+  in a tool's real output (strings over a Sysinternals binary) isn't the
+  screen.
 - A character a file name can't carry in UTF-8 (a lone surrogate) is shown as
   its code point, `<U+D800>`. A backslash escape (`\\ud800`) reads on Windows
   as a folder and a file, and can be a different, real file's name. The
@@ -147,17 +147,16 @@ def test_an_eula_screen_through_run_windows_command_is_a_named_failure(case, too
     assert "unsigned files found" not in json.dumps(r)
 
 
-def test_a_real_unsigned_result_still_means_unsigned(case, tools):  # noqa: F811
+def test_a_real_unsigned_result_is_still_a_result(case, tools):  # noqa: F811
     folder = _files(case / "evidence" / "mixed", ["evil.exe", "good.exe"])
     r = _sent(_tool("batch_scan")(tool="sigcheck", directory=str(folder)))
     rows = {os.path.basename(row["file"]): row for row in r["results"]}
-    assert (
-        rows["evil.exe"]["exit_meaning"] == "unsigned files found" and r["errors"] == []
-    )
+    assert rows["evil.exe"]["exit_code"] == 1 and "error" not in rows["evil.exe"]
+    assert r["errors"] == []
     rwc = _tool("run_windows_command")
     one = _sent(rwc(command=["sigcheck", str(folder / "evil.exe")], purpose="check"))
-    assert one["success"] is True
-    assert one["metadata"]["exit_code_meaning"] == "unsigned files found"
+    assert one["success"] is True and one["metadata"]["exit_code"] == 1, one
+    assert "Unsigned" in json.dumps(one["data"])  # the result, as the tool printed it
 
 
 @pytest.mark.parametrize(
@@ -194,7 +193,7 @@ def test_a_file_named_after_the_title_is_still_a_result(case, monkeypatch):  # n
     )
     r = _sent(_tool("batch_scan")(tool="sigcheck", directory=str(folder)))
     (row,) = r["results"]
-    assert row["exit_meaning"] == "unsigned files found" and "error" not in row, row
+    assert row["exit_code"] == 1 and "error" not in row, row
 
 
 def test_an_eula_run_is_audited_in_full(case, tools):  # noqa: F811
@@ -340,12 +339,14 @@ def test_an_eula_reply_carries_no_meaning_caveat_or_hint(case, tools, fk):  # no
     assert "Exit code 1" not in text and "unsigned" not in text.lower()
 
 
-def test_a_run_still_gets_its_knowledge_and_meaning(case, tools, fk):  # noqa: F811
+def test_a_run_still_gets_its_knowledge_but_no_exit_label(case, tools, fk):  # noqa: F811
+    """Its knowledge has exit_code_hints (1: "error"): no label is read off
+    them, or off anything else; the caveats still come."""
     folder = _files(case / "evidence" / "fkrun", ["evil.exe"])
     r = _sent(_tool("run_windows_command")(command=["sigcheck", str(folder / "evil.exe")],
                                            purpose="check"))  # fmt: skip
-    assert r["success"] is True
-    assert r["metadata"]["exit_code_meaning"] == "unsigned files found"
+    assert r["success"] is True and r["metadata"]["exit_code"] == 1
+    assert "exit_code_meaning" not in r["metadata"], r["metadata"]
     assert "Exit code 1 = unsigned files found (not an error)" in r["caveats"]
 
 

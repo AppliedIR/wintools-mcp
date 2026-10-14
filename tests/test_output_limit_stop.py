@@ -69,4 +69,4 @@ def test_a_run_that_ends_under_the_limit_is_read_as_before(case, monkeypatch):  
     _as_windows_runs(monkeypatch, UNSIGNED)
     r = _run("sigcheck", "C:\\x")
     assert r["success"] is True and "error" not in r, r
-    assert r["metadata"]["exit_code_meaning"] == "unsigned files found", r
+    assert r["metadata"]["exit_code"] == 1, r
