@@ -765,7 +765,8 @@ if ($Update) {
                     -DontStopIfGoingOnBatteries `
                     -StartWhenAvailable `
                     -RestartCount 3 `
-                    -RestartInterval (New-TimeSpan -Minutes 1)
+                    -RestartInterval (New-TimeSpan -Minutes 1) `
+                    -ExecutionTimeLimit ([TimeSpan]::Zero)
                 Register-ScheduledTask `
                     -TaskName $currentTaskName `
                     -Action $action `
@@ -776,6 +777,15 @@ if ($Update) {
                     -Description "Valhuntir wintools-mcp forensic tool server" -ErrorAction Stop | Out-Null
                 Write-Ok "Scheduled task renamed to '$currentTaskName'"
                 $taskName = $currentTaskName
+            }
+            # Older installs kept the default 3-day time limit, which stops wintools
+            try {
+                $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                $existing.Settings.ExecutionTimeLimit = "PT0S"
+                Set-ScheduledTask -InputObject $existing -ErrorAction Stop | Out-Null
+                Write-Ok "Scheduled task time limit removed"
+            } catch {
+                Write-Warn "Could not remove the scheduled task's time limit: $_"
             }
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
             Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
@@ -793,7 +803,8 @@ if ($Update) {
                     -DontStopIfGoingOnBatteries `
                     -StartWhenAvailable `
                     -RestartCount 3 `
-                    -RestartInterval (New-TimeSpan -Minutes 1)
+                    -RestartInterval (New-TimeSpan -Minutes 1) `
+                    -ExecutionTimeLimit ([TimeSpan]::Zero)
                 Register-ScheduledTask `
                     -TaskName $currentTaskName `
                     -Action $action `
@@ -888,7 +899,8 @@ if ($Update) {
                 $watchdogSettings = New-ScheduledTaskSettingsSet `
                     -AllowStartIfOnBatteries `
                     -DontStopIfGoingOnBatteries `
-                    -StartWhenAvailable
+                    -StartWhenAvailable `
+                    -ExecutionTimeLimit ([TimeSpan]::Zero)
                 Register-ScheduledTask `
                     -TaskName $watchdogTaskName `
                     -Action $watchdogAction `
@@ -901,6 +913,15 @@ if ($Update) {
             } catch {
                 Write-Warn "Could not register watchdog task: $_"
             }
+        }
+    } else {
+        # Older installs kept the default 3-day time limit on the watchdog too
+        try {
+            $watchdogExists.Settings.ExecutionTimeLimit = "PT0S"
+            Set-ScheduledTask -InputObject $watchdogExists -ErrorAction Stop | Out-Null
+            Write-Ok "Watchdog task time limit removed"
+        } catch {
+            Write-Warn "Could not remove the watchdog task's time limit: $_"
         }
     }
 
@@ -2778,7 +2799,8 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
                 -DontStopIfGoingOnBatteries `
                 -StartWhenAvailable `
                 -RestartCount 3 `
-                -RestartInterval (New-TimeSpan -Minutes 1)
+                -RestartInterval (New-TimeSpan -Minutes 1) `
+                -ExecutionTimeLimit ([TimeSpan]::Zero)
 
             Register-ScheduledTask `
                 -TaskName $taskName `
@@ -2807,7 +2829,8 @@ if ($startChoice -eq "1" -and -not $skipServerStart) {
                 $watchdogSettings = New-ScheduledTaskSettingsSet `
                     -AllowStartIfOnBatteries `
                     -DontStopIfGoingOnBatteries `
-                    -StartWhenAvailable
+                    -StartWhenAvailable `
+                    -ExecutionTimeLimit ([TimeSpan]::Zero)
 
                 Register-ScheduledTask `
                     -TaskName $watchdogTaskName `
