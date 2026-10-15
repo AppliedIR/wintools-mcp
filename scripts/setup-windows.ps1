@@ -1418,11 +1418,16 @@ if ($hasGit) {
             Push-Location $wintoolsDir
             try {
                 $pullOutput = & git pull --quiet 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    $gitSaid = $pullOutput | ForEach-Object {
+                $pullCode = $LASTEXITCODE
+                if ($pullCode -ne 0) {
+                    $gitSaid = @($pullOutput | ForEach-Object {
                         if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" }
-                    } | Where-Object { "$_".Trim() } | Select-Object -First 8
-                    $pullError = (@("git pull failed (exit $LASTEXITCODE):") + $gitSaid) -join "`n    "
+                    } | Where-Object { "$_".Trim() } | Select-Object -First 8)
+                    if ($gitSaid) {
+                        $pullError = (@("git pull failed (exit ${pullCode}):") + $gitSaid) -join "`n    "
+                    } else {
+                        $pullError = "git pull failed (exit $pullCode) and printed nothing"
+                    }
                 } else {
                     $cloneOk = $true
                 }
@@ -1435,7 +1440,12 @@ if ($hasGit) {
             if ($pullError) {
                 Write-Err "Couldn't update the wintools-mcp at $wintoolsDir"
                 Write-Host "  $pullError"
-                if ($ContinueWithoutUpdate -or (Read-YesNo "Set up the wintools-mcp already there, without the update?" $false)) {
+                $useOld = [bool]$ContinueWithoutUpdate
+                if (-not $useOld) {
+                    # A host that can't prompt (powershell -NonInteractive) throws: that's a No
+                    try { $useOld = Read-YesNo "Set up the wintools-mcp already there, without the update?" $false } catch { $useOld = $false }
+                }
+                if ($useOld) {
                     Write-Warn "Continuing with the wintools-mcp already at $wintoolsDir, not updated"
                     if (Test-Path (Join-Path $wintoolsDir "pyproject.toml")) { $cloneOk = $true }
                 } else {

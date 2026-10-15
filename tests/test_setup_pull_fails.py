@@ -33,7 +33,7 @@ def _function(name: str) -> str:
     return _between(f"function {name} {{", "\n}\n") + "\n}\n"
 
 
-def _harness(tmp_path: Path) -> Path:
+def _harness(tmp_path: Path, stubs: str) -> Path:
     """The clone-or-pull step, with the installer's own Read-YesNo."""
     ps1 = tmp_path / "pull.ps1"
     ps1.write_text(
@@ -44,7 +44,7 @@ def _harness(tmp_path: Path) -> Path:
         'function Write-Ok { param($m) Write-Host "OK $m" }\n'
         'function Write-Warn { param($m) Write-Host "WARN $m" }\n'
         'function Write-Err { param($m) Write-Host "ERR $m" }\n'
-        'function Read-Host { param($m) Write-Host "PROMPT $m"; $env:STUB_ANSWER }\n'
+        + stubs
         + _function("Read-YesNo")
         + '$hasGit = $true\n$githubOrg = "file:///nowhere"\n'
         + _between("# Clone or download wintools-mcp", "\nif (-not $cloneOk) {")
@@ -76,7 +76,12 @@ def install(tmp_path):
     return tmp_path, remote, inst
 
 
-def _run(tmp_path, inst, *flags, answer=None):
+READ_HOST = (
+    'function Read-Host { param($m) Write-Host "PROMPT $m"; $env:STUB_ANSWER }\n'
+)
+
+
+def _run(tmp_path, inst, *flags, answer=None, stubs=READ_HOST, host=()):
     env = {k: v for k, v in os.environ.items() if k != "STUB_ANSWER"}
     if answer is not None:
         env["STUB_ANSWER"] = answer
@@ -84,8 +89,9 @@ def _run(tmp_path, inst, *flags, answer=None):
         [
             "pwsh",
             "-NoProfile",
+            *host,
             "-File",
-            str(_harness(tmp_path)),
+            str(_harness(tmp_path, stubs)),
             "-wintoolsDir",
             str(inst),
             *flags,
@@ -160,3 +166,24 @@ def test_a_local_change_the_pull_would_overwrite_stops(install):
     assert rc == 1, out
     assert "would be overwritten by merge" in out
     assert (inst / "pyproject.toml").read_text() == "edited\n"
+
+
+def test_a_host_that_cant_prompt_stops_and_replaces_nothing(install):
+    """powershell -NonInteractive without the script's -NonInteractive: the
+    prompt throws, which is a No, not the ZIP fallback's swap of the folder."""
+    tmp_path, _, inst = install
+    (inst / "pyproject.toml").write_text("edited\n")
+    rc, out = _run(tmp_path, inst, stubs="", host=("-NonInteractive",))
+    assert rc == 1, out
+    assert "would be overwritten by merge" in out
+    assert "falling back to ZIP" not in out and "cloneOk=" not in out
+    assert (inst / "pyproject.toml").read_text() == "edited\n"
+
+
+def test_a_failed_pull_that_prints_nothing_says_so(install):
+    tmp_path, _, inst = install
+    git = "function git { $global:LASTEXITCODE = 1 }\n"
+    rc, out = _run(tmp_path, inst, "-NonInteractive", stubs=READ_HOST + git)
+    assert rc == 1, out
+    assert "git pull failed (exit 1) and printed nothing" in out
+    assert "(exit 1):" not in out
