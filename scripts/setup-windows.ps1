@@ -69,6 +69,13 @@
 .PARAMETER GatewayPort
     SIFT gateway port. Default: 4508.
 
+.PARAMETER GatewayCertSha256
+    The SHA-256 of the SIFT gateway's TLS certificate, as 64 hex digits
+    (colons and case don't matter). 'vhir setup join-code' prints it in its
+    one-line command when the gateway uses HTTPS. The gateway's own CA isn't
+    in this machine's trust store, so the installer accepts only the
+    certificate with this fingerprint, for its calls to the gateway only.
+
 .PARAMETER JoinCode
     One-time join code from 'vhir setup join-code' on SIFT workstation.
     Enables automated credential exchange instead of manual copy-paste.
@@ -157,6 +164,7 @@ param(
     [switch]$NoAuth,
     [string]$GatewayHost = "",
     [int]$GatewayPort = 4508,
+    [string]$GatewayCertSha256 = "",
     [string]$JoinCode = "",
     [switch]$Uninstall,
     [switch]$Update,
@@ -489,8 +497,102 @@ function Validate-Port {
     }
 }
 
+function ConvertTo-GatewayPin {
+    # The fingerprint as 'vhir setup join-code' prints it: 64 hex digits;
+    # colons, spaces and case don't matter
+    param([string]$Value)
+    $pin = ($Value -replace '[:\s]', '').ToLowerInvariant()
+    if ($pin -notmatch '^[0-9a-f]{64}$') {
+        throw "-GatewayCertSha256 must be the 64 hex digits 'vhir setup join-code' printed (got '$Value')"
+    }
+    return $pin
+}
+
+function Invoke-VhirGateway {
+    # One HTTPS call to the SIFT gateway that accepts only the certificate
+    # whose SHA-256 is the pin join-code printed: the gateway's CA isn't in
+    # this machine's trust store. The check belongs to this call's client
+    # only, never to the process (no ServicePointManager state). A C#
+    # delegate, because a script block can't run on .NET's TLS thread under
+    # Windows PowerShell 5.1. Returns the status and the body. A certificate
+    # that isn't the pinned one throws an AuthenticationException naming
+    # both fingerprints, and nothing is sent.
+    param([string]$Uri, [string]$Pin, [string]$Method = "GET", [string]$Body = "", [int]$TimeoutSec = 30)
+    $expected = ConvertTo-GatewayPin $Pin
+    if (-not ([System.Management.Automation.PSTypeName]'VhirGatewayPin').Type) {
+        Add-Type -AssemblyName System.Net.Http
+        $typeArgs = @{ TypeDefinition = @"
+    using System;
+    using System.Net.Http;
+    using System.Net.Security;
+    using System.Security.Cryptography;
+    using System.Security.Cryptography.X509Certificates;
+    public class VhirGatewayPin {
+        private readonly string expected;
+        public string Seen = "";
+        public VhirGatewayPin(string pin) { expected = pin; }
+        public bool Check(HttpRequestMessage request, X509Certificate2 cert, X509Chain chain, SslPolicyErrors errors) {
+            if (cert == null) { return false; }
+            using (SHA256 sha = SHA256.Create()) {
+                Seen = BitConverter.ToString(sha.ComputeHash(cert.GetRawCertData())).Replace("-", "").ToLowerInvariant();
+            }
+            return Seen == expected;
+        }
+        public Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> Callback() { return Check; }
+    }
+"@ }
+        # Windows PowerShell compiles against the loaded System.Net.Http;
+        # PowerShell 7 already references it
+        if ($PSVersionTable.PSEdition -ne "Core") {
+            $typeArgs.ReferencedAssemblies = @([System.Net.Http.HttpClient].Assembly.Location)
+        }
+        Add-Type @typeArgs
+    }
+    $pinner = [VhirGatewayPin]::new($expected)
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.ServerCertificateCustomValidationCallback = $pinner.Callback()
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    try {
+        $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
+        try {
+            if ($Method -eq "POST") {
+                $content = [System.Net.Http.StringContent]::new($Body, [System.Text.Encoding]::UTF8, "application/json")
+                $response = $client.PostAsync($Uri, $content).GetAwaiter().GetResult()
+            } else {
+                $response = $client.GetAsync($Uri).GetAwaiter().GetResult()
+            }
+        } catch {
+            if ($pinner.Seen -and $pinner.Seen -ne $expected) {
+                throw [System.Security.Authentication.AuthenticationException]::new(
+                    "The SIFT gateway's certificate isn't the one join-code printed " +
+                    "(expected $expected, got $($pinner.Seen)). Re-run ``vhir setup join-code`` " +
+                    "on the SIFT and use its command.")
+            }
+            throw
+        }
+        $text = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        return [pscustomobject]@{ StatusCode = [int]$response.StatusCode; Content = $text }
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Test-TlsTrustFailure {
+    # True when an https call failed on the certificate: Windows PowerShell
+    # says TrustFailure, PowerShell 7 has an AuthenticationException inside
+    param($Exception)
+    for ($e = $Exception; $e; $e = $e.InnerException) {
+        if ($e -is [System.Security.Authentication.AuthenticationException]) { return $true }
+        if ($e -is [System.Net.WebException] -and $e.Status -eq [System.Net.WebExceptionStatus]::TrustFailure) { return $true }
+    }
+    return $false
+}
+
 Validate-Port $Port "Port"
 if ($GatewayPort) { Validate-Port $GatewayPort "GatewayPort" }
+if ($GatewayCertSha256) {
+    try { $null = ConvertTo-GatewayPin $GatewayCertSha256 } catch { Write-Err "$_"; exit 1 }
+}
 
 # =============================================================================
 # Uninstall
@@ -2204,21 +2306,56 @@ $toolPathsYaml
 
             Write-Ok "TCP port $siftPort is open"
 
-            # Step 3: HTTP health check
-            foreach ($scheme in @("https", "http")) {
+            # Step 3: HTTP health check. With the pin join-code printed: HTTPS
+            # only, accepting only that certificate, never a fallback to http
+            $pinRefusal = ""
+            $pinnedError = ""
+            $tlsUntrusted = $false
+            if ($GatewayCertSha256) {
                 try {
-                    $response = Invoke-WebRequest -Uri "${scheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-                    Write-Ok "Connected to SIFT gateway at ${scheme}://${siftIp}:${siftPort}"
+                    $answer = Invoke-VhirGateway -Uri "https://${siftIp}:${siftPort}/health" -Pin $GatewayCertSha256 -TimeoutSec 5
+                    if ($answer.StatusCode -lt 200 -or $answer.StatusCode -ge 300) { throw "the gateway answered HTTP $($answer.StatusCode)" }
+                    Write-Ok "Connected to SIFT gateway at https://${siftIp}:${siftPort} (its certificate matches the pin)"
                     $gatewayReachable = $true
-                    $gatewayScheme = $scheme
-                    break
-                } catch { }
+                    $gatewayScheme = "https"
+                } catch {
+                    if ($_.Exception -is [System.Security.Authentication.AuthenticationException]) {
+                        $pinRefusal = $_.Exception.Message
+                    } else {
+                        $pinnedError = "$($_.Exception.Message)"
+                    }
+                }
+            } else {
+                foreach ($scheme in @("https", "http")) {
+                    try {
+                        $response = Invoke-WebRequest -Uri "${scheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                        Write-Ok "Connected to SIFT gateway at ${scheme}://${siftIp}:${siftPort}"
+                        $gatewayReachable = $true
+                        $gatewayScheme = $scheme
+                        break
+                    } catch {
+                        if ($scheme -eq "https" -and (Test-TlsTrustFailure $_.Exception)) { $tlsUntrusted = $true }
+                    }
+                }
             }
 
+            if ($pinRefusal) {
+                # Nothing was sent, and asking again can't help
+                Write-Err $pinRefusal
+                break
+            }
             if (-not $gatewayReachable) {
                 Write-Warn "Port is open but HTTP health check failed"
-                Write-Host "  The port is accepting connections but not responding to HTTP." -ForegroundColor Yellow
-                Write-Host "  Check that the Valhuntir gateway (not another service) is on port $siftPort." -ForegroundColor White
+                if ($pinnedError) {
+                    Write-Host "  $pinnedError" -ForegroundColor Yellow
+                }
+                if ($tlsUntrusted) {
+                    Write-Host "  The gateway answers over HTTPS with a certificate this machine doesn't trust." -ForegroundColor Yellow
+                    Write-Host "  Re-run with the one-liner 'vhir setup join-code' printed on the SIFT: it carries the certificate's fingerprint (-GatewayCertSha256)." -ForegroundColor White
+                } else {
+                    Write-Host "  The port is accepting connections but not responding to HTTP." -ForegroundColor Yellow
+                    Write-Host "  Check that the Valhuntir gateway (not another service) is on port $siftPort." -ForegroundColor White
+                }
                 if (-not $NonInteractive) {
                     Write-Host ""
                     $retry = Read-Prompt "Press Enter to retry, or 'skip' to continue without gateway" ""
@@ -2332,15 +2469,29 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
 
             $joinBody = $joinBody | ConvertTo-Json
 
+            $statusCode = $null
             try {
-                $joinResponse = Invoke-WebRequest `
-                    -Uri "${gatewayScheme}://${siftIp}:${siftPort}/api/v1/setup/join" `
-                    -Method POST `
-                    -ContentType "application/json" `
-                    -Body $joinBody `
-                    -TimeoutSec 30 `
-                    -UseBasicParsing `
-                    -ErrorAction Stop
+                if ($GatewayCertSha256) {
+                    $joinResponse = Invoke-VhirGateway `
+                        -Uri "https://${siftIp}:${siftPort}/api/v1/setup/join" `
+                        -Method POST `
+                        -Body $joinBody `
+                        -Pin $GatewayCertSha256 `
+                        -TimeoutSec 30
+                    if ($joinResponse.StatusCode -lt 200 -or $joinResponse.StatusCode -ge 300) {
+                        $statusCode = $joinResponse.StatusCode
+                        throw "the gateway answered HTTP $statusCode"
+                    }
+                } else {
+                    $joinResponse = Invoke-WebRequest `
+                        -Uri "${gatewayScheme}://${siftIp}:${siftPort}/api/v1/setup/join" `
+                        -Method POST `
+                        -ContentType "application/json" `
+                        -Body $joinBody `
+                        -TimeoutSec 30 `
+                        -UseBasicParsing `
+                        -ErrorAction Stop
+                }
                 $joinData = $joinResponse.Content | ConvertFrom-Json
                 $joinSucceeded = $true
                 Write-Ok "Registered with SIFT gateway via join API"
@@ -2348,11 +2499,14 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
                     Write-Ok "Gateway token received: $(Mask-ApiKey $joinData.gateway_token)"
                 }
             } catch {
-                $statusCode = $null
                 if ($_.Exception.Response) {
                     $statusCode = [int]$_.Exception.Response.StatusCode
                 }
-                if ($statusCode -eq 403) {
+                if ($GatewayCertSha256 -and $_.Exception -is [System.Security.Authentication.AuthenticationException]) {
+                    # Refused before anything was sent: the key wasn't stored
+                    $wintoolsApiKey = ""
+                    Write-Err $_.Exception.Message
+                } elseif ($statusCode -eq 403) {
                     # Server rejected the request -- key was NOT stored. Safe to clear.
                     $wintoolsApiKey = ""
                     Write-Warn "Join failed: invalid, expired, or already-used join code"
@@ -3031,7 +3185,12 @@ if ($joinSucceeded) {
     $gatewayView = $null
     for ($try = 1; $try -le 12; $try++) {
         try {
-            $gatewayView = Invoke-RestMethod -Uri "${gatewayScheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+            if ($GatewayCertSha256) {
+                $answer = Invoke-VhirGateway -Uri "https://${siftIp}:${siftPort}/health" -Pin $GatewayCertSha256 -TimeoutSec 5
+                $gatewayView = $answer.Content | ConvertFrom-Json
+            } else {
+                $gatewayView = Invoke-RestMethod -Uri "${gatewayScheme}://${siftIp}:${siftPort}/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+            }
             if ($gatewayView -is [string]) { $gatewayView = $gatewayView | ConvertFrom-Json }
             if ($gatewayView.backends.'wintools-mcp'.status -eq "ok") { break }
         } catch { }
