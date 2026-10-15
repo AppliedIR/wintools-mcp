@@ -2890,6 +2890,9 @@ if (-not $skipServerStart) {
 
     try {
         $process = Start-Process -FilePath $venvPython -ArgumentList $startArgs -PassThru -WindowStyle Hidden
+        # A cold start can take longer than one probe: wait up to this long for its first answer
+        $healthWaitSeconds = 90
+        $healthStarted = Get-Date
 
         Start-Sleep -Seconds 3
 
@@ -2913,11 +2916,28 @@ public class VhirTrustLocalCert : ICertificatePolicy {
                 [System.Net.ServicePointManager]::CertificatePolicy = New-Object VhirTrustLocalCert
             }
             try {
-                $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
-                Write-Ok "wintools-mcp running on port $Port ($wintoolsScheme)"
-                $serverHealthy = $true
-            } catch {
-                Write-Warn "wintools-mcp started but health check failed: $_"
+                while ($true) {
+                    try {
+                        $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                        $healthError = $null
+                        break
+                    } catch {
+                        $healthError = $_
+                    }
+                    if ($process.HasExited) { break }
+                    $waited = [int]((Get-Date) - $healthStarted).TotalSeconds
+                    if ($waited -ge $healthWaitSeconds) { break }
+                    Write-Info "Waiting for wintools-mcp to answer ($waited s)"
+                    Start-Sleep -Seconds 2
+                }
+                if (-not $healthError) {
+                    Write-Ok "wintools-mcp running on port $Port ($wintoolsScheme)"
+                    $serverHealthy = $true
+                } elseif ($process.HasExited) {
+                    Write-Warn "wintools-mcp exited immediately - check configuration"
+                } else {
+                    Write-Warn "wintools-mcp started but health check failed: $healthError"
+                }
             } finally {
                 if ($wintoolsScheme -eq "https") {
                     [System.Net.ServicePointManager]::CertificatePolicy = $previousPolicy

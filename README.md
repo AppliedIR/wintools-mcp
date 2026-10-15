@@ -106,9 +106,10 @@ Invoke-WebRequest https://github.com/AppliedIR/wintools-mcp/archive/refs/heads/m
 Expand-Archive wintools.zip -DestinationPath . -Force; cd wintools-mcp-main
 ```
 
-Then run the installer:
+Then run the installer. Windows 10/11 refuses to run scripts by default, so the first line allows them for this PowerShell window only:
 
 ```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
 .\scripts\setup-windows.ps1
 ```
 

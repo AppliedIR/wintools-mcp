@@ -349,3 +349,90 @@ def test_the_manual_fallback_names_the_restart_that_loads_it():
     assert "vhir service restart wintools-mcp" in fallback
     assert "restart the gateway" not in fallback
     assert "restart_required" not in TEXT
+
+
+# --- the first answer after the server starts -----------------------------
+
+START_PRE = r"""
+$skipServerStart = $false; $serverHealthy = $false; $startChoice = '1'
+$Port = 4624; $BindAddress = '0.0.0.0'; $wintoolsScheme = 'http'; $Examiner = 'examiner'
+$venvPython = 'python'; $wintoolsConfigPath = '/nonexistent/config.yaml'
+$startupPath = 'C:\vhir\start.ps1'; $watchdogPath = 'C:\vhir\watchdog.ps1'
+$global:clock = 0; $global:answerAt = ANSWER_AT; $global:exitAt = EXIT_AT
+function Start-Sleep { param($Seconds, $Milliseconds) Ev "sleep:$Seconds"; $global:clock += $Seconds }
+function Get-Date { [datetime]::new(2026, 1, 1).AddSeconds($global:clock) }
+function Start-Process { param($FilePath, $ArgumentList, [switch]$PassThru, $WindowStyle)
+    $p = [pscustomobject]@{}
+    $p | Add-Member -MemberType ScriptProperty -Name HasExited -Value {
+        ($global:exitAt -ge 0) -and ($global:clock -ge $global:exitAt) }
+    $p }
+function Invoke-WebRequest { param($Uri, $TimeoutSec, [switch]$UseBasicParsing, $ErrorAction)
+    Ev "probe:$global:clock"
+    if ($global:answerAt -ge 0 -and $global:clock -ge $global:answerAt) {
+        return [pscustomobject]@{ StatusCode = 200 } }
+    throw 'stand-in: connection refused' }
+function Get-ScheduledTask { param($TaskName, $ErrorAction) $null }
+function New-ScheduledTaskAction { param($Execute, $Argument) 'action' }
+function New-ScheduledTaskTrigger { param([switch]$AtStartup, [switch]$Once, $At,
+    $RepetitionInterval, $RepetitionDuration) 'trigger' }
+function New-ScheduledTaskSettingsSet { param([switch]$AllowStartIfOnBatteries,
+    [switch]$DontStopIfGoingOnBatteries, [switch]$StartWhenAvailable, $RestartCount,
+    $RestartInterval) 'settings' }
+function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Settings, $RunLevel,
+    $User, $Description, $ErrorAction) Ev "register:$TaskName" }
+"""
+
+
+def _start(tmp_path, answer_at: int, exit_at: int) -> tuple[str, list[int], list[str]]:
+    """Start the server, then register the task: -1 means it never answers or never exits."""
+    start = _between(
+        'if (-not $skipServerStart) {\n    Write-Info "Starting wintools-mcp',
+        "# =============================================================================\n"
+        "# Auto-Start Configuration",
+    )
+    register = _between(
+        'if ($startChoice -eq "1" -and -not $skipServerStart) {',
+        "    # Add firewall rule",
+    )
+    pre = START_PRE.replace("ANSWER_AT", str(answer_at)).replace(
+        "EXIT_AT", str(exit_at)
+    )
+    body = start + register + "}\n" + 'Write-Host "HEALTHY=$serverHealthy"\n'
+    _, out, events = _run(tmp_path, body, pre)
+    probes = [int(e.split(":")[1]) for e in events if e.startswith("probe:")]
+    return out, probes, events
+
+
+def test_a_server_that_answers_after_17_s_is_healthy_and_its_task_registered(tmp_path):
+    out, probes, events = _start(tmp_path, answer_at=17, exit_at=-1)
+    assert "HEALTHY=True" in out, out
+    assert "OK wintools-mcp running on port 4624 (http)" in out
+    assert "register:Valhuntir wintools-mcp" in events
+    assert probes == [3, 5, 7, 9, 11, 13, 15, 17]
+    assert "INFO Waiting for wintools-mcp to answer (15 s)" in out
+    assert "health check failed" not in out
+
+
+def test_a_server_that_never_answers_gets_todays_warning_after_the_deadline(tmp_path):
+    out, probes, events = _start(tmp_path, answer_at=-1, exit_at=-1)
+    assert "HEALTHY=False" in out, out
+    assert (
+        "wintools-mcp started but health check failed: stand-in: connection refused"
+        in out
+    )
+    assert (
+        "Server did not pass health check. Skipping scheduled task registration." in out
+    )
+    assert not [e for e in events if e.startswith("register:")]
+    assert probes[0] == 3 and 90 <= probes[-1] < 93, probes
+    assert all(b - a == 2 for a, b in zip(probes, probes[1:], strict=False)), probes
+
+
+def test_a_server_that_exits_while_it_is_awaited_stops_the_wait_at_once(tmp_path):
+    out, probes, events = _start(tmp_path, answer_at=-1, exit_at=8)
+    assert "HEALTHY=False" in out, out
+    assert "WARN wintools-mcp exited immediately - check configuration" in out
+    assert "health check failed" not in out
+    assert not [e for e in events if e.startswith("register:")]
+    assert probes == [3, 5, 7, 9], probes
+    assert events[-1] != "sleep:2" and events.count("sleep:2") == 3, events
