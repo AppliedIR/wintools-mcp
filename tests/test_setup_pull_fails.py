@@ -46,6 +46,9 @@ def _harness(tmp_path: Path, stubs: str) -> Path:
         'function Write-Err { param($m) Write-Host "ERR $m" }\n'
         + stubs
         + _function("Read-YesNo")
+        + '$selfHash = ""\n'
+        + _function("Get-ScriptHash")
+        + _function("Test-NewSetupScript")
         + '$hasGit = $true\n$githubOrg = "file:///nowhere"\n'
         + _between("# Clone or download wintools-mcp", "\nif (-not $cloneOk) {")
         + '\n"cloneOk=$cloneOk"\n',
