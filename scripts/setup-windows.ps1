@@ -85,10 +85,11 @@
     silently proceeding with stale code.
 
 .PARAMETER ContinueWithoutUpdate
-    When the install's wintools-mcp folder is a git checkout that can't be
-    updated (no network, a local change, a checked-out tag), set up the code
-    already there instead of stopping. Without it, a failed update stops the
-    run, unless you answer "y" when asked.
+    When the install's wintools-mcp folder is a git checkout that git can't
+    update (a failed pull, a local change, a checked-out tag), set up the code
+    already there instead of stopping. The setup still needs to reach GitHub
+    at the start, and PyPI to install the package. Without it, a failed update
+    stops the run, unless you answer "y" when asked.
 
 .EXAMPLE
     # Interactive install with full Valhuntir integration
@@ -139,8 +140,8 @@
     .\setup-windows.ps1 -Standalone -InstallDir "E:\vhir"
 
 .EXAMPLE
-    # Re-run on a machine whose wintools-mcp folder can't be updated (offline),
-    # setting up the code already there
+    # Re-run on a machine whose wintools-mcp checkout can't be pulled (a local
+    # change or a tag), setting up the code already there
     .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole -ContinueWithoutUpdate
 #>
 [CmdletBinding()]
@@ -715,7 +716,8 @@ if ($Update) {
         $status = git status --porcelain 2>&1
         # Filter untracked files (??) -- they never conflict with git pull
         $modified = $status | Where-Object { $_ -notmatch '^\?\?' }
-        if ($modified) {
+        # A re-run: the setup that started it showed these and had a yes
+        if ($modified -and -not $env:WINTOOLS_SETUP_RERUN) {
             Write-Warn "Working tree has uncommitted changes:"
             $modified | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
             if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {

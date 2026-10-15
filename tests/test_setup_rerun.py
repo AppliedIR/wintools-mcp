@@ -387,6 +387,38 @@ def test_the_update_check_sits_after_the_source_update_and_before_pip():
     assert update.index("Converted to git repo") < update.index(UPDATE_CHECK)
 
 
+@pytest.mark.parametrize(("rerun", "rc"), [("", 1), ("1", 0)], ids=["first", "rerun"])
+def test_a_re_run_does_not_ask_about_local_changes_again(tmp_path, rerun, rc):
+    """The setup that started the re-run listed the changes and had a yes."""
+    tree = tmp_path / "wt"
+    tree.mkdir()
+    _git("init", "-q", "-b", "main", cwd=tree)
+    (tree / "pyproject.toml").write_text("one\n")
+    _git("add", ".", cwd=tree)
+    _git("commit", "-qm", "one", cwd=tree)
+    (tree / "pyproject.toml").write_text("edited\n")
+    run = tmp_path / "dirty.ps1"
+    run.write_text(
+        START
+        + _function("Read-YesNo")
+        + 'function Read-Host { param($m) Write-Host "PROMPT $m"; "n" }\n'
+        + "Push-Location $env:STUB_DIR\n"
+        + _between("        $status = git status --porcelain", "        $branch = git")
+        + '"past the check"\n',
+        encoding="utf-8",
+    )
+    got, out = _pwsh(
+        "-File",
+        str(run),
+        "-Update",
+        env={"STUB_DIR": str(tree), "WINTOOLS_SETUP_RERUN": rerun},
+    )
+    assert got == rc, out
+    assert ("WARN Working tree has uncommitted changes:" in out) == (not rerun)
+    assert ("PROMPT Continue anyway?" in out) == (not rerun)
+    assert ("past the check" in out) == bool(rerun)
+
+
 @pytest.mark.parametrize(("installed", "rc"), [("new", 7), ("same", 0)])
 def test_an_update_with_a_new_installed_script_runs_it(tmp_path, installed, rc):
     run = tmp_path / "update.ps1"
