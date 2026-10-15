@@ -50,6 +50,10 @@ def _trap() -> str:
     return _between("trap {", "\n}\n") + "\n}\n"
 
 
+def _function(name: str) -> str:
+    return _between(f"function {name} {{", "\n}\n") + "\n}\n"
+
+
 STUBS = r"""
 $ErrorActionPreference = "Stop"
 function Ev { param($e) Add-Content -Path $env:EVENTS -Value $e }
@@ -136,6 +140,9 @@ def _script(tmp_path, after, env):
         + "$wintoolsConfigPath = Join-Path $wintoolsDir 'config.yaml'\n"
         + "$githubOrg = 'https://github.example.test/AppliedIR'\n$hasGit = $false\n"
         + "$process = $null\n"
+        + '$startParams = @{}\n$selfHash = ""\n'
+        + _function("Get-ScriptHash")
+        + _function("Test-NewSetupScript")
         + _trap()
         + _block()
         + after,
