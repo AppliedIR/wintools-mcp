@@ -22,11 +22,11 @@ The installer requires you to type `security_hole` before proceeding, or pass `-
 
 ## Automated Install
 
-The recommended approach uses the installer script:
+The recommended approach uses the installer script. Windows 10/11 refuses to run scripts by default, so each installer line on this page first allows them for this PowerShell window only:
 
 ```powershell
 git clone https://github.com/AppliedIR/wintools-mcp.git; cd wintools-mcp
-.\scripts\setup-windows.ps1
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\scripts\setup-windows.ps1
 ```
 
 The installer runs 7 phases: prerequisites, install, examiner identity, tool scan, case directory setup, MCP server start, and auto-start configuration.
@@ -36,13 +36,13 @@ The installer runs 7 phases: prerequisites, install, examiner identity, tool sca
 **Valhuntir-integrated (default)** — Full platform integration with a SIFT workstation. Case directory accessed via SMB share. Audit trail, evidence, and tool output written to the shared case directory.
 
 ```powershell
-.\setup-windows.ps1
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1
 ```
 
 **Standalone** — Independent operation without a SIFT workstation. Case directory and audit trail stored locally on this machine.
 
 ```powershell
-.\setup-windows.ps1 -Standalone
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1 -Standalone
 ```
 
 ### Installer Switches
@@ -67,13 +67,13 @@ Update SIFT first, and re-join it before updating wintools on Windows: on SIFT r
 
 ```powershell
 # Non-interactive Valhuntir install
-.\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole
 
 # Non-interactive standalone
-.\setup-windows.ps1 -Standalone -NonInteractive -AcknowledgeSecurityHole
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1 -Standalone -NonInteractive -AcknowledgeSecurityHole
 
 # Custom directory, examiner, and port
-.\setup-windows.ps1 -InstallDir "D:\Forensics\vhir" -Examiner "steve" -Port 8443 -AcknowledgeSecurityHole
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1 -InstallDir "D:\Forensics\vhir" -Examiner "steve" -Port 8443 -AcknowledgeSecurityHole
 ```
 
 ## Manual Install
@@ -111,7 +111,7 @@ One Windows VM with forensic tools, wintools-mcp, and the LLM client all on the 
 
 Setup:
 ```powershell
-.\setup-windows.ps1 -Standalone
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1 -Standalone
 # Case dir is local. No SMB needed.
 set VHIR_CASE_DIR=C:\Tools\vhir\cases\INC-2026-0001
 ```
@@ -141,7 +141,7 @@ Setup:
 ./sift-install.sh
 
 # On Windows:
-.\setup-windows.ps1
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1
 
 # Map the SIFT share on Windows:
 net use Z: \\192.168.1.10\cases /persistent:yes
@@ -176,7 +176,7 @@ Setup:
 ./sift-install.sh --remote
 
 # On Windows:
-.\setup-windows.ps1
+Set-ExecutionPolicy -Scope Process Bypass -Force; .\setup-windows.ps1
 
 # On analyst machine:
 pip install vhir
