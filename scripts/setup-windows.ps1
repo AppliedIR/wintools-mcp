@@ -84,6 +84,13 @@
     Fails cleanly on dirty working tree or merge conflicts instead of
     silently proceeding with stale code.
 
+.PARAMETER ContinueWithoutUpdate
+    When the install's wintools-mcp folder is a git checkout that git can't
+    update (a failed pull, a local change, a checked-out tag), set up the code
+    already there instead of stopping. The setup still needs to reach GitHub
+    at the start, and PyPI to install the package. Without it, a failed update
+    stops the run, unless you answer "y" when asked.
+
 .EXAMPLE
     # Interactive install with full Valhuntir integration
     .\setup-windows.ps1
@@ -131,6 +138,11 @@
     # wintools-mcp from GitHub and its packages from PyPI, so it needs
     # internet access to both: it can't install in an air-gapped lab.
     .\setup-windows.ps1 -Standalone -InstallDir "E:\vhir"
+
+.EXAMPLE
+    # Re-run on a machine whose wintools-mcp checkout can't be pulled (a local
+    # change or a tag), setting up the code already there
+    .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole -ContinueWithoutUpdate
 #>
 [CmdletBinding()]
 param(
@@ -147,8 +159,26 @@ param(
     [int]$GatewayPort = 4508,
     [string]$JoinCode = "",
     [switch]$Uninstall,
-    [switch]$Update
+    [switch]$Update,
+    [switch]$ContinueWithoutUpdate
 )
+
+# The SHA-256 of a script, with CRLF read as LF (a git checkout and the ZIP
+# of the same commit differ only there); "" when there is no file
+function Get-ScriptHash {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return "" }
+    $latin1 = [Text.Encoding]::GetEncoding(28591)
+    $text = $latin1.GetString([IO.File]::ReadAllBytes($Path)).Replace("`r`n", "`n")
+    $sha = [Security.Cryptography.SHA256]::Create()
+    return [BitConverter]::ToString($sha.ComputeHash($latin1.GetBytes($text))).Replace("-", "")
+}
+
+# Recorded before anything is fetched: an update can change this file, and
+# the new one is then run with the same options (Start-SetupScript)
+$startParams = @{}
+foreach ($k in $PSBoundParameters.Keys) { $startParams[$k] = $PSBoundParameters[$k] }
+$selfHash = Get-ScriptHash $PSCommandPath
 
 $ErrorActionPreference = "Stop"
 
@@ -183,6 +213,58 @@ function Write-Ok     { param($msg) Write-Host "[OK] " -ForegroundColor Green -N
 function Write-Warn   { param($msg) Write-Host "[WARN] " -ForegroundColor Yellow -NoNewline; Write-Host $msg }
 function Write-Err    { param($msg) Write-Host "[ERROR] " -ForegroundColor Red -NoNewline; Write-Host $msg }
 function Write-Header { param($msg) Write-Host "`n=== $msg ===`n" -ForegroundColor White }
+
+# Whether $Path is a setup-windows.ps1 other than the running one. A re-run
+# (WINTOOLS_SETUP_RERUN) only warns: one re-run, never a loop.
+function Test-NewSetupScript {
+    param([string]$Path)
+    $hash = Get-ScriptHash $Path
+    if (-not $hash -or -not $selfHash -or $hash -eq $selfHash) { return $false }
+    if ($env:WINTOOLS_SETUP_RERUN) {
+        Write-Warn "The update changed setup-windows.ps1 again; carrying on with the one already running"
+        return $false
+    }
+    Write-Info "The update changed setup-windows.ps1: running the new one with the same options"
+    return $true
+}
+
+function Format-Quoted {
+    param([string]$Value)
+    return "'" + [System.Management.Automation.Language.CodeGeneration]::EscapeSingleQuotedStringContent($Value) + "'"
+}
+
+# Runs $Script with $Params in a new PowerShell, the same program as this one
+# (powershell.exe or pwsh.exe from $PSHOME), and exits with its code. The new
+# PowerShell is called as a statement, never assigned, so its output and
+# prompts reach the console; WINTOOLS_SETUP_RERUN is set inside it only.
+# -RemoveAfter: $Script is a temporary copy, removed once it has run.
+function Start-SetupScript {
+    param([string]$Script, [hashtable]$Params, [switch]$RemoveAfter)
+    $pairs = foreach ($k in ($Params.Keys | Sort-Object)) {
+        $v = $Params[$k]
+        if ($v -is [System.Management.Automation.SwitchParameter] -or $v -is [bool]) {
+            $text = if ([bool]$v) { '$true' } else { '$false' }
+        } elseif ($v -is [int]) {
+            $text = [string]$v
+        } else {
+            $text = Format-Quoted ([string]$v)
+        }
+        (Format-Quoted $k) + " = " + $text
+    }
+    # A script that ends normally after a failed native command exits 0, as a
+    # -File run does; a failure with no exit code (a throw, a parameter the
+    # script doesn't take) exits 1
+    $command = '$env:WINTOOLS_SETUP_RERUN = ''1''; $p = @{ ' + ($pairs -join "; ") + ' }; & ' +
+        (Format-Quoted $Script) + ' @p; if ($?) { exit 0 } elseif ($LASTEXITCODE) { exit $LASTEXITCODE } else { exit 1 }'
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $exe = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh" } else { "powershell" }
+    if ([Environment]::OSVersion.Platform -eq "Win32NT") { $exe += ".exe" }
+    $ErrorActionPreference = "Continue"
+    & (Join-Path $PSHOME $exe) -NoProfile -ExecutionPolicy ([string](Get-ExecutionPolicy)) -OutputFormat Text -EncodedCommand $encoded
+    $code = $LASTEXITCODE
+    if ($RemoveAfter) { Remove-Item -LiteralPath $Script -Force -ErrorAction SilentlyContinue }
+    exit $code
+}
 
 # 64-bit only: the cryptography package ships no 32-bit Windows build
 function Get-PythonBits {
@@ -634,7 +716,8 @@ if ($Update) {
         $status = git status --porcelain 2>&1
         # Filter untracked files (??) -- they never conflict with git pull
         $modified = $status | Where-Object { $_ -notmatch '^\?\?' }
-        if ($modified) {
+        # A re-run: the setup that started it showed these and had a yes
+        if ($modified -and -not $env:WINTOOLS_SETUP_RERUN) {
             Write-Warn "Working tree has uncommitted changes:"
             $modified | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
             if (-not (Read-YesNo "Continue anyway? (changes may cause merge conflicts)" $false)) {
@@ -672,6 +755,12 @@ if ($Update) {
 
     Pop-Location
     $ErrorActionPreference = "Stop"
+
+    # The installed setup-windows.ps1 does the rest when it isn't this one
+    $installedScript = Join-Path (Join-Path $wintoolsDir "scripts") "setup-windows.ps1"
+    if (Test-NewSetupScript $installedScript) {
+        Start-SetupScript $installedScript $startParams
+    }
 
     # 2. Reinstall package
     Write-Info "Reinstalling wintools-mcp..."
@@ -1354,7 +1443,7 @@ function Complete-WintoolsSwap {
 # $DestDir becomes "$DestDir.old" and the new tree takes its place. Returns
 # the old folder's path ("" when there was none).
 function Get-RepoAsZip {
-    param([string]$RepoName, [string]$DestDir, [scriptblock]$BeforeReplace)
+    param([string]$RepoName, [string]$DestDir, [scriptblock]$BeforeReplace, [scriptblock]$AfterExtract)
     $zipUrl = "$githubOrg/$RepoName/archive/refs/heads/main.zip"
     $zipPath = Join-Path $InstallDir "$RepoName.zip"
     $extractedDir = Join-Path $InstallDir "$RepoName-main"
@@ -1374,6 +1463,11 @@ function Get-RepoAsZip {
     Remove-Item $zipPath -ErrorAction SilentlyContinue
     if (-not (Test-Path $extractedDir)) {
         throw "Expected directory $extractedDir not found after extraction"
+    }
+    # $AfterExtract returning true: the download isn't used, nothing is swapped
+    if ($AfterExtract -and (& $AfterExtract $extractedDir)) {
+        Remove-Item $extractedDir -Recurse -Force -ErrorAction SilentlyContinue
+        return ""
     }
     $leaf = Split-Path $DestDir -Leaf
     if (-not (Test-Path $DestDir)) {
@@ -1415,41 +1509,78 @@ if (Test-Path $wintoolsOldDir) {
     }
 }
 
+# A new setup-windows.ps1 from the fetch runs with this run's options, the
+# acknowledgment and the install directory included, so neither is asked again
+$rerunParams = $startParams.Clone()
+$rerunParams["AcknowledgeSecurityHole"] = $true
+$rerunParams["InstallDir"] = $InstallDir
+$script:newSetupScript = $null
+
 # Clone or download wintools-mcp
 $cloneOk = $false
+$gitFetched = $false  # a clone or pull that worked: the code is current
 if ($hasGit) {
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
         if (Test-Path $wintoolsDir) {
             Write-Info "Directory exists, pulling latest..."
+            $pullError = ""
             Push-Location $wintoolsDir
             try {
-                $null = & git pull --quiet 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Warn "git pull failed (exit $LASTEXITCODE). Using existing code."
+                $pullOutput = & git pull --quiet 2>&1
+                $pullCode = $LASTEXITCODE
+                if ($pullCode -ne 0) {
+                    $gitSaid = @($pullOutput | ForEach-Object {
+                        if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" }
+                    } | Where-Object { "$_".Trim() } | Select-Object -First 8)
+                    if ($gitSaid) {
+                        $pullError = (@("git pull failed (exit ${pullCode}):") + $gitSaid) -join "`n    "
+                    } else {
+                        $pullError = "git pull failed (exit $pullCode) and printed nothing"
+                    }
                 } else {
                     $cloneOk = $true
+                    $gitFetched = $true
                 }
             } catch {
-                Write-Warn "Could not update (network issue?). Using existing code."
+                $pullError = "git pull didn't run: $_"
             } finally {
                 Pop-Location
             }
-            # Even if pull failed, existing dir may have usable code
-            if (-not $cloneOk -and (Test-Path (Join-Path $wintoolsDir "pyproject.toml"))) {
-                Write-Info "Existing source appears usable, continuing with current version"
-                $cloneOk = $true
+            # A failed update stops the run: setting up the old code is a choice
+            if ($pullError) {
+                Write-Err "Couldn't update the wintools-mcp at $wintoolsDir"
+                Write-Host "  $pullError"
+                $useOld = [bool]$ContinueWithoutUpdate
+                if (-not $useOld) {
+                    # A host that can't prompt (powershell -NonInteractive) throws: that's a No
+                    try { $useOld = Read-YesNo "Set up the wintools-mcp already there, without the update?" $false } catch { $useOld = $false }
+                }
+                if ($useOld) {
+                    Write-Warn "Continuing with the wintools-mcp already at $wintoolsDir, not updated"
+                    if (Test-Path (Join-Path $wintoolsDir "pyproject.toml")) { $cloneOk = $true }
+                } else {
+                    Write-Host "  Fix the problem above and re-run, or re-run with -ContinueWithoutUpdate to set up the code already there." -ForegroundColor Yellow
+                    exit 1
+                }
             }
         } else {
             $null = & git clone --quiet "$githubOrg/wintools-mcp.git" $wintoolsDir 2>&1
             if ($LASTEXITCODE -ne 0) { throw "git clone failed (exit $LASTEXITCODE)" }
             $cloneOk = $true
+            $gitFetched = $true
         }
     } catch {
         Write-Warn "git clone failed, falling back to ZIP download"
     } finally {
         $ErrorActionPreference = $prevEAP
+    }
+}
+if ($gitFetched) {
+    $fetchedScript = Join-Path (Join-Path $wintoolsDir "scripts") "setup-windows.ps1"
+    if (Test-NewSetupScript $fetchedScript) {
+        Start-SetupScript $fetchedScript $rerunParams
     }
 }
 if (-not $cloneOk) {
@@ -1460,8 +1591,17 @@ if (-not $cloneOk) {
     }
     $handedOver = $false  # to the rollback window below
     try {
-        $script:wintoolsSwap = Get-RepoAsZip "wintools-mcp" $wintoolsDir -BeforeReplace { Suspend-WintoolsService }
-        Write-Ok "wintools-mcp downloaded"
+        # A download with a new setup-windows.ps1 replaces nothing: a copy of
+        # that script runs instead (below), and it downloads again
+        $script:wintoolsSwap = Get-RepoAsZip "wintools-mcp" $wintoolsDir -BeforeReplace { Suspend-WintoolsService } -AfterExtract {
+            param($tree)
+            $new = Join-Path (Join-Path $tree "scripts") "setup-windows.ps1"
+            if (-not (Test-NewSetupScript $new)) { return $false }
+            $script:newSetupScript = Join-Path ([IO.Path]::GetTempPath()) "wintools-setup-$([guid]::NewGuid()).ps1"
+            Copy-Item -LiteralPath $new -Destination $script:newSetupScript
+            return $true
+        }
+        if (-not $script:newSetupScript) { Write-Ok "wintools-mcp downloaded" }
         $handedOver = $true
     } catch {
         Write-Err "Failed to download wintools-mcp: $_"
@@ -1475,6 +1615,9 @@ if (-not $cloneOk) {
                 Resume-WintoolsService
             }
         }
+    }
+    if ($script:newSetupScript) {
+        Start-SetupScript $script:newSetupScript $rerunParams -RemoveAfter
     }
 }
 
