@@ -84,6 +84,12 @@
     Fails cleanly on dirty working tree or merge conflicts instead of
     silently proceeding with stale code.
 
+.PARAMETER ContinueWithoutUpdate
+    When the install's wintools-mcp folder is a git checkout that can't be
+    updated (no network, a local change, a checked-out tag), set up the code
+    already there instead of stopping. Without it, a failed update stops the
+    run, unless you answer "y" when asked.
+
 .EXAMPLE
     # Interactive install with full Valhuntir integration
     .\setup-windows.ps1
@@ -131,6 +137,11 @@
     # wintools-mcp from GitHub and its packages from PyPI, so it needs
     # internet access to both: it can't install in an air-gapped lab.
     .\setup-windows.ps1 -Standalone -InstallDir "E:\vhir"
+
+.EXAMPLE
+    # Re-run on a machine whose wintools-mcp folder can't be updated (offline),
+    # setting up the code already there
+    .\setup-windows.ps1 -NonInteractive -AcknowledgeSecurityHole -ContinueWithoutUpdate
 #>
 [CmdletBinding()]
 param(
@@ -147,7 +158,8 @@ param(
     [int]$GatewayPort = 4508,
     [string]$JoinCode = "",
     [switch]$Uninstall,
-    [switch]$Update
+    [switch]$Update,
+    [switch]$ContinueWithoutUpdate
 )
 
 $ErrorActionPreference = "Stop"
@@ -1402,23 +1414,34 @@ if ($hasGit) {
     try {
         if (Test-Path $wintoolsDir) {
             Write-Info "Directory exists, pulling latest..."
+            $pullError = ""
             Push-Location $wintoolsDir
             try {
-                $null = & git pull --quiet 2>&1
+                $pullOutput = & git pull --quiet 2>&1
                 if ($LASTEXITCODE -ne 0) {
-                    Write-Warn "git pull failed (exit $LASTEXITCODE). Using existing code."
+                    $gitSaid = $pullOutput | ForEach-Object {
+                        if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" }
+                    } | Where-Object { "$_".Trim() } | Select-Object -First 8
+                    $pullError = (@("git pull failed (exit $LASTEXITCODE):") + $gitSaid) -join "`n    "
                 } else {
                     $cloneOk = $true
                 }
             } catch {
-                Write-Warn "Could not update (network issue?). Using existing code."
+                $pullError = "git pull didn't run: $_"
             } finally {
                 Pop-Location
             }
-            # Even if pull failed, existing dir may have usable code
-            if (-not $cloneOk -and (Test-Path (Join-Path $wintoolsDir "pyproject.toml"))) {
-                Write-Info "Existing source appears usable, continuing with current version"
-                $cloneOk = $true
+            # A failed update stops the run: setting up the old code is a choice
+            if ($pullError) {
+                Write-Err "Couldn't update the wintools-mcp at $wintoolsDir"
+                Write-Host "  $pullError"
+                if ($ContinueWithoutUpdate -or (Read-YesNo "Set up the wintools-mcp already there, without the update?" $false)) {
+                    Write-Warn "Continuing with the wintools-mcp already at $wintoolsDir, not updated"
+                    if (Test-Path (Join-Path $wintoolsDir "pyproject.toml")) { $cloneOk = $true }
+                } else {
+                    Write-Host "  Fix the problem above and re-run, or re-run with -ContinueWithoutUpdate to set up the code already there." -ForegroundColor Yellow
+                    exit 1
+                }
             }
         } else {
             $null = & git clone --quiet "$githubOrg/wintools-mcp.git" $wintoolsDir 2>&1
