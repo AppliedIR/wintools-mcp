@@ -2038,10 +2038,7 @@ if ($scanOutput) {
         if ($missingLine -match "(\d+) missing") { $missingCount = [int]$Matches[1] }
         if ($missingCount -gt 0) {
             Write-Host ""
-            Write-Host "  $missingCount tool(s) not found in default search paths:" -ForegroundColor Yellow
-            $scanOutput | Where-Object { $_ -match "\[MISSING\]\s+(\S+)" } | ForEach-Object {
-                if ($_ -match "\[MISSING\]\s+(\S+)") { Write-Host "    - $($Matches[1])" -ForegroundColor Yellow }
-            }
+            Write-Host "  $missingCount tool(s) marked [MISSING] above weren't found in the default search paths." -ForegroundColor Yellow
             Write-Host ""
             Write-Host "  If your tools are in non-standard locations (e.g., D:\Forensics, E:\Tools),"
             Write-Host "  enter those directories now so wintools-mcp can find them at runtime."
@@ -2702,6 +2699,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
         if (-not $driveLetter) {
             Write-Warn "Drive mapping failed: $($pick.Why). Map the share manually:"
             Write-Host "  net use <LETTER>: $uncPath /user:$smbUser <password> /persistent:yes"
+            Write-Host "  <password> is smb_password in $wintoolsConfigPath."
         } else {
             try {
                 # net use is more reliable than New-PSDrive -Persist on PS 5.1
@@ -2713,6 +2711,7 @@ Path(r'$certPath').write_bytes(cert.public_bytes(Encoding.PEM))
             } catch {
                 Write-Warn "Drive mapping failed: $_"
                 Write-Host "  Map manually: net use ${driveLetter}: $uncPath /user:$smbUser <password> /persistent:yes"
+                Write-Host "  <password> is smb_password in $wintoolsConfigPath."
             }
         }
     }

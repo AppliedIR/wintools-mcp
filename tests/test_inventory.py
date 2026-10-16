@@ -113,6 +113,14 @@ class TestScanReport:
         assert "MISSING" in report
         assert "0/2 tools available" in report
 
+    def test_report_names_no_mcp_tool(self, test_catalog):
+        """The report is read at a PowerShell prompt (the installer prints
+        it), where an MCP tool's name can't be run."""
+        with patch("wintools_mcp.inventory.tool_path", return_value=None):
+            report = print_scan_report()
+        assert "list_missing_windows_tools" not in report
+        assert report.splitlines()[-1] == "Summary: 0/2 tools available, 2 missing"
+
     def test_report_shows_available(self, test_catalog):
         def mock_find(td):  # availability is asked of the tool, not its binary
             if td.binary == "AmcacheParser.exe":

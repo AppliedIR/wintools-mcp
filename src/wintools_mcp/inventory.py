@@ -147,6 +147,5 @@ def print_scan_report() -> str:
     lines.append(
         f"Summary: {s['available']}/{s['total']} tools available, {s['missing']} missing"
     )
-    lines.append("         Run 'list_missing_windows_tools' for install guidance")
 
     return "\n".join(lines)
