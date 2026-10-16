@@ -89,7 +89,8 @@
 .PARAMETER Update
     Update wintools-mcp: git pull, pip reinstall, restart scheduled task.
     Fails cleanly on dirty working tree or merge conflicts instead of
-    silently proceeding with stale code.
+    silently proceeding with stale code. An install made without git
+    updates from the ZIP download instead; its .venv and config.yaml stay.
 
 .PARAMETER ContinueWithoutUpdate
     When the install's wintools-mcp folder is a git checkout that git can't
@@ -771,10 +772,12 @@ if ($Update) {
     }
     Assert-Venv64 $venvPython  # the environment pip will run in
 
-    # 1. Update source
+    # 1. Update source. A ZIP install (no .git) without git updates from the
+    # same download the install uses; a git checkout updates with git
     $hasGit = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $hasGit) {
-        Write-Err "Git is required for updates. Install it with: winget install Git.Git"
+    $zipUpdate = -not $hasGit -and -not (Test-Path (Join-Path $wintoolsDir ".git"))
+    if (-not $hasGit -and -not $zipUpdate) {
+        Write-Err "$wintoolsDir is a git checkout, and git isn't installed. Install it with: winget install Git.Git"
         Write-Info "After installing, close and reopen PowerShell, then re-run -Update."
         exit 1
     }
@@ -793,7 +796,46 @@ if ($Update) {
         $isGitRepo = ($LASTEXITCODE -eq 0)
     }
 
-    if (-not $isGitRepo) {
+    if ($zipUpdate -and $env:WINTOOLS_SETUP_RERUN) {
+        Write-Ok "Source updated by the run that started this one"
+    } elseif ($zipUpdate) {
+        # The download is checked before anything changes: a failed one leaves
+        # the installed wintools-mcp as it was. Then the new tree is mirrored
+        # over the old one: files it no longer has go, and this install's own
+        # .venv and config.yaml stay
+        $zipUrl = "https://github.com/AppliedIR/wintools-mcp/archive/refs/heads/main.zip"
+        $stage = Join-Path ([IO.Path]::GetTempPath()) "wintools-update-$([guid]::NewGuid())"
+        $zipPath = "$stage.zip"
+        $newTree = Join-Path $stage "wintools-mcp-main"
+        Write-Info "git isn't installed: downloading wintools-mcp as a ZIP..."
+        try {
+            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120 -ErrorAction Stop
+            Expand-Archive -Path $zipPath -DestinationPath $stage -Force -ErrorAction Stop
+            if (-not (Test-Path (Join-Path $newTree "pyproject.toml"))) {
+                throw "the download has no wintools-mcp-main\pyproject.toml"
+            }
+        } catch {
+            Remove-Item $zipPath, $stage -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Err "Could not download wintools-mcp from ${zipUrl}: $_"
+            Write-Info "Nothing was changed: the installed wintools-mcp is as it was. Check the network and re-run -Update."
+            Pop-Location
+            $ErrorActionPreference = "Stop"
+            exit 1
+        }
+        $copyOutput = & robocopy $newTree $wintoolsDir /MIR /XD (Join-Path $wintoolsDir ".venv") `
+            /XF (Join-Path $wintoolsDir "config.yaml") /R:3 /W:2 /NP /NFL /NDL /NJH /NJS 2>&1
+        $copyCode = $LASTEXITCODE
+        Remove-Item $zipPath, $stage -Recurse -Force -ErrorAction SilentlyContinue
+        if ($copyCode -ge 8) {  # robocopy: 0-7 is success, 8 and up a failure
+            Write-Err "Could not copy the update into $wintoolsDir (robocopy exit $copyCode):"
+            $copyOutput | Where-Object { "$_".Trim() } | Select-Object -Last 20 | ForEach-Object { Write-Host "  $_" }
+            Write-Info "Some files may be updated and some not. Fix the problem above and re-run -Update."
+            Pop-Location
+            $ErrorActionPreference = "Stop"
+            exit 1
+        }
+        Write-Ok "Source updated"
+    } elseif (-not $isGitRepo) {
         # ZIP-based install or partial conversion. Set up git from scratch.
         Write-Info "No git repo found. Converting to git clone for future updates..."
         $null = git init 2>&1
@@ -1283,7 +1325,7 @@ if ($hasGit) {
     try { $gitVer = (git --version 2>&1) -replace "git version ", "" } catch { $gitVer = "unknown" }
     Write-Ok "git $gitVer"
 } else {
-    Write-Info "git not found -- will download as ZIP (updates require git)"
+    Write-Info "git not found -- will download as ZIP"
 }
 
 # .NET Runtime (for Zimmerman tools)
