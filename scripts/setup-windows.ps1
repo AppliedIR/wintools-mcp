@@ -1865,6 +1865,8 @@ if (-not $Standalone -and [string]::IsNullOrWhiteSpace($Examiner)) {
     # Valhuntir mode without -Examiner flag: defer prompt to after join so we can
     # default to the SIFT examiner name from the join response.
     $examinerDeferred = $true
+    Write-Header "Phase 3: Examiner Identity"
+    Write-Host "Asked after the join, so it can default to your SIFT examiner name." -ForegroundColor DarkGray
 } else {
     Write-Header "Phase 3: Examiner Identity"
 
