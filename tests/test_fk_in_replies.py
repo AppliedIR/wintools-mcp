@@ -289,3 +289,20 @@ def test_help_for_a_tool_not_in_the_catalog_says_so():
     assert discovery.get_tool_help("no-such-tool") == {
         "error": "Tool 'no-such-tool' not found in catalog"
     }
+
+
+def test_a_script_tool_names_the_copy_that_runs_and_lists_no_other_copies(monkeypatch):
+    """A script runs under its interpreter, so other copies of the script on
+    the PATH are not listed (only an executable's are)."""
+    looked = []
+    monkeypatch.setattr(discovery, "tool_path", lambda td: r"C:\Perl\mactime.pl")
+    monkeypatch.setattr(
+        discovery, "tool_copies", lambda b: looked.append(b) or ["a", "b"]
+    )
+    monkeypatch.setattr(
+        versions, "tool_version", lambda p, td=None: {"tool_version": "4.12"}
+    )
+    r = discovery.check_tools(["mactime"])["mactime"]
+    assert r["installed_version"] == "4.12"
+    assert r["resolved_path"] == r"C:\Perl\mactime.pl"
+    assert "copies" not in r and looked == []
