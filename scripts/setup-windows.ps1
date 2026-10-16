@@ -2342,7 +2342,7 @@ $toolPathsYaml
                 $fromCommandLine = [bool]$givenHost
                 if ($givenHost) {
                     $siftIp = $givenHost
-                    $givenHost = ""  # once: a "no" at Correct? asks
+                    $givenHost = ""  # once: if it can't be used, the address is asked for
                 } else {
                     $siftIp = Read-Prompt "SIFT workstation IP" ""
                 }
@@ -2357,13 +2357,17 @@ $toolPathsYaml
                             } else {
                                 Write-Warn "Could not resolve '$siftIp' to an IPv4 address"
                                 $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
+                                $fromCommandLine = $false
                             }
                         } catch {
                             Write-Warn "DNS resolution failed for '$siftIp': $_"
                             $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
+                            $fromCommandLine = $false
                         }
                     }
-                    if ($fromCommandLine) {
+                    if (-not $siftIp) {
+                        # Nothing typed for a name that didn't resolve: the loop asks again
+                    } elseif ($fromCommandLine) {
                         $siftPort = "$GatewayPort"
                         Write-Host ""
                         Write-Host "  SIFT gateway: ${siftIp}:${siftPort} (from the command line)" -ForegroundColor White

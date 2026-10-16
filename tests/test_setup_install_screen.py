@@ -118,6 +118,52 @@ def test_a_given_join_code_alone_asks_only_for_the_address(tmp_path):
     assert "GOT code=[ABCD-EFGH] ip=[10.0.1.91] port=[4508]" in out
 
 
+def test_a_given_name_that_resolves_is_used_without_a_prompt(tmp_path):
+    rc, out = _join(tmp_path, code="ABCD-EFGH", host="localhost", port="14516")
+    assert rc == 0, out
+    assert "PROMPT" not in out
+    assert "OK Resolved 'localhost' to 127.0.0.1" in out
+    assert "SIFT gateway: 127.0.0.1:14516 (from the command line)" in out
+
+
+def test_an_address_typed_for_a_given_name_that_does_not_resolve_is_confirmed(
+    tmp_path,
+):
+    """The address was typed, not given: its port and Correct? are asked."""
+    rc, out = _join(
+        tmp_path,
+        code="ABCD-EFGH",
+        host="sift.invalid",
+        port="14516",
+        answers="10.0.1.92;;y",
+    )
+    assert rc == 0, out
+    assert "PROMPT Enter the SIFT workstation IP address directly" in out
+    assert "PROMPT SIFT gateway port [14516]" in out
+    assert "PROMPT Correct? [Y/n]" in out
+    assert "(from the command line)" not in out
+    assert "GOT code=[ABCD-EFGH] ip=[10.0.1.92] port=[14516]" in out
+
+
+def test_a_blank_for_a_given_name_that_does_not_resolve_asks_for_the_address(
+    tmp_path,
+):
+    """No port or Correct? is asked for an empty address; the address is."""
+    rc, out = _join(
+        tmp_path, code="ABCD-EFGH", host="sift.invalid", answers=";10.0.1.93;;y"
+    )
+    assert rc == 0, out
+    lines = [x for x in out.splitlines() if x.startswith("PROMPT")]
+    assert lines == [
+        "PROMPT Enter the SIFT workstation IP address directly",
+        "PROMPT SIFT workstation IP",
+        "PROMPT SIFT gateway port [4508]",
+        "PROMPT Correct? [Y/n]",
+    ], out
+    assert "SIFT gateway: :" not in out
+    assert "GOT code=[ABCD-EFGH] ip=[10.0.1.93] port=[4508]" in out
+
+
 def test_a_given_address_without_a_join_code_is_not_used_for_a_skip(tmp_path):
     """Blank at the join code skips the join, as before."""
     rc, out = _join(tmp_path, host="10.0.1.91", answers="")

@@ -60,12 +60,19 @@ function Disable-NetFirewallRule { Write-Host "DISABLED $args" }
 """
 
 
-def _run(tmp_path: Path, rules: list, health: dict | None = None) -> tuple[int, str]:
+def _run(
+    tmp_path: Path,
+    rules: list,
+    health: dict | None = None,
+    home: str | None = BASE,
+    env: dict | None = None,
+) -> tuple[int, str]:
     venv = tmp_path / ".venv"
     (venv / "Scripts").mkdir(parents=True)
-    (venv / "pyvenv.cfg").write_text(
-        f"home = {BASE}\ninclude-system-site-packages = false\nversion = 3.12.7\n"
-    )
+    if home is not None:
+        (venv / "pyvenv.cfg").write_text(
+            f"home = {home}\ninclude-system-site-packages = false\nversion = 3.12.7\n"
+        )
     run = tmp_path / "summary.ps1"
     run.write_text(
         STUBS
@@ -90,6 +97,7 @@ def _run(tmp_path: Path, rules: list, health: dict | None = None) -> tuple[int, 
             "STUB_VENV": str(venv),
             "STUB_RULES": json.dumps(rules),
             "STUB_HEALTH": json.dumps(health) if health else "",
+            **(env or {}),
         },
         timeout=120,
     )
@@ -148,6 +156,46 @@ def test_a_rule_for_the_venv_python_counts_too(tmp_path):
     rc, out = _run(tmp_path, rules, UNREACHED)
     assert rc == 0, out
     assert "As Administrator, run: Remove-NetFirewallRule -Name '{V1}'" in out
+
+
+def test_a_program_with_an_environment_variable_is_matched_once_expanded(tmp_path):
+    """A rule can store its program as %VAR%\\...; a rule with no program
+    filter (or an empty one) names no program and is passed over."""
+    rules = [
+        {"Name": "{E1}", "DisplayName": "no program", "prog": None},
+        {"Name": "{E2}", "DisplayName": "empty program", "prog": ""},
+        {"Name": "{X1}", "DisplayName": "Python", "prog": "%STUB_PYROOT%\\python.exe"},
+    ]
+    rc, out = _run(tmp_path, rules, UNREACHED, env={"STUB_PYROOT": BASE})
+    assert rc == 0, out
+    assert "As Administrator, run: Remove-NetFirewallRule -Name '{X1}'\n" in out
+    assert f"  Block rule 'Python' for {BASE}\\python.exe (name {{X1}})" in out
+    assert "{E1}" not in out and "{E2}" not in out
+
+
+@pytest.mark.parametrize(
+    ("home", "venv_rule", "found"),
+    [
+        (BASE + "\\", False, True),
+        (None, False, False),
+        (None, True, True),
+    ],
+    ids=["home-with-trailing-backslash", "no-pyvenv-cfg", "no-pyvenv-cfg-venv-rule"],
+)
+def test_the_base_python_comes_from_pyvenv_cfg(tmp_path, home, venv_rule, found):
+    """Without pyvenv.cfg only the venv's own python is looked for."""
+    prog = (
+        str(tmp_path / ".venv" / "Scripts" / "python.exe")
+        if venv_rule
+        else BASE + "\\python.exe"
+    )
+    rules = [{"Name": "{B1}", "DisplayName": "Python", "prog": prog}]
+    rc, out = _run(tmp_path, rules, UNREACHED, home=home)
+    assert rc == 0, out
+    assert ("Remove-NetFirewallRule -Name '{B1}'" in out) == found, out
+    assert (f"WARN The SIFT gateway can't use wintools-mcp: {GATEWAY_TEXT}" in out) != (
+        found
+    )
 
 
 def test_a_reachable_gateway_checks_no_rules(tmp_path):
