@@ -306,3 +306,11 @@ def test_a_script_tool_names_the_copy_that_runs_and_lists_no_other_copies(monkey
     assert r["installed_version"] == "4.12"
     assert r["resolved_path"] == r"C:\Perl\mactime.pl"
     assert "copies" not in r and looked == []
+
+
+def test_a_tool_not_installed_is_checked_with_no_version(monkeypatch):
+    monkeypatch.setattr(discovery, "tool_path", lambda td: None)
+    r = discovery.check_tools(["hayabusa"])
+    assert r == {
+        "hayabusa": {"binary": "hayabusa.exe", "available": False, "path": None}
+    }
