@@ -223,6 +223,14 @@ function Write-Warn   { param($msg) Write-Host "[WARN] " -ForegroundColor Yellow
 function Write-Err    { param($msg) Write-Host "[ERROR] " -ForegroundColor Red -NoNewline; Write-Host $msg }
 function Write-Header { param($msg) Write-Host "`n=== $msg ===`n" -ForegroundColor White }
 
+# The last lines of a command's captured output, indented: pip's reason when
+# it fails
+function Write-OutputTail {
+    param($Lines, [int]$Count = 20)
+    @($Lines) | ForEach-Object { "$_" } | Where-Object { $_.Trim() } |
+        Select-Object -Last $Count | ForEach-Object { Write-Host "  $_" }
+}
+
 # Whether $Path is a setup-windows.ps1 other than the running one. A re-run
 # (WINTOOLS_SETUP_RERUN) only warns: one re-run, never a loop.
 function Test-NewSetupScript {
@@ -317,6 +325,15 @@ function Get-ProgramBlockRules {
         }
     }
     return $found
+}
+
+# Where clients reach wintools-mcp through the SIFT gateway. With no SIFT
+# address from this run, the placeholders stay
+function Get-GatewayWintoolsUrl {
+    param([string]$Scheme, [string]$GatewayIp, [string]$GatewayPortText)
+    if (-not $GatewayIp) { return "http://SIFT_IP:4508/mcp/wintools-mcp" }
+    if (-not $GatewayPortText) { $GatewayPortText = "4508" }
+    return "${Scheme}://${GatewayIp}:${GatewayPortText}/mcp/wintools-mcp"
 }
 
 function Mask-ApiKey {
@@ -940,12 +957,14 @@ if ($Update) {
     Write-Info "Reinstalling wintools-mcp..."
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    $pipOutput = @()
     try {
-        $null = & $venvPython -m pip install --progress-bar off -e $wintoolsDir 2>&1
+        $pipOutput = & $venvPython -m pip install --progress-bar off -e $wintoolsDir 2>&1
         if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
         Write-Ok "Package reinstalled"
     } catch {
         Write-Err "pip install failed: $_"
+        Write-OutputTail $pipOutput
         exit 1
     } finally {
         $ErrorActionPreference = $prevEAP
@@ -954,11 +973,13 @@ if ($Update) {
     # 3. Reinstall FK if present (local copy or from sift-mcp repo)
     $fkDir = Join-Path $InstallDir "forensic-knowledge"
     $githubOrg = "https://github.com/AppliedIR"
+    $pipOutput = @()
     if (Test-Path $fkDir) {
+        Write-Info "Reinstalling forensic-knowledge from $fkDir..."
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $null = & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1
+            $pipOutput = & $venvPython -m pip install --progress-bar off -e $fkDir 2>&1
             if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
             $null = & $venvPython -c "import forensic_knowledge" 2>&1
             if ($LASTEXITCODE -eq 0) {
@@ -968,15 +989,17 @@ if ($Update) {
             }
         } catch {
             Write-Warn "FK reinstall failed (non-fatal)"
+            Write-OutputTail $pipOutput
         } finally {
             $ErrorActionPreference = $prevEAP
         }
     } else {
         # Install FK from GitHub archive URL -- no git required
+        Write-Info "Updating forensic-knowledge from the sift-mcp repository; this can take a few minutes..."
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir --force-reinstall `
+            $pipOutput = & $venvPython -m pip install --progress-bar off --no-cache-dir --force-reinstall `
                 "forensic-knowledge @ ${githubOrg}/sift-mcp/archive/refs/heads/main.zip#subdirectory=packages/forensic-knowledge" 2>&1
             if ($LASTEXITCODE -ne 0) { throw "FK install failed (exit $LASTEXITCODE)" }
             $null = & $venvPython -c "import forensic_knowledge" 2>&1
@@ -987,6 +1010,7 @@ if ($Update) {
             }
         } catch {
             Write-Warn "FK update failed (non-fatal): $_"
+            Write-OutputTail $pipOutput
         } finally {
             $ErrorActionPreference = $prevEAP
         }
@@ -1829,19 +1853,23 @@ try {
     }
     Assert-Venv64 $venvPython  # a .venv kept from an earlier install too
 
+    Write-Info "Updating pip in wintools-mcp's environment..."
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try { $null = & $venvPython -m pip install --progress-bar off --upgrade pip 2>&1 } catch { }
     finally { $ErrorActionPreference = $prevEAP }
 
     # Install wintools-mcp without FK first (always works)
+    Write-Info "Installing wintools-mcp's Python packages; this can take several minutes..."
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    $pipOutput = @()
     try {
-        $null = & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1
+        $pipOutput = & $venvPython -m pip install --progress-bar off -e "$wintoolsDir" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
     } catch {
-        Write-Err "Failed to install wintools-mcp"
+        Write-Err "Failed to install wintools-mcp: $_"
+        Write-OutputTail $pipOutput
         exit 1
     } finally {
         $ErrorActionPreference = $prevEAP
@@ -1877,6 +1905,7 @@ finally { $ErrorActionPreference = $prevEAP }
 if (-not $fkInstalled) {
     # First check if a local copy exists (from a previous install or manual placement)
     if (Test-Path $fkDir) {
+        Write-Info "Installing forensic-knowledge from $fkDir..."
         $prevEAP = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
@@ -1890,17 +1919,19 @@ if (-not $fkInstalled) {
     }
     # Otherwise install from sift-mcp GitHub repo subdirectory
     if (-not $fkInstalled -and $networkOk) {
-        Write-Info "Installing forensic-knowledge from sift-mcp repository..."
+        Write-Info "Installing forensic-knowledge from the sift-mcp repository; this can take a few minutes..."
         $prevEAP2 = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
+        $pipOutput = @()
         try {
-            $null = & $venvPython -m pip install --progress-bar off --no-cache-dir --force-reinstall `
+            $pipOutput = & $venvPython -m pip install --progress-bar off --no-cache-dir --force-reinstall `
                 "forensic-knowledge @ ${githubOrg}/sift-mcp/archive/refs/heads/main.zip#subdirectory=packages/forensic-knowledge" 2>&1
             if ($LASTEXITCODE -ne 0) { throw "FK install failed (exit $LASTEXITCODE)" }
             $null = & $venvPython -c "import forensic_knowledge" 2>&1
             if ($LASTEXITCODE -eq 0) { $fkInstalled = $true }
         } catch {
             Write-Warn "Could not install forensic-knowledge: $_"
+            Write-OutputTail $pipOutput
         } finally {
             $ErrorActionPreference = $prevEAP2
         }
@@ -2299,14 +2330,25 @@ $toolPathsYaml
         $siftPort = "$GatewayPort"
         $joinCodeValue = $JoinCode
     } else {
-        # Join code first -- by the time the user has it, SIFT IP is known
-        Write-Host "  On the SIFT workstation, run: vhir setup join-code" -ForegroundColor Cyan
-        Write-Host ""
-        $joinCodeValue = Read-Prompt "Join code from SIFT workstation (blank to skip)" ""
+        # Join code first -- by the time the user has it, SIFT IP is known.
+        # A value the command line gave isn't asked for again
+        $joinCodeValue = $JoinCode
+        if (-not $joinCodeValue) {
+            Write-Host "  On the SIFT workstation, run: vhir setup join-code" -ForegroundColor Cyan
+            Write-Host ""
+            $joinCodeValue = Read-Prompt "Join code from SIFT workstation (blank to skip)" ""
+        }
 
         if ($joinCodeValue) {
+            $givenHost = $GatewayHost
             do {
-                $siftIp = Read-Prompt "SIFT workstation IP" ""
+                $fromCommandLine = [bool]$givenHost
+                if ($givenHost) {
+                    $siftIp = $givenHost
+                    $givenHost = ""  # once: a "no" at Correct? asks
+                } else {
+                    $siftIp = Read-Prompt "SIFT workstation IP" ""
+                }
                 if ($siftIp) {
                     # Resolve hostname to IP for firewall rules
                     if ($siftIp -notmatch '^\d{1,3}(\.\d{1,3}){3}$') {
@@ -2324,12 +2366,18 @@ $toolPathsYaml
                             $siftIp = Read-Prompt "Enter the SIFT workstation IP address directly" ""
                         }
                     }
-                    $siftPort = Read-Prompt "SIFT gateway port" "4508"
+                    if ($fromCommandLine) {
+                        $siftPort = "$GatewayPort"
+                        Write-Host ""
+                        Write-Host "  SIFT gateway: ${siftIp}:${siftPort} (from the command line)" -ForegroundColor White
+                    } else {
+                        $siftPort = Read-Prompt "SIFT gateway port" "$GatewayPort"
 
-                    Write-Host ""
-                    Write-Host "  SIFT gateway: ${siftIp}:${siftPort}" -ForegroundColor White
-                    $confirmed = Read-YesNo "Correct?" $true
-                    if (-not $confirmed) { $siftIp = "" }
+                        Write-Host ""
+                        Write-Host "  SIFT gateway: ${siftIp}:${siftPort}" -ForegroundColor White
+                        $confirmed = Read-YesNo "Correct?" $true
+                        if (-not $confirmed) { $siftIp = "" }
+                    }
                 }
             } while ($joinCodeValue -and -not $siftIp)
         }
@@ -2888,7 +2936,7 @@ $toolPathsYaml$tlsYaml$smbYaml
             Write-Host "    vhir service restart wintools-mcp" -ForegroundColor Gray
             Write-Host ""
             Write-Host "  Clients then access wintools via the gateway at:" -ForegroundColor White
-            Write-Host "    http://SIFT_IP:4508/mcp/wintools-mcp" -ForegroundColor Gray
+            Write-Host "    $(Get-GatewayWintoolsUrl $gatewayScheme $siftIp $siftPort)" -ForegroundColor Gray
             Write-Host ""
 
             # Save snippet to file for reference
@@ -3409,8 +3457,12 @@ if (-not $Standalone) {
         }
     }
     Write-Host ""
-    Write-Host "  Once configured, clients access wintools via the gateway at:" -ForegroundColor White
-    Write-Host "    http://SIFT_IP:4508/mcp/wintools-mcp" -ForegroundColor Gray
+    if ($joinSucceeded) {
+        Write-Host "  Clients access wintools via the gateway at:" -ForegroundColor White
+    } else {
+        Write-Host "  Once configured, clients access wintools via the gateway at:" -ForegroundColor White
+    }
+    Write-Host "    $(Get-GatewayWintoolsUrl $gatewayScheme $siftIp $siftPort)" -ForegroundColor Gray
     Write-Host ""
     Write-Host "  No direct connection to the Windows VM needed from client machines." -ForegroundColor White
     Write-Host ""
