@@ -697,7 +697,9 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
         """Execute a catalog-approved forensic tool. Rejects unknown and denylisted binaries.
 
         Args:
-            command: Command as list of strings.
+            command: Command as list of strings. Name a case file by its
+                full path (get_share_info's case_dir): a relative path is
+                read from the run's own new folder in extractions.
             purpose: Why this command is being run (audit trail).
             timeout: Override timeout in seconds (0 = default).
             save_output: Save stdout/stderr to files with SHA-256 hashes.
@@ -823,6 +825,22 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     ],
                 )
 
+        # A relative path is read from the run's own new folder. One that
+        # isn't there but is in the case folder was meant from the case: the
+        # tool would find nothing and report success
+        if op_dir:
+            for t in command[1:]:
+                if t.startswith("-") or t in writes or Path(t).is_absolute():
+                    continue
+                in_case = str(Path(cfg.case_dir) / t)
+                if not _seen(where(t)) and _seen(in_case):
+                    return refused(
+                        f"{t} is read from this run's own folder "
+                        f"({to_share_relative(op_dir, cfg.share_root)}), and it "
+                        f"isn't there. The case has it at {in_case}",
+                        [f"Give the full path: {in_case}"],
+                    )
+
         # Validate input files are accessible
         for fpath in [*parsed, *declared]:
             p = Path(fpath)
@@ -928,7 +946,23 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             # The run completed: it started, wintools didn't stop it, and no
             # EULA screen took its place. What its exit code means differs by
             # tool and version: the reply gives the bare code and the output
-            success = not eula and not stopped
+            # A tool that matched no file, with no input read, has no result
+            # even with exit code 0 (strings)
+            no_match = ""
+            if not parsed and "No matching files were found." in (
+                exec_result.get("stderr") or ""
+            ):
+                folder = (
+                    to_share_relative(op_dir, cfg.share_root)
+                    if op_dir
+                    else "the tool's working folder"
+                )
+                no_match = (
+                    f"{binary} found no file to read, and no input was read. A "
+                    f"relative path is read from this run's own folder ({folder}): "
+                    "give the full path, from get_share_info's case_dir"
+                )
+            success = not eula and not stopped and not no_match
 
             response = build_response(
                 tool_name="run_windows_command",
@@ -940,7 +974,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 exit_code=exit_code,
                 command=command,
                 tool_version=version,
-                error=eula or stopped,
+                error=eula or stopped or no_match,
                 tool_ran=not eula,
                 fk_tool_name=fk_name,
                 extractions=exec_result.get("extractions"),
@@ -996,7 +1030,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     "stdout_encoding": exec_result.get("stdout_encoding", ""),
                     "stdout_bytes": exec_result.get("stdout_total_bytes", 0),
                     "stdout_head": (exec_result.get("stdout") or "")[:500],
-                    **({"error": eula or stopped} if eula or stopped else {}),
+                    **({"error": eula or stopped or no_match} if not success else {}),
                     **({"stopped": "output limit"} if stopped else {}),
                     **version,
                     **({"eula_note": eula_note} if eula_note else {}),
