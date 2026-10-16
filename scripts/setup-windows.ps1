@@ -289,6 +289,36 @@ function Assert-Venv64 {
     }
 }
 
+# The Python a venv was made from: pyvenv.cfg's "home". On Windows the venv's
+# python.exe starts this one, and this one listens
+function Get-VenvBasePython {
+    param([string]$VenvPython)
+    $cfg = Join-Path (Split-Path (Split-Path $VenvPython -Parent) -Parent) "pyvenv.cfg"
+    $line = Get-Content -LiteralPath $cfg -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match '^\s*home\s*=' } | Select-Object -First 1
+    if (-not $line) { return $null }
+    return ($line -replace '^\s*home\s*=\s*', '').Trim().TrimEnd('\') + "\python.exe"
+}
+
+# The enabled inbound Block rules for any of $Programs. Cancel on the Windows
+# Security Alert writes them for the Python that listens, and a Block rule
+# wins over the installer's Allow rule
+function Get-ProgramBlockRules {
+    param([string[]]$Programs)
+    $want = @($Programs | Where-Object { $_ })
+    $found = @()
+    $rules = @(Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True -ErrorAction SilentlyContinue)
+    foreach ($rule in $rules) {
+        $program = "$(($rule | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue).Program)".Trim()
+        if (-not $program) { continue }
+        $program = [Environment]::ExpandEnvironmentVariables($program)
+        if ($want | Where-Object { $_ -ieq $program }) {
+            $found += [pscustomobject]@{ Name = $rule.Name; DisplayName = $rule.DisplayName; Program = $program }
+        }
+    }
+    return $found
+}
+
 function Mask-ApiKey {
     param([string]$Key)
     if ($Key.Length -le 12) { return "****" }
@@ -3297,7 +3327,19 @@ if ($joinSucceeded) {
         $why = "no answer from ${gatewayScheme}://${siftIp}:${siftPort}/health"
         if ($wintoolsView -and $wintoolsView.error) { $why = "$($wintoolsView.error)" }
         elseif ($gatewayView) { $why = "the gateway doesn't list wintools-mcp" }
-        Write-Warn "The SIFT gateway can't use wintools-mcp: $why"
+        $blockRules = @(Get-ProgramBlockRules @($venvPython, (Get-VenvBasePython $venvPython)))
+        if ($blockRules) {
+            # The gateway's own hint (join again) doesn't fit this cause
+            Write-Warn "Windows Firewall is blocking wintools-mcp: the Windows Security Alert was cancelled."
+            foreach ($rule in $blockRules) {
+                Write-Host "  Block rule '$($rule.DisplayName)' for $($rule.Program) (name $($rule.Name))"
+            }
+            $names = ($blockRules | ForEach-Object { Format-Quoted $_.Name } | Select-Object -Unique) -join ","
+            Write-Host "  As Administrator, run: Remove-NetFirewallRule -Name $names" -ForegroundColor Yellow
+            Write-Host "  The gateway reaches wintools within a minute after that; no new join code is needed."
+        } else {
+            Write-Warn "The SIFT gateway can't use wintools-mcp: $why"
+        }
         $notFinished += "the SIFT gateway can't use wintools-mcp"
     }
 }
