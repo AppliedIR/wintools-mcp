@@ -366,8 +366,10 @@ function Start-Process { param($FilePath, $ArgumentList, [switch]$PassThru, $Win
     $p | Add-Member -MemberType ScriptProperty -Name HasExited -Value {
         ($global:exitAt -ge 0) -and ($global:clock -ge $global:exitAt) }
     $p }
-function Invoke-WebRequest { param($Uri, $TimeoutSec, [switch]$UseBasicParsing, $ErrorAction)
+function Invoke-WebRequest { param($Uri, $TimeoutSec, [switch]$UseBasicParsing, $ErrorAction,
+    [switch]$SkipCertificateCheck)
     Ev "probe:$global:clock"
+    Ev "uri:$Uri skip:$SkipCertificateCheck"
     if ($global:answerAt -ge 0 -and $global:clock -ge $global:answerAt) {
         return [pscustomobject]@{ StatusCode = 200 } }
     throw 'stand-in: connection refused' }
@@ -383,7 +385,9 @@ function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Settings,
 """
 
 
-def _start(tmp_path, answer_at: int, exit_at: int) -> tuple[str, list[int], list[str]]:
+def _start(
+    tmp_path, answer_at: int, exit_at: int, scheme: str = "http"
+) -> tuple[str, list[int], list[str]]:
     """Start the server, then register the task: -1 means it never answers or never exits."""
     start = _between(
         'if (-not $skipServerStart) {\n    Write-Info "Starting wintools-mcp',
@@ -394,8 +398,10 @@ def _start(tmp_path, answer_at: int, exit_at: int) -> tuple[str, list[int], list
         'if ($startChoice -eq "1" -and -not $skipServerStart) {',
         "    # Add firewall rule",
     )
-    pre = START_PRE.replace("ANSWER_AT", str(answer_at)).replace(
-        "EXIT_AT", str(exit_at)
+    pre = (
+        START_PRE.replace("ANSWER_AT", str(answer_at))
+        .replace("EXIT_AT", str(exit_at))
+        .replace("$wintoolsScheme = 'http'", f"$wintoolsScheme = '{scheme}'")
     )
     body = start + register + "}\n" + 'Write-Host "HEALTHY=$serverHealthy"\n'
     _, out, events = _run(tmp_path, body, pre)
@@ -411,6 +417,25 @@ def test_a_server_that_answers_after_17_s_is_healthy_and_its_task_registered(tmp
     assert probes == [3, 5, 7, 9, 11, 13, 15, 17]
     assert "INFO Waiting for wintools-mcp to answer (15 s)" in out
     assert "health check failed" not in out
+
+
+def test_powershell_7_checks_an_https_server_without_the_5_1_policy(tmp_path):
+    out, probes, events = _start(tmp_path, answer_at=5, exit_at=-1, scheme="https")
+    assert "HEALTHY=True" in out, out
+    assert "OK wintools-mcp running on port 4624 (https)" in out
+    assert "Could not start" not in out
+    assert "register:Valhuntir wintools-mcp" in events
+    assert probes == [3, 5]
+    uris = [e for e in events if e.startswith("uri:")]
+    assert uris == ["uri:https://localhost:4624/health skip:True"] * 2, uris
+
+
+def test_an_http_server_is_checked_as_before(tmp_path):
+    out, probes, events = _start(tmp_path, answer_at=3, exit_at=-1)
+    assert "HEALTHY=True" in out, out
+    assert [e for e in events if e.startswith("uri:")] == [
+        "uri:http://localhost:4624/health skip:False"
+    ]
 
 
 def test_a_server_that_never_answers_gets_todays_warning_after_the_deadline(tmp_path):

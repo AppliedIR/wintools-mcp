@@ -2899,7 +2899,13 @@ if (-not $skipServerStart) {
         # Check if it's running
         if (-not $process.HasExited) {
             $healthUrl = "${wintoolsScheme}://localhost:${Port}/health"
-            if ($wintoolsScheme -eq "https") {
+            $healthArgs = @{ Uri = $healthUrl; TimeoutSec = 5; UseBasicParsing = $true; ErrorAction = 'Stop' }
+            # PowerShell 6+ has no ICertificatePolicy: it skips the check per request
+            $certPolicy = $wintoolsScheme -eq "https" -and $PSVersionTable.PSVersion.Major -lt 6
+            if ($wintoolsScheme -eq "https" -and -not $certPolicy) {
+                $healthArgs.SkipCertificateCheck = $true
+            }
+            if ($certPolicy) {
                 # PS 5.1: scriptblock-to-delegate for ServerCertificateValidationCallback
                 # is unreliable. Use ICertificatePolicy which PS 5.1 respects consistently.
                 if (-not ([System.Management.Automation.PSTypeName]'VhirTrustLocalCert').Type) {
@@ -2918,7 +2924,7 @@ public class VhirTrustLocalCert : ICertificatePolicy {
             try {
                 while ($true) {
                     try {
-                        $response = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                        $response = Invoke-WebRequest @healthArgs
                         $healthError = $null
                         break
                     } catch {
@@ -2939,7 +2945,7 @@ public class VhirTrustLocalCert : ICertificatePolicy {
                     Write-Warn "wintools-mcp started but health check failed: $healthError"
                 }
             } finally {
-                if ($wintoolsScheme -eq "https") {
+                if ($certPolicy) {
                     [System.Net.ServicePointManager]::CertificatePolicy = $previousPolicy
                 }
             }
