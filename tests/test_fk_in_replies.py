@@ -21,6 +21,8 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+from test_batch_scan import _files, case  # noqa: F401 - fixtures
+from test_eula_surrogate import NAMED, _sent, _tool, tools  # noqa: F401 - fixtures
 
 from wintools_mcp import response, versions
 from wintools_mcp.response import build_response
@@ -314,3 +316,33 @@ def test_a_tool_not_installed_is_checked_with_no_version(monkeypatch):
     assert r == {
         "hayabusa": {"binary": "hayabusa.exe", "available": False, "path": None}
     }
+
+
+# --- the caller: run_windows_command passes tool_ran=not eula -------------------------
+
+
+def test_a_run_that_showed_the_eula_screen_gets_no_knowledge_and_no_count(
+    case,  # noqa: F811
+    tools,  # noqa: F811
+    monkeypatch,
+):
+    asked = []
+
+    def get_tool(name):
+        asked.append(name)
+        return {"caveats": ["c"], "advisories": ["a"]}
+
+    loader = SimpleNamespace(get_tool=get_tool, get_artifact=lambda name: None)
+    monkeypatch.setattr(response, "fk_loader", loader)
+    target = _files(case / "evidence" / "fk", ["a.exe"]) / "a.exe"
+    rwc = _tool("run_windows_command")
+    tools["screen"] = True
+    for _ in range(5):
+        r = _sent(rwc(command=["sigcheck", str(target)], purpose="check"))
+        assert r["success"] is False and NAMED in r["error"], r
+        assert not {"caveats", "advisories"} & set(r), r
+    assert asked == [] and not any(response._fk_delivery_counts.values())
+    tools["screen"] = False
+    r = _sent(rwc(command=["sigcheck", str(target)], purpose="check"))
+    assert r["success"] is True and (r["caveats"], r["advisories"]) == (["c"], ["a"])
+    assert len(asked) == 1 and response._fk_delivery_counts[asked[0]] == 1
