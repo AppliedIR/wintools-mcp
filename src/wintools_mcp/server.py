@@ -876,6 +876,15 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
 
         inputs = [path_record(p, detection_method or "parsed") for p in parsed]
         inputs += [path_record(p, "declared") for p in declared]
+        # A tool given a copy of its input (generic) gets the companions
+        # SQLite reads with it, as they are now: recorded, then copied
+        companions = []
+        if op_dir and td and td.local_work_folder and detection_method == "catalog":
+            db = inputs[0]["path"]
+            sides = [db + s for s in ("-wal", "-shm", "-journal")]
+            companions = [path_record(s, "") for s in sides if Path(s).exists()]
+            if companions:
+                inputs[0]["companions"] = companions
         # Kept for today's readers: the parsed input files and their hashes
         input_hashes = {
             r["path"]: r.get("sha256") or "pending"
@@ -898,6 +907,7 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 timeout=timeout or (td.timeout_seconds if td else 0) or None,
                 save_output=save_output,
                 op_dir=op_dir,
+                companions=[c["path"] for c in companions],
             )
             elapsed = time.monotonic() - start
 
@@ -1041,6 +1051,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                 "tool_path": tool_path or "",
                 "tool_sha256": operation.tool_sha256(tool_path),
             }
+            if exec_result.get("copy_note"):
+                response["copy_note"] = extra["copy_note"] = exec_result["copy_note"]
             if settings:
                 extra["settings"] = settings
             if op_dir:

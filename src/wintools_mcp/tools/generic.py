@@ -163,6 +163,29 @@ def _work_folder(op_dir: str) -> str:
     return work
 
 
+def _copy_input(command: list[str], td, work: str, companions: list[str]):
+    """The command with its input file, and the companions the server
+    recorded beside it, copied into ``work``'s ``input`` folder and the copy
+    as the input flag's value, and the names copied. SQLite can't open the
+    share's path, and rewrites the files it opens: it is given the copies."""
+    if td.input_flag not in command[:-1]:
+        return command, []
+    i = command.index(td.input_flag) + 1
+    folder, src, names = Path(work) / "input", work, []
+    try:
+        folder.mkdir()
+        for src, name in [(command[i], Path(command[i]).name)] + [
+            (c, Path(c).name) for c in companions
+        ]:
+            shutil.copyfile(src, folder / name)
+            names.append(name)
+    except OSError as e:
+        raise WintoolsError(
+            f"{src} couldn't be copied for {td.name}: {e.strerror or e}"
+        ) from e
+    return [*command[:i], str(folder / names[0]), *command[i + 1 :]], names
+
+
 def _remove(work: str) -> str:
     """Remove the work folder; say so if it stays."""
     shutil.rmtree(work, ignore_errors=True)
@@ -171,15 +194,30 @@ def _remove(work: str) -> str:
 
 def _local_args(args: list[str], td) -> None:
     """Run outside the case, a tool must be given full paths: no '..', no
-    flag with its value attached, and its input and output absolute."""
-    paths = {f.lower() for f in (td.input_flag, td.output_flag, *OUTPUT_FLAGS) if f}
+    flag with its value attached, and its input and output absolute. It
+    reads a copy of its input (``_copy_input``): the input flag once, with a
+    file, and no other path but an output flag's value."""
+    outs = {f.lower() for f in (td.output_flag, *OUTPUT_FLAGS) if f}
+    paths = outs | {td.input_flag.lower()} if td.input_flag else outs
     for i, arg in enumerate(args):
-        if ".." in re.split(r"[\\/]", arg):
+        prev = args[i - 1] if i else ""
+        value = bool(i) and prev == td.input_flag  # the input file
+        if arg == td.input_flag and args.count(arg) > 1:
+            why = "give it once, with the one file the tool reads"
+        elif ".." in re.split(r"[\\/]", arg):
             why = "a path with '..' isn't run"
         elif arg.startswith("-") and re.search("[=:]", arg):
             why = "give the flag and its value apart"
-        elif i and args[i - 1].lower() in paths and not Path(arg).is_absolute():
+        elif prev.lower() in paths and not Path(arg).is_absolute():
             why = "give the full path, from get_share_info's case_dir"
+        elif value and not Path(arg).is_file():
+            why = "isn't a file: the tool reads a copy of one file"
+        elif (
+            re.match(r"[A-Za-z]:|.*[\\/]", arg)
+            and not value
+            and prev.lower() not in outs
+        ):
+            why = f"no path but {td.input_flag}'s file, which is copied"
         else:
             continue
         raise OutOfScopeError(f"{arg}: {why} ({td.name} runs outside the case)")
@@ -314,6 +352,7 @@ def run_command(
     no_cache: bool = False,
     input_files: list[str] | None = None,
     op_dir: str | None = None,
+    companions: list[str] | None = None,
 ) -> dict:
     """Execute a catalog-approved command with denylist enforcement.
 
@@ -438,8 +477,11 @@ def run_command(
     eula_note = _accept_eula(command, td)
     work = _work_folder(op_dir) if local else None
     try:
+        given, copied = (
+            _copy_input(command, td, work, companions or []) if work else (command, [])
+        )
         exec_result = execute(
-            command,
+            given,
             timeout=timeout,
             cwd=work or cwd,
             save_output=save_output,
@@ -463,6 +505,12 @@ def run_command(
         raise
     if work and (left := _remove(work)):
         exec_result["work_left"] = left
+    if copied:  # the audit names the caller's files, the note the copies
+        exec_result["command"] = command
+        exec_result["copy_note"] = (
+            f"{td.name} read copies of {', '.join(copied)}, made in its work "
+            "folder: the case's files are only read, to copy them"
+        )
     exec_result["tool_path"] = tool_path
     if eula_note:
         exec_result["eula_note"] = eula_note

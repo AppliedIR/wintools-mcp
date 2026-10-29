@@ -189,7 +189,7 @@ tools:
       - "C:\\Tools\\ZimmermanTools"
 ```
 
-`local_work_folder: true` (WxTCmd only) runs the tool, in a case, in a new private folder in the server account's temp folder, removed afterwards, because the tool loads a DLL it writes where it runs and the case share doesn't allow running files; its output still goes to the case, and it must be given full paths.
+`local_work_folder: true` (WxTCmd only) runs the tool, in a case, in a new private folder in the server account's temp folder, removed afterwards, on copies of its input file and of the `-wal`, `-shm` and `-journal` beside it, made in an `input` folder there. The tool loads a DLL it writes where it runs, which the case share doesn't allow; SQLite can't open the share's path; and it rewrites the files it opens, so it never opens the case's. Its output still goes to the case. It must be given full paths, its input flag once, with a file, and no other path but an output flag's value. The input's record lists the companions it copied, and the reply's `copy_note` names the copies.
 
 ## Response Envelope
 

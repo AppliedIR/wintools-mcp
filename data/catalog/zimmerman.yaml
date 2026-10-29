@@ -216,7 +216,9 @@ tools:
     output_format: csv
     output_flag: "--csv"
     timeout_seconds: 300
-    # it loads the SQLite.Interop.dll it writes beside itself, which the case share won't run
+    # it loads the SQLite.Interop.dll it writes beside itself, which the case share won't run;
+    # it reads copies of its db and the -wal, -shm, -journal beside it: SQLite can't
+    # open the share's path, and rewrites the files it opens
     local_work_folder: true
     fk_tool_name: WxTCmd
     install_methods:

@@ -126,7 +126,8 @@ class ToolDefinition:
     # its reply says the EULA was accepted on the examiner's behalf
     eula_key: str = ""
     # Runs in a case are made in a private folder of this account's own, not
-    # the run's folder on the share, for a tool that runs what it writes there
+    # the run's folder on the share, for a tool that runs what it writes there,
+    # on copies of its input file and the SQLite files beside it (generic)
     local_work_folder: bool = False
 
     @property
