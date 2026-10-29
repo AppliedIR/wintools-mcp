@@ -5,6 +5,7 @@ writes no file fails. Each row is named by its id: R1-R4 and A1-A15. Popen
 is a stand-in; no process starts. Values are synthetic.
 """
 
+import hashlib
 import io
 import os
 import pathlib
@@ -314,13 +315,12 @@ GUARDS = {  # row: (tool, the tool writes, command); each runs and succeeds
     "A7-guard-no-case-wxtcmd-runs": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--csv", p.x + "/nc"]),
     "A8-guard-no-case-wrote-nothing": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/nc"]),
     "X1-guard-saved-output-unresolvable": ("evtxecmd", _csv, lambda p: ["-f", p.ev]),
+    "X1e-guard-saved-stderr-unresolvable": ("evtxecmd", _csv, lambda p: ["-f", p.ev]),
     "X2-guard-user-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/mine"]),
     "X2M-guard-run-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev]),
 }  # fmt: skip
-UNLISTED = {
-    "X2": "mine",
-    "X2M": "extractions",
-}  # a listing that failed: no wrote-nothing
+CSV_SHA = hashlib.sha256(b"TimeCreated,EventId\n").hexdigest()  # what _csv writes
+UNLISTED = {"X2": "mine", "X2M": "extractions"}  # listing failed: no wrote-nothing
 
 
 @pytest.mark.parametrize("row", GUARDS)
@@ -332,10 +332,20 @@ def test_guard_runs_the_rules_leave_alone(case, wx, wtemp, monkeypatch, row):
         monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
         get_config().case_dir = ""
     real_execute, real_resolve, saved = generic.execute, pathlib.Path.resolve, []
+    fails = {"X1": ("output_file", "stderr_file"), "X1e": ("stderr_file",)}
+    real_popen, fails = trr._popen, fails.get(row.split("-")[0], ())
+
+    def popen(*a):  # X1e: the tool also prints to stderr
+        def p(cmd, **kw):
+            proc = real_popen(*a)(cmd, **kw)
+            proc.stderr = io.BytesIO(b"warning\r\n")
+            return proc
+
+        return p
 
     def execute(*a, **kw):
         r = real_execute(*a, **kw)
-        saved.extend(r[k] for k in ("output_file", "stderr_file") if r.get(k))
+        saved.extend(r[k] for k in fails if r.get(k))
         return r
 
     def resolve(self, *a, **kw):  # the share drops while the run is recorded
@@ -352,6 +362,8 @@ def test_guard_runs_the_rules_leave_alone(case, wx, wtemp, monkeypatch, row):
     if row.startswith("X1"):
         monkeypatch.setattr(generic, "execute", execute)
         monkeypatch.setattr(pathlib.Path, "resolve", resolve)
+    if row.startswith("X1e"):
+        monkeypatch.setattr(trr, "_popen", popen)
     if row.startswith("X2"):
         monkeypatch.setattr(operation, "written", written)
     calls = []
@@ -361,6 +373,9 @@ def test_guard_runs_the_rules_leave_alone(case, wx, wtemp, monkeypatch, row):
         (entry,) = _entries(case)
         summary = entry["result_summary"]
         assert saved and summary["output_sha256"] and summary["exit_code"] == 0, entry
+        assert saved[-1].endswith("stderr.txt") is row.startswith("X1e"), saved
+        csv = {Path(o["path"]).name: o.get("sha256") for o in entry["outputs"]}
+        assert csv["20261009_EvtxECmd_Output.csv"] == CSV_SHA, entry
     if row.startswith("X2"):  # the listing error is kept in the record
         assert "Access is denied" in str(_entries(case)), _entries(case)
 
