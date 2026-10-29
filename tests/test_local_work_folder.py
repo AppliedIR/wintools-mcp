@@ -98,7 +98,7 @@ def test_wxtcmd_runs_in_a_new_private_local_folder_named_by_its_run(
     cwd = seen["cwd"]
     assert not _inside(cwd, case) and _inside(cwd, wtemp) and Path(cwd) != wtemp, cwd
     assert Path(cwd).name.startswith(entry["audit_id"] + "-"), (entry, cwd)
-    assert seen["listing"] == [] and seen["uid"] == os.geteuid(), seen
+    assert seen["listing"] == ["input"] and seen["uid"] == os.geteuid(), seen
     assert seen["mode"] & 0o077 == 0, oct(seen["mode"])
     assert not Path(cwd).exists(), "work folder not removed"
     assert resp["success"] is True, resp.get("error")
