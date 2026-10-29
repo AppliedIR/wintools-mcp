@@ -204,6 +204,8 @@ def _local_args(args: list[str], td) -> None:
         value = bool(i) and prev == td.input_flag  # the input file
         if arg == td.input_flag and args.count(arg) > 1:
             why = "give it once, with the one file the tool reads"
+        elif arg == td.input_flag and i == len(args) - 1:
+            why = "give it the file the tool reads"
         elif ".." in re.split(r"[\\/]", arg):
             why = "a path with '..' isn't run"
         elif arg.startswith("-") and re.search("[=:]", arg):

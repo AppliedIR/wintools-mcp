@@ -3,7 +3,7 @@ runs, in a case, in a new private folder in the server account's temp folder,
 removed afterwards, and reads copies of its input and the SQLite files beside
 it there; and a case run of a tool with a catalog output flag that writes no
 file fails. Each row is named by its id: R1-R4, A1-A15 and B179's SPEC-001 to
-SPEC-007e. Popen is a stand-in; no process starts. Values are synthetic.
+SPEC-007f. Popen is a stand-in; no process starts. Values are synthetic.
 """
 
 import hashlib
@@ -453,6 +453,11 @@ def _fault(kind, side, monkeypatch, src):
     return p
 
 
+def _mine(db):  # SPEC-006c: an output folder the caller names
+    (out := Path(db).parents[1] / "extractions" / "mine").mkdir(parents=True)
+    return str(out)
+
+
 DB, U = "ActivitiesCache.db", "Activities Cache ü.db"
 WS = ("-wal", "-shm")
 COMP = {
@@ -483,6 +488,11 @@ B179 = {  # row: (tool, beside the input, its name, args(input, Other.db) -> (ar
     "SPEC-006-folder": ("wxtcmd", (), DB, lambda db, o: (["-f", str(Path(db).parent / "dbdir")], "dbdir"), None),
     "SPEC-006b-two-files": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", o], "-f"), None),
     "SPEC-006b-same-file": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", db], "-f"), None),
+    "SPEC-006c": ("wxtcmd", (), DB, lambda db, o: (["-f"], "-f: "), None),
+    "SPEC-006c-debug": ("wxtcmd", (), DB, lambda db, o: (["--debug", "-f"], "-f: "), None),
+    "SPEC-006c-user-csv": ("wxtcmd", (), DB, lambda db, o: (["--csv", _mine(db), "-f"], "-f: "), None),
+    "SPEC-006c-guard-dt": ("wxtcmd", (), DB, lambda db, o: (["-f", "--dt", "yyyy"], "--dt"), None),
+    "SPEC-006c-guard-evtxecmd": ("evtxecmd", (), "Security.evtx", lambda db, o: (["-f"], None), None),
     "SPEC-007b--F": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-F", o], ("-F", o)), None),
     "SPEC-007b-/f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "/f", o], ("/f", o)), None),
     "SPEC-007b---f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", o], ("--f", o)), None),
@@ -496,7 +506,13 @@ B179 = {  # row: (tool, beside the input, its name, args(input, Other.db) -> (ar
     "SPEC-007c-guard": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--csvf", "x.csv", "--dt", "yyyy"], None), None),
     "SPEC-007d-guard-hayabusa": ("hayabusa", (), "logs", lambda d, o: (["csv-timeline", "-D", "-d", d], None), None),
     "SPEC-007e-guard-evtx-wal": ("evtxecmd", ("-wal",), "Security.evtx", DEF, None),
+    "SPEC-007f-declared-only": ("wxtcmd", WS, DB, lambda db, o: ([], None), None),
+    "SPEC-007f-f-plus-other": ("wxtcmd", WS, DB, DEF, None),
 }  # fmt: skip
+DECL = {  # SPEC-007f's input_files
+    "SPEC-007f-declared-only": lambda db, o: [db],
+    "SPEC-007f-f-plus-other": lambda db, o: [o],
+}
 SIDES = ("-wal", "-shm", "-journal")  # what SQLite reads beside a db
 
 
@@ -504,19 +520,22 @@ SIDES = ("-wal", "-shm", "-journal")  # what SQLite reads beside a db
 def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row):
     tool, beside, name, args, fault = B179[row]
     src = _set(case, name, beside)
-    argv, named = args(str(src), str(src.parent / "Other.db"))
-    local = tool == "wxtcmd"
-    want = [s.rstrip("0") for s in beside if local and s.rstrip("0") in SIDES]
+    other = str(src.parent / "Other.db")
+    Path(other + "-wal").write_bytes(b"-wal")  # never a companion: Other.db isn't -f's
+    argv, named = args(str(src), other)
+    decl = DECL[row](str(src), other) if row in DECL else []
+    flag = "-d" if tool == "hayabusa" else "-f"
+    given, local = flag in argv[:-1], tool == "wxtcmd"  # given: src is the flag's value
+    want = [s.rstrip("0") for s in beside if local and given and s.rstrip("0") in SIDES]
     if fault and fault[0] == "gone":
         want.remove(fault[1])
     want = {str(Path(str(src) + s).resolve()): sha(str(src) + s) for s in want}
     before, runs, seen, calls = _shas(case), _runs(case), {}, []
-    flag = "-d" if tool == "hayabusa" else "-f"
 
     def stand_in(cmd, kw):  # does what WxTCmd does to the db it is given
-        f = cmd[cmd.index(flag) + 1]
+        f = cmd[cmd.index(flag) + 1] if flag in cmd else ""
         seen.update(cmd=list(cmd), cwd=kw["cwd"], top=os.listdir(kw["cwd"]), f=f)
-        if _inside(f, kw["cwd"]):
+        if f and _inside(f, kw["cwd"]):
             seen.update(beside=sorted(os.listdir(Path(f).parent)))
             seen.update(data=Path(f).read_bytes())
             Path(f).write_bytes(b"checkpointed")
@@ -528,7 +547,8 @@ def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row
     made = fault and _fault(*fault, monkeypatch, src)
     try:
         command = [Path(wx[tool]).stem, *argv]
-        resp = _run(wx, tool, stand_in, calls=calls, command=command)
+        kw = {"command": command, "input_files": decl or None}
+        resp = _run(wx, tool, stand_in, calls=calls, **kw)
     finally:
         if made and made.exists():
             made.chmod(0o600)
@@ -536,30 +556,38 @@ def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row
         named = (named,) if isinstance(named, str) else named or (made.name,)
         assert not calls and resp["success"] is False, resp
         assert any(n in resp["error"] for n in named), resp["error"]  # any one
+        assert "--csv" not in resp["error"], resp["error"]  # the server adds it
         assert not list(wtemp.iterdir()), list(wtemp.iterdir())
         assert fault or (_runs(case) == runs and _shas(case) == before), _runs(case)
         return
     (entry,) = _entries(case)
     guard = "guard" in row  # what a GUARD row checks holds at base too
+    skip = guard and not row.startswith("SPEC-007e")  # 007e checks companions
     assert calls and (resp["success"] is True or tool == "hayabusa"), resp
+    paths = [str(Path(p).resolve()) for p in [str(src)] * given + decl]
     for where, inputs in (("reply", resp["inputs"]), ("audit", entry["inputs"])):
-        assert [r["path"] for r in inputs] == [str(src.resolve())], (where, inputs)
-        got = {c["path"]: c["sha256"] for c in inputs[0].get("companions", [])}
-        assert guard or got == want and ("companions" in inputs[0]) is bool(want)
+        assert [r["path"] for r in inputs] == paths, (where, inputs)
+        found = ["catalog"] * given + ["declared"] * len(decl)
+        assert [r["found"] for r in inputs] == found, (where, inputs)
+        got = {c["path"]: c["sha256"] for r in inputs for c in r.get("companions", [])}
+        has = [("companions" in r) for r in inputs]  # -f's record only (SPEC-007f)
+        one = has[:1] in ([], [bool(want)]) and not any(has[1:])
+        assert skip or got == want and one, (where, inputs)
     recorded = {k: v for k, v in entry.items() if k.startswith("input")}
     assert str(wtemp) not in json.dumps(recorded), recorded
-    files = [str(src.resolve())] if tool != "hayabusa" else None  # a folder: none
+    files = [str(src.resolve())] if given and tool != "hayabusa" else None  # a folder
     assert entry.get("input_files") == files, recorded
     after = _shas(case)  # the case's files are only read
     assert {k: after.get(k) for k in before} == before, after
     assert set(after) - set(before) == ({made.name} if made else set()), after
-    if not local:
-        assert seen["f"] == str(src) and "copy_note" not in resp, (seen, resp)
-        assert tool != "hayabusa" or inputs[0]["found"] == "catalog", inputs
+    if not local:  # the caller's arguments, unchanged
+        assert seen["cmd"][1 : len(argv) + 1] == argv, seen
+        assert "copy_note" not in resp, resp
         return
     run = str(case / "extractions" / entry["audit_id"])
     assert entry["params"]["command"] == [wx["wxtcmd"], *argv, "--csv", run], entry
-    if guard:
+    if guard or not given:  # no -f file: nothing is copied (SPEC-007f)
+        assert guard or seen["top"] == [] and "copy_note" not in resp, (seen, resp)
         return
     f, cwd = Path(seen["f"]), Path(seen["cwd"])
     assert f.parent == cwd / "input" and seen["top"] == ["input"], seen
