@@ -7,6 +7,7 @@ is a stand-in; no process starts. Values are synthetic.
 
 import io
 import os
+import pathlib
 import stat
 import tempfile
 from pathlib import Path
@@ -16,6 +17,7 @@ import pytest
 import test_run_records as trr
 from test_run_records import _csv, _entries, _evtx, _run
 
+from wintools_mcp import operation
 from wintools_mcp.config import get_config
 from wintools_mcp.exceptions import ExecutionError, ExecutionTimeoutError
 from wintools_mcp.tools import generic
@@ -311,7 +313,14 @@ GUARDS = {  # row: (tool, the tool writes, command); each runs and succeeds
     "R4-guard-unflagged-keeps-todays-rules": ("evtxecmd", _csv, lambda p: ["-f", p.ev.replace("evidence", "evidence/../evidence", 1)]),
     "A7-guard-no-case-wxtcmd-runs": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--csv", p.x + "/nc"]),
     "A8-guard-no-case-wrote-nothing": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/nc"]),
+    "X1-guard-saved-output-unresolvable": ("evtxecmd", _csv, lambda p: ["-f", p.ev]),
+    "X2-guard-user-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/mine"]),
+    "X2M-guard-run-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev]),
 }  # fmt: skip
+UNLISTED = {
+    "X2": "mine",
+    "X2M": "extractions",
+}  # a listing that failed: no wrote-nothing
 
 
 @pytest.mark.parametrize("row", GUARDS)
@@ -322,9 +331,38 @@ def test_guard_runs_the_rules_leave_alone(case, wx, wtemp, monkeypatch, row):
     if row.startswith(("A7", "A8")):
         monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
         get_config().case_dir = ""
+    real_execute, real_resolve, saved = generic.execute, pathlib.Path.resolve, []
+
+    def execute(*a, **kw):
+        r = real_execute(*a, **kw)
+        saved.extend(r[k] for k in ("output_file", "stderr_file") if r.get(k))
+        return r
+
+    def resolve(self, *a, **kw):  # the share drops while the run is recorded
+        if str(self) in saved:
+            raise OSError(5, "The network name cannot be found")
+        return real_resolve(self, *a, **kw)
+
+    def written(before, folder):
+        if UNLISTED[row.split("-")[0]] in str(folder):
+            raise PermissionError(13, "Access is denied")
+        return real_written(before, folder)
+
+    real_written = operation.written
+    if row.startswith("X1"):
+        monkeypatch.setattr(generic, "execute", execute)
+        monkeypatch.setattr(pathlib.Path, "resolve", resolve)
+    if row.startswith("X2"):
+        monkeypatch.setattr(operation, "written", written)
     calls = []
     resp = _run(wx, tool, write, calls=calls, command=command)
     assert calls and resp["success"] is True and not resp.get("error"), resp
+    if row.startswith("X1"):  # recorded as before: the CSV, its hash, the exit code
+        (entry,) = _entries(case)
+        summary = entry["result_summary"]
+        assert saved and summary["output_sha256"] and summary["exit_code"] == 0, entry
+    if row.startswith("X2"):  # the listing error is kept in the record
+        assert "Access is denied" in str(_entries(case)), _entries(case)
 
 
 REFUSED = {  # row: WxTCmd's arguments, the one named; refused before anything

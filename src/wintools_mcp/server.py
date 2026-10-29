@@ -965,9 +965,13 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             # A tool whose result is a file, in a case, that wrote none has no
             # result, whatever its exit code: what it printed says why
             saved = [exec_result.get(k) for k in ("output_file", "stderr_file")]
-            saved = {str(Path(p).resolve()) for p in saved if p}
+            try:  # a saved file's path that can't be resolved: as before
+                saved = {str(Path(p).resolve()) for p in saved if p}
+            except OSError:
+                saved = None
             if (
-                op_dir
+                saved is not None
+                and op_dir
                 and td
                 and td.output_flag
                 and not eula
