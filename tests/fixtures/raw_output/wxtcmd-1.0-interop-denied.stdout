@@ -1,0 +1,28 @@
+WxTCmd version 2026.5.0
+
+Author: Eric Zimmerman (saericzimmerman@gmail.com)
+https://github.com/EricZimmerman/WxTCmd
+
+Command line: -f \\10.0.1.91\vhir-cases\evidence\rd01-activitiescache\L.tdungan\ActivitiesCache.db --csv \\10.0.1.91\vhir-cases\extractions\c2-run-i-tdungan
+
+Error processing database: Unable to load DLL 'SQLite.Interop.dll' or one of its dependencies: Access is denied. (0x80070005 (E_ACCESSDENIED))
+System.DllNotFoundException: Unable to load DLL 'SQLite.Interop.dll' or one of its dependencies: Access is denied. (0x80070005 (E_ACCESSDENIED))
+   at System.Data.SQLite.UnsafeNativeMethods.sqlite3_config_none(SQLiteConfigOpsEnum op)
+   at System.Data.SQLite.UnsafeNativeMethods.sqlite3_config_none(SQLiteConfigOpsEnum op)
+   at System.Data.SQLite.SQLite3.StaticIsInitialized()
+   at System.Data.SQLite.SQLiteLog.PrivateInitialize(String className)
+   at System.Data.SQLite.SQLiteLog.Initialize(String className)
+   at System.Data.SQLite.SQLiteConnection..ctor(String connectionString, Boolean parseViaFramework)
+   at System.Data.SQLite.SQLiteConnection..ctor(String connectionString)
+   at ServiceStack.OrmLite.Sqlite.SqliteOrmLiteDialectProvider.CreateConnection(String connectionString) in /home/runner/work/ServiceStack/ServiceStack/ServiceStack.OrmLite/src/ServiceStack.OrmLite.Sqlite/SqliteOrmLiteDialectProvider.cs:line 26
+   at ServiceStack.OrmLite.Sqlite.SqliteOrmLiteDialectProviderBase.CreateConnection(String connectionString, Dictionary`2 options) in /home/runner/work/ServiceStack/ServiceStack/ServiceStack.OrmLite/src/ServiceStack.OrmLite.Sqlite/SqliteOrmLiteDialectProviderBase.cs:line 255
+   at ServiceStack.OrmLite.OrmLiteConfig.ToDbConnection(String dbConnectionStringOrFilePath, IOrmLiteDialectProvider dialectProvider) in /home/runner/work/ServiceStack/ServiceStack/ServiceStack.OrmLite/src/ServiceStack.OrmLite/OrmLiteConfig.cs:line 189
+   at ServiceStack.OrmLite.OrmLiteConnection.get_DbConnection() in /home/runner/work/ServiceStack/ServiceStack/ServiceStack.OrmLite/src/ServiceStack.OrmLite/OrmLiteConnection.cs:line 55
+   at ServiceStack.OrmLite.OrmLiteConnection.Open() in /home/runner/work/ServiceStack/ServiceStack/ServiceStack.OrmLite/src/ServiceStack.OrmLite/OrmLiteConnection.cs:line 143
+   at ServiceStack.OrmLite.OrmLiteConnectionFactory.OpenDbConnection() in /home/runner/work/ServiceStack/ServiceStack/ServiceStack.OrmLite/src/ServiceStack.OrmLite/OrmLiteConnectionFactory.cs:line 112
+   at WxTCmd.Program.DoWork(String f, String csv, String dt, Boolean debug, Boolean trace)
+
+Results saved to: \\10.0.1.91\vhir-cases\extractions\c2-run-i-tdungan
+
+Processing complete in 0.0599 seconds
+

@@ -216,6 +216,8 @@ tools:
     output_format: csv
     output_flag: "--csv"
     timeout_seconds: 300
+    # it loads the SQLite.Interop.dll it writes beside itself, which the case share won't run
+    local_work_folder: true
     fk_tool_name: WxTCmd
     install_methods:
       - method: direct

@@ -962,6 +962,29 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
                     f"relative path is read from this run's own folder ({folder}): "
                     "give the full path, from get_share_info's case_dir"
                 )
+            # A tool whose result is a file, in a case, that wrote none has no
+            # result, whatever its exit code: what it printed says why
+            saved = [exec_result.get(k) for k in ("output_file", "stderr_file")]
+            saved = {str(Path(p).resolve()) for p in saved if p}
+            if (
+                op_dir
+                and td
+                and td.output_flag
+                and not eula
+                and not stopped
+                and all(o["path"] in saved for o in outputs)
+            ):
+                out = exec_result.get("stdout") or exec_result.get("stdout_ends") or ""
+                out += exec_result.get("stderr") or ""
+                if len(out) > 2000:
+                    out = out[:1000] + " … " + out[-1000:]
+                where = ", ".join(
+                    to_share_relative(f, cfg.share_root) for f in watched or [op_dir]
+                )
+                no_match = (
+                    f"{binary} wrote no file to {where} (exit code {exec_result['exit_code']}). "
+                    f"What it printed: {out}"
+                )
             success = not eula and not stopped and not no_match
 
             response = build_response(
@@ -1057,6 +1080,8 @@ def create_server(config: WintoolsConfig | None = None) -> FastMCP:
             # Surface save errors from executor
             if exec_result.get("save_error"):
                 response.setdefault("warnings", []).append(exec_result["save_error"])
+            if exec_result.get("work_left"):
+                response.setdefault("warnings", []).append(exec_result["work_left"])
             if detection_method == "none":
                 response["input_files_warning"] = (
                     "Could not detect input files — pass input_files parameter "

@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from test_names_and_binaries import _csv
 from test_run_records import (  # noqa: F401  (fixtures)
     _entries,
     _evtx,
@@ -50,7 +51,7 @@ def test_outputs_and_local_paths_are_never_checked(case, tools, tool, command): 
     ev = _evtx(case)
     command = [str(ev) if a == "EVTX" else a for a in command]
     calls: list = []
-    resp = _run(tools, tool, calls=calls, command=command)
+    resp = _run(tools, tool, _csv, calls=calls, command=command)
     assert resp["success"] is True and len(calls) == 1, resp
 
 
@@ -59,7 +60,7 @@ def test_an_output_on_the_share_not_there_yet_runs(case, tools):  # noqa: F811
     out = case / "extractions" / "evtx-run1"  # on the share, not made yet
     calls: list = []
     command = ["EvtxECmd", "-f", str(ev), "--csv", str(out)]
-    resp = _run(tools, "evtxecmd", calls=calls, command=command)
+    resp = _run(tools, "evtxecmd", _csv, calls=calls, command=command)
     assert resp["success"] is True and len(calls) == 1, resp
     resp = _run(tools, "winpmem", calls=calls, command=["winpmem", "new-memory.raw"])
     assert resp["success"] is True and len(calls) == 2, resp

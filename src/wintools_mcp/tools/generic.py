@@ -4,6 +4,9 @@ import copy
 import hashlib
 import logging
 import os
+import re
+import shutil
+import tempfile
 import threading
 import time as _time
 from collections import OrderedDict
@@ -17,6 +20,7 @@ from wintools_mcp.exceptions import (
     ExecutionTimeoutError,
     OutOfScopeError,
     ToolNotInCatalogError,
+    WintoolsError,
 )
 from wintools_mcp.executor import execute
 from wintools_mcp.security import sanitize_extra_args, validate_input_path
@@ -121,6 +125,64 @@ def free_folder(path: str) -> str:
     import os
 
     return next((c for c in _names(path) if not os.path.lexists(c)), path)
+
+
+def _private(folder: str) -> None:
+    """On Windows, only SYSTEM, Administrators and the folder's owner may use
+    ``folder`` (what Python 3.12.4's mkdtemp gives it; older ones inherit the
+    temp folder's rights, where any user may add a file)."""
+    if os.name == "nt":
+        import subprocess
+
+        icacls = Path(
+            os.environ.get("SystemRoot", r"C:\Windows"), "System32", "icacls.exe"
+        )
+        grant = [f"*{sid}:(OI)(CI)F" for sid in ("S-1-5-18", "S-1-5-32-544", "S-1-3-4")]
+        args = [str(icacls), folder, "/inheritance:r", "/grant:r", *grant]
+        r = subprocess.run(args, capture_output=True, text=True)
+        if r.returncode:
+            raise OSError(
+                f"icacls exit code {r.returncode}: {(r.stdout + r.stderr).strip()}"
+            )
+
+
+def _work_folder(op_dir: str) -> str:
+    """A new, empty, private folder in this account's temp folder, named
+    after the run, for a tool that runs a file it writes where it runs."""
+    try:
+        work = tempfile.mkdtemp(prefix=Path(op_dir).name + "-")
+    except OSError as e:
+        raise WintoolsError(f"No work folder in {tempfile.gettempdir()}: {e}") from e
+    try:
+        _private(work)
+        if os.listdir(work):
+            raise OSError(f"it already holds {', '.join(sorted(os.listdir(work)))}")
+    except OSError as e:
+        shutil.rmtree(work, ignore_errors=True)
+        raise WintoolsError(f"The work folder {work} isn't private: {e}") from e
+    return work
+
+
+def _remove(work: str) -> str:
+    """Remove the work folder; say so if it stays."""
+    shutil.rmtree(work, ignore_errors=True)
+    return f"The work folder {work} couldn't be removed" if os.path.exists(work) else ""
+
+
+def _local_args(args: list[str], td) -> None:
+    """Run outside the case, a tool must be given full paths: no '..', no
+    flag with its value attached, and its input and output absolute."""
+    paths = {f.lower() for f in (td.input_flag, td.output_flag, *OUTPUT_FLAGS) if f}
+    for i, arg in enumerate(args):
+        if ".." in re.split(r"[\\/]", arg):
+            why = "a path with '..' isn't run"
+        elif arg.startswith("-") and re.search("[=:]", arg):
+            why = "give the flag and its value apart"
+        elif i and args[i - 1].lower() in paths and not Path(arg).is_absolute():
+            why = "give the full path, from get_share_info's case_dir"
+        else:
+            continue
+        raise OutOfScopeError(f"{arg}: {why} ({td.name} runs outside the case)")
 
 
 def _new_folder(path: str) -> str:
@@ -334,6 +396,10 @@ def run_command(
             or ".." in arg
         ):
             validate_input_path(arg)
+    td = get_tool_def(binary_name)
+    local = bool(op_dir and td and td.local_work_folder)
+    if local:
+        _local_args(command[1:], td)
     if op_dir:
         validate_input_path(op_dir)
         error = _make_dir(str(Path(op_dir).parent))
@@ -347,7 +413,6 @@ def run_command(
     # Auto-inject output directory when catalog specifies output_flag
     # and user didn't provide one (e.g., --csv, --json, -o)
     _csv_output_rel = None
-    td = get_tool_def(binary_name)
     if td and td.output_flag:
         user_has_output = any(
             a.lower() in (*OUTPUT_FLAGS, td.output_flag.lower()) for a in command[1:]
@@ -371,20 +436,33 @@ def run_command(
                 _csv_output_rel = to_share_relative(output_dir, cfg.share_root)
 
     eula_note = _accept_eula(command, td)
+    work = _work_folder(op_dir) if local else None
     try:
         exec_result = execute(
             command,
             timeout=timeout,
-            cwd=cwd,
+            cwd=work or cwd,
             save_output=save_output,
             save_dir=op_dir or save_dir,
             keep_raw=bool(op_dir),
         )
-    except ExecutionTimeoutError as e:
+    except BaseException as e:  # what the tool left there isn't a result
+        left = _remove(work) if work else ""
         # the tool started, so the EULA was accepted: the error says so too
-        if eula_note:
-            raise ExecutionTimeoutError(f"{e} {eula_note}") from e
+        if isinstance(e, ExecutionTimeoutError) and (eula_note or left):
+            raise ExecutionTimeoutError(
+                " ".join(filter(None, (str(e), eula_note, left)))
+            ) from e
+        if left and isinstance(e, Exception):  # handled as before, the folder named
+            kind = (
+                WintoolsError
+                if isinstance(e, (WintoolsError, ValueError))
+                else RuntimeError
+            )
+            raise kind(f"{e} {left}") from e
         raise
+    if work and (left := _remove(work)):
+        exec_result["work_left"] = left
     exec_result["tool_path"] = tool_path
     if eula_note:
         exec_result["eula_note"] = eula_note
@@ -448,6 +526,9 @@ def run_command(
         exec_result["_parsed"] = parsed
         exec_result["_output_format"] = "parsed_text"
 
+    exec_result["stdout_ends"] = (
+        f"{stdout[:1000]} … {stdout[-1000:]}"  # if it wrote no file
+    )
     exec_result["stdout"] = None
 
     # Cache store (Feature 4)

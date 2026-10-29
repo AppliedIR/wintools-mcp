@@ -3,8 +3,9 @@
 What an exit code means differs by tool and version (an EZ tool exits 0 on
 a bad argument; ProcDump exits with the number of dumps it wrote; sigcheck
 exits 1 for unsigned files), so wintools reads none of them. A run is a
-success when it started, wintools didn't stop it, and no EULA screen took
-its place. The code is the tool's own, read as signed 32-bit: Windows hands
+success when it started, wintools didn't stop it, no EULA screen took its
+place and, for a tool whose result is a file, it wrote one.
+The code is the tool's own, read as signed 32-bit: Windows hands
 -2 to Python as 4294967294. No reply carries an exit-code label, from the
 catalog or from the tool's knowledge. Tools are stand-ins; values are
 synthetic.
@@ -72,8 +73,11 @@ def test_a_bad_argument_run_completed_with_its_output_and_no_label(case, stand_i
     """An EZ tool given a bad argument prints its usage and exits 0."""
     stand_in.update(code=0, out=USAGE)
     r = _run("PECmd.exe", "--nope")
-    assert r["success"] is True and r["metadata"]["exit_code"] == 0, r
+    assert r["success"] is False and r["metadata"]["exit_code"] == 0, r
     assert "Usage: PECmd" in json.dumps(r["data"])
+    assert (
+        "PECmd.exe wrote no file to " in r["error"] and "Usage: PECmd" in r["error"]
+    ), r
     assert "exit_code_meaning" not in r["metadata"], r["metadata"]
 
 

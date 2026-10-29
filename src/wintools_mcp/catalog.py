@@ -125,6 +125,9 @@ class ToolDefinition:
     # accepted the tool's EULA. Not accepted, the run passes -accepteula and
     # its reply says the EULA was accepted on the examiner's behalf
     eula_key: str = ""
+    # Runs in a case are made in a private folder of this account's own, not
+    # the run's folder on the share, for a tool that runs what it writes there
+    local_work_folder: bool = False
 
     @property
     def knowledge_name(self) -> str:
@@ -235,6 +238,7 @@ def load_catalog() -> dict[str, ToolDefinition]:
                 alternatives=tool_entry.get("alternatives", []),
                 settings_paths=list(tool_entry.get("settings_paths", [])),
                 eula_key=str(tool_entry.get("eula_key", "")),
+                local_work_folder=bool(tool_entry.get("local_work_folder", False)),
             )
             _catalog_cache[name.lower()] = td
 

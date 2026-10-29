@@ -189,6 +189,8 @@ tools:
       - "C:\\Tools\\ZimmermanTools"
 ```
 
+`local_work_folder: true` (WxTCmd only) runs the tool, in a case, in a new private folder in the server account's temp folder, removed afterwards, because the tool loads a DLL it writes where it runs and the case share doesn't allow running files; its output still goes to the case, and it must be given full paths.
+
 ## Response Envelope
 
 Every tool response is wrapped in a structured envelope with forensic-knowledge enrichment:
@@ -224,6 +226,8 @@ Every tool response is wrapped in a structured envelope with forensic-knowledge 
 | `corroboration` | forensic-knowledge | Suggested cross-reference artifacts and tools |
 | `field_notes` | forensic-knowledge | Timestamp field meanings from artifact definitions |
 | `discipline_reminder` | Built-in | Rotating forensic methodology reminder (14 total, cycled per call) |
+
+In a case, a run of a tool whose catalog entry has an output flag that writes no file has `success: false`, and `error` says so with what the tool printed.
 
 ## Configuration
 

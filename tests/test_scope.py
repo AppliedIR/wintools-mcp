@@ -17,7 +17,7 @@ import pytest
 from test_batch_scan import case as scan_case  # noqa: F401  (fixture)
 from test_batch_scan import ran  # noqa: F401  (fixture)
 from test_csv_switch import _offline_system
-from test_names_and_binaries import _call
+from test_names_and_binaries import _call, _csv
 from test_run_records import case  # noqa: F401  (fixture)
 
 from wintools_mcp import server as srv
@@ -40,8 +40,8 @@ def _refused(tmp_path, command, says):
     return resp, asked
 
 
-def _runs(tmp_path, command):
-    resp, asked, argvs = _call(tmp_path, command)
+def _runs(tmp_path, command, write=None):
+    resp, asked, argvs = _call(tmp_path, command, write)
     assert resp["success"] is True, resp
     assert len(argvs) == 1
     return resp
@@ -305,7 +305,7 @@ def test_the_same_tools_run_on_the_case(case, tmp_path, command):  # noqa: F811
     (ev / "Users").mkdir()
     for name in ("x.exe", "x.evtx", "SYSTEM", "rules.yar", "x.bin", "1234"):
         (ev / name).write_bytes(b"synthetic")
-    _runs(tmp_path, [a.replace("<E>", str(ev)) for a in command])
+    _runs(tmp_path, [a.replace("<E>", str(ev)) for a in command], _csv)
 
 
 @pytest.mark.parametrize(

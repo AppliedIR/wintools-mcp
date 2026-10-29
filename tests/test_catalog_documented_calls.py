@@ -9,7 +9,7 @@ one recorded.
 
 from __future__ import annotations
 
-from test_names_and_binaries import _call
+from test_names_and_binaries import _call, _csv
 from test_run_records import _entries, _evtx, case  # noqa: F401  (fixture)
 
 from wintools_mcp.catalog import get_tool_def
@@ -19,7 +19,7 @@ def test_sbecmd_reads_the_folder_its_d_names(case, tmp_path):  # noqa: F811
     """SBECmd help: "-d <d>  Directory to look for registry hives"; no -f."""
     hives = case / "evidence" / "hives"
     hives.mkdir()
-    resp, _, ran = _call(tmp_path, ["SBECmd.exe", "-d", str(hives)])
+    resp, _, ran = _call(tmp_path, ["SBECmd.exe", "-d", str(hives)], write=_csv)
     assert resp["success"] is True, resp
     assert ran[0][1:3] == ["-d", str(hives)]
     entry = _entries(case)[-1]

@@ -16,6 +16,7 @@ import io
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from test_names_and_binaries import _csv
 from test_run_records import (  # noqa: F401  (fixtures)
     _entries,
     _evtx,
@@ -30,10 +31,12 @@ NO_MATCH = b"\r\nNo matching files were found.\r\n"
 REL = "evidence/kansa-by-host/rd01/rd01-Autorunsc.csv"
 
 
-def _run(tools, tool, command, stderr=b"", calls=None, **args):  # noqa: F811
+def _run(tools, tool, command, stderr=b"", calls=None, write=None, **args):  # noqa: F811
     def popen(cmd, **kw):
         if calls is not None:
             calls.append((list(cmd), kw.get("cwd")))
+        if write:
+            write(cmd, kw)
         proc = MagicMock()
         proc.stdout = io.BytesIO(b"tool output line\n")
         proc.stderr = io.BytesIO(stderr)
@@ -104,7 +107,7 @@ def test_an_output_flag_value_the_case_has_is_not_refused(case, tools):  # noqa:
     ev = _evtx(case)
     calls: list = []
     command = ["EvtxECmd", "-f", str(ev), "--csv", "evidence"]
-    resp = _run(tools, "evtxecmd", command, calls=calls)
+    resp = _run(tools, "evtxecmd", command, calls=calls, write=_csv)
     assert resp["success"] is True and len(calls) == 1, resp
 
 

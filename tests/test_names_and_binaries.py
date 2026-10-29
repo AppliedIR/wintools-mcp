@@ -8,6 +8,7 @@ included, so the CSVs are made. Popen is replaced; no process starts.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -47,6 +48,14 @@ def _call(tmp_path, command, write=None):
     return resp, asked, [c[0] for c in calls]
 
 
+def _csv(cmd, kw):
+    """The tool writes a CSV into its --csv folder (a relative one is in its run's folder)."""
+    if "--csv" in cmd:
+        folder = Path(kw["cwd"], cmd[cmd.index("--csv") + 1])
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "out.csv").write_text("a,b\n")
+
+
 @pytest.mark.parametrize(
     "name, binary",
     [("strings", "strings64.exe")],
@@ -66,7 +75,7 @@ def test_a_tool_named_by_its_binary_gets_its_csv_folder(case, tmp_path, binary, 
     """The ingest's own call form: the tool writes its CSVs into the run's
     folder, which the response names."""
     ev = _evtx(case)
-    resp, asked, ran = _call(tmp_path, [binary, flag, str(ev)])
+    resp, asked, ran = _call(tmp_path, [binary, flag, str(ev)], write=_csv)
     assert resp["success"] is True, resp
     argv = ran[0]
     assert "--csv" in argv, argv  # without its catalog entry, no CSV folder
