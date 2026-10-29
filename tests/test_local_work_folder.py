@@ -1,12 +1,14 @@
 """WxTCmd (the one tool whose catalog entry has ``local_work_folder: true``)
 runs, in a case, in a new private folder in the server account's temp folder,
-removed afterwards; and a case run of a tool with a catalog output flag that
-writes no file fails. Each row is named by its id: R1-R4 and A1-A15. Popen
-is a stand-in; no process starts. Values are synthetic.
+removed afterwards, and reads copies of its input and the SQLite files beside
+it there; and a case run of a tool with a catalog output flag that writes no
+file fails. Each row is named by its id: R1-R4, A1-A15 and B179's SPEC-001 to
+SPEC-007e. Popen is a stand-in; no process starts. Values are synthetic.
 """
 
 import hashlib
 import io
+import json
 import os
 import pathlib
 import stat
@@ -16,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 import test_run_records as trr
-from test_run_records import _csv, _entries, _evtx, _run
+from test_run_records import _csv, _entries, _evtx, _run, sha
 
 from wintools_mcp import operation
 from wintools_mcp.config import get_config
@@ -402,3 +404,170 @@ def test_wxtcmd_argument_refused_before_anything(case, wx, wtemp, row):
     assert not calls and resp["success"] is False, resp
     assert named in resp["error"], resp["error"]
     assert _runs(case) == before and not list(wtemp.iterdir()), _runs(case)
+
+
+def _shas(case):
+    files = (p for p in (case / "evidence").rglob("*") if p.is_file())
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+
+
+def _set(case, name, beside):
+    """The input (a folder of evtx for hayabusa), the files beside it (a
+    trailing 0: empty), Other.db and a folder."""
+    ev = case / "evidence"
+    (ev / "dbdir").mkdir()
+    (ev / "Other.db").write_bytes(b"SQLite format 3\x00other")
+    src = ev / name
+    if name == "logs":
+        src.mkdir()
+        (src / "Security.evtx").write_bytes(b"ElfFile-synthetic")
+    else:
+        src.write_bytes(b"SQLite format 3\x00" + name.encode())
+    for s in beside:
+        Path(str(src) + s.rstrip("0")).write_bytes(b"" if s[-1] == "0" else s.encode())
+    return src
+
+
+def _fault(kind, side, monkeypatch, src):
+    """SPEC-005: unreadable; 005b: gone after its record; 005c: made after
+    every record, before the copy (at the work-folder step)."""
+    p = Path(str(src) + side)
+    if kind == "chmod":
+        p.chmod(0)
+    real_record, real_folder = operation.file_record, generic._work_folder
+
+    def record(path, root):
+        r = real_record(path, root)
+        if str(path).endswith(side):
+            p.unlink()
+        return r
+
+    def work_folder(op_dir):
+        p.write_bytes(b"late")
+        return real_folder(op_dir)
+
+    if kind == "gone":
+        monkeypatch.setattr(operation, "file_record", record)
+    if kind == "late":
+        monkeypatch.setattr(generic, "_work_folder", work_folder)
+    return p
+
+
+DB, U = "ActivitiesCache.db", "Activities Cache ü.db"
+WS = ("-wal", "-shm")
+COMP = {
+    "none": (),
+    "wal-shm": WS,
+    "journal": ("-journal",),
+    "wal-only": ("-wal",),
+    "wal0-shm": ("-wal0", "-shm"),
+    "journal0": ("-journal0",),
+}
+DEF = lambda db, o: (["-f", db], None)  # noqa: E731
+B179 = {  # row: (tool, beside the input, its name, args(input, Other.db) -> (args, named if refused), fault)
+    "SPEC-001": ("wxtcmd", (), DB, DEF, None),
+    "SPEC-001b-dll-named-input": ("wxtcmd", (), DLL, DEF, None),
+    "SPEC-001b": ("wxtcmd", ("-wal",), DB, DEF, None),
+    **{f"SPEC-002-{c}-{n}": ("wxtcmd", COMP[c], name, DEF, None) for c in COMP for n, name in (("ascii", DB), ("u", U))},
+    "SPEC-002b-old-bak": ("wxtcmd", ("-wal", "-old", ".bak"), DB, DEF, None),
+    "SPEC-003-guard": ("wxtcmd", WS, DB, DEF, None),
+    "SPEC-003b": ("wxtcmd", WS, DB, DEF, None),
+    "SPEC-003c": ("wxtcmd", WS, DB, DEF, None),
+    "SPEC-003d-guard": ("wxtcmd", WS, DB, DEF, None),
+    "SPEC-003e-guard": ("wxtcmd", WS, DB, DEF, None),
+    "SPEC-004": ("wxtcmd", WS + ("-journal",), DB, DEF, None),
+    "SPEC-005-db-unreadable": ("wxtcmd", WS, DB, DEF, ("chmod", "")),
+    "SPEC-005-wal-unreadable": ("wxtcmd", WS, DB, DEF, ("chmod", "-wal")),
+    "SPEC-005b-shm-gone": ("wxtcmd", WS, DB, DEF, ("gone", "-shm")),
+    "SPEC-005c-late-journal": ("wxtcmd", WS, DB, DEF, ("late", "-journal")),
+    "SPEC-006-folder": ("wxtcmd", (), DB, lambda db, o: (["-f", str(Path(db).parent / "dbdir")], "dbdir"), None),
+    "SPEC-006b-two-files": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", o], "-f"), None),
+    "SPEC-006b-same-file": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", db], "-f"), None),
+    "SPEC-007b--F": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-F", o], ("-F", o)), None),
+    "SPEC-007b-/f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "/f", o], ("/f", o)), None),
+    "SPEC-007b---f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", o], ("--f", o)), None),
+    "SPEC-007b-/f-joined": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "/f:" + o], "/f:" + o), None),
+    "SPEC-007b-bare": ("wxtcmd", (), DB, lambda db, o: (["-f", db, o], o), None),
+    "SPEC-007b-rooted": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", "\\evidence\\Other.db"], "\\evidence"), None),
+    "SPEC-007b-drive-relative": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", "Z:Other.db"], "Z:Other.db"), None),
+    "SPEC-007b-guard-rooted-after-F": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-F", "\\evidence\\Other.db"], "\\evidence"), None),
+    "SPEC-007b-guard-dash-joined": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--x=" + o], "--x="), None),
+    "SPEC-007-guard-evtxecmd": ("evtxecmd", (), "Security.evtx", DEF, None),
+    "SPEC-007c-guard": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--csvf", "x.csv", "--dt", "yyyy"], None), None),
+    "SPEC-007d-guard-hayabusa": ("hayabusa", (), "logs", lambda d, o: (["csv-timeline", "-D", "-d", d], None), None),
+    "SPEC-007e-guard-evtx-wal": ("evtxecmd", ("-wal",), "Security.evtx", DEF, None),
+}  # fmt: skip
+SIDES = ("-wal", "-shm", "-journal")  # what SQLite reads beside a db
+
+
+@pytest.mark.parametrize("row", B179)
+def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row):
+    tool, beside, name, args, fault = B179[row]
+    src = _set(case, name, beside)
+    argv, named = args(str(src), str(src.parent / "Other.db"))
+    local = tool == "wxtcmd"
+    want = [s.rstrip("0") for s in beside if local and s.rstrip("0") in SIDES]
+    if fault and fault[0] == "gone":
+        want.remove(fault[1])
+    want = {str(Path(str(src) + s).resolve()): sha(str(src) + s) for s in want}
+    before, runs, seen, calls = _shas(case), _runs(case), {}, []
+    flag = "-d" if tool == "hayabusa" else "-f"
+
+    def stand_in(cmd, kw):  # does what WxTCmd does to the db it is given
+        f = cmd[cmd.index(flag) + 1]
+        seen.update(cmd=list(cmd), cwd=kw["cwd"], top=os.listdir(kw["cwd"]), f=f)
+        if _inside(f, kw["cwd"]):
+            seen.update(beside=sorted(os.listdir(Path(f).parent)))
+            seen.update(data=Path(f).read_bytes())
+            Path(f).write_bytes(b"checkpointed")
+            for s in WS:
+                Path(f + s).unlink(missing_ok=True)
+        if "--csv" in cmd:
+            _csv(cmd, kw)
+
+    made = fault and _fault(*fault, monkeypatch, src)
+    try:
+        command = [Path(wx[tool]).stem, *argv]
+        resp = _run(wx, tool, stand_in, calls=calls, command=command)
+    finally:
+        if made and made.exists():
+            made.chmod(0o600)
+    if named or (fault and fault[0] != "late"):  # stopped before the tool
+        named = (named,) if isinstance(named, str) else named or (made.name,)
+        assert not calls and resp["success"] is False, resp
+        assert any(n in resp["error"] for n in named), resp["error"]  # any one
+        assert not list(wtemp.iterdir()), list(wtemp.iterdir())
+        assert fault or (_runs(case) == runs and _shas(case) == before), _runs(case)
+        return
+    (entry,) = _entries(case)
+    guard = "guard" in row  # what a GUARD row checks holds at base too
+    assert calls and (resp["success"] is True or tool == "hayabusa"), resp
+    for where, inputs in (("reply", resp["inputs"]), ("audit", entry["inputs"])):
+        assert [r["path"] for r in inputs] == [str(src.resolve())], (where, inputs)
+        got = {c["path"]: c["sha256"] for c in inputs[0].get("companions", [])}
+        assert guard or got == want and ("companions" in inputs[0]) is bool(want)
+    recorded = {k: v for k, v in entry.items() if k.startswith("input")}
+    assert str(wtemp) not in json.dumps(recorded), recorded
+    files = [str(src.resolve())] if tool != "hayabusa" else None  # a folder: none
+    assert entry.get("input_files") == files, recorded
+    after = _shas(case)  # the case's files are only read
+    assert {k: after.get(k) for k in before} == before, after
+    assert set(after) - set(before) == ({made.name} if made else set()), after
+    if not local:
+        assert seen["f"] == str(src) and "copy_note" not in resp, (seen, resp)
+        assert tool != "hayabusa" or inputs[0]["found"] == "catalog", inputs
+        return
+    run = str(case / "extractions" / entry["audit_id"])
+    assert entry["params"]["command"] == [wx["wxtcmd"], *argv, "--csv", run], entry
+    if guard:
+        return
+    f, cwd = Path(seen["f"]), Path(seen["cwd"])
+    assert f.parent == cwd / "input" and seen["top"] == ["input"], seen
+    assert f.name == src.name and seen["data"] == src.read_bytes(), seen
+    copied = sorted([src.name] + [Path(p).name for p in want])
+    assert seen["beside"] == copied, (seen["beside"], copied)
+    note = resp.get("copy_note") or ""
+    assert "cop" in note and all(n in note for n in copied), note
+    others = set(after) - set(copied) - {src.name}
+    assert not any(n in note for n in others), (note, others)
+    assert json.dumps(note) in json.dumps(entry), entry
