@@ -2,8 +2,8 @@
 runs, in a case, in a new private folder in the server account's temp folder,
 removed afterwards, and reads copies of its input and the SQLite files beside
 it there; and a case run of a tool with a catalog output flag that writes no
-file fails. Each row is named by its id: R1-R4, A1-A15 and B179's SPEC-001 to
-SPEC-007f. Popen is a stand-in; no process starts. Values are synthetic.
+file fails. Each row is named for what it checks. Popen is a stand-in; no
+process starts. Values are synthetic.
 """
 
 import hashlib
@@ -82,11 +82,11 @@ def _paths(case):
     return SimpleNamespace(db=db, ev=str(_evtx(case)), x=str(x), climb=climb)
 
 
-@pytest.mark.parametrize("exe", ["WxTCmd", "WxTCmd.exe"], ids=["R1", "R1-os-shaped"])
+@pytest.mark.parametrize("exe", ["WxTCmd", "WxTCmd.exe"], ids=["wxtcmd", "os-shaped"])
 def test_wxtcmd_runs_in_a_new_private_local_folder_named_by_its_run(
     case, wx, wtemp, exe
 ):
-    """R1-os-shaped: opensearch-mcp sends [WxTCmd.exe, -f, path], no output flag."""
+    """The os-shaped row: opensearch-mcp sends [WxTCmd.exe, -f, path], no output flag."""
     seen = {}
 
     def write(cmd, kw):
@@ -106,7 +106,7 @@ def test_wxtcmd_runs_in_a_new_private_local_folder_named_by_its_run(
     assert resp["success"] is True, resp.get("error")
 
 
-def test_r1_guard_unflagged_tool_still_runs_in_its_run_folder(case, tools, wtemp):
+def test_guard_unflagged_tool_still_runs_in_its_run_folder(case, tools, wtemp):
     calls = []
     command = ["EvtxECmd", "-f", str(_evtx(case))]
     resp = _run(tools, "evtxecmd", _csv, calls=calls, command=command)
@@ -116,9 +116,7 @@ def test_r1_guard_unflagged_tool_still_runs_in_its_run_folder(case, tools, wtemp
     assert resp["success"] is True, resp.get("error")
 
 
-def test_r1_private_step_runs_on_the_folder_before_the_tool(
-    case, wx, wtemp, monkeypatch
-):
+def test_private_step_runs_on_the_folder_before_the_tool(case, wx, wtemp, monkeypatch):
     order = []
     private = lambda f: order.append(("private", Path(f).resolve()))  # noqa: E731
     monkeypatch.setattr(generic, "_private", private, raising=False)
@@ -143,19 +141,19 @@ def _plant(*parts):
 
 
 NO_FOLDER = {  # row: (what fails, as what, named in the error)
-    "R1-private-step-fails": (
+    "private-step-fails": (
         "_private",
         _raise(OSError("icacls exit code 5")),
         "icacls exit code 5",
     ),
-    "R1-planted-before-rights": ("_private", _plant(DLL), DLL),
-    "A4-planted-subfolder": ("_private", _plant("x64", DLL), "x64"),
-    "A10-guard-run-folder-fails": (
+    "planted-before-rights": ("_private", _plant(DLL), DLL),
+    "planted-subfolder": ("_private", _plant("x64", DLL), "x64"),
+    "guard-run-folder-fails": (
         "_make_dir",
         lambda path: "can't make it",
         "",  # its reply has no exit_code: base's KeyError, as before
     ),
-    "R1-no-temp-folder": (None, None, "wtemp"),
+    "no-temp-folder": (None, None, "wtemp"),
 }
 
 
@@ -177,7 +175,9 @@ def test_a_run_with_no_private_empty_folder_is_refused(
     assert named in resp["error"] and not list(wtemp.iterdir()), resp["error"]
 
 
-@pytest.mark.parametrize("stays", [False, True], ids=["R2", "R1-folder-that-stays"])
+@pytest.mark.parametrize(
+    "stays", [False, True], ids=["folder-removed", "folder-that-stays"]
+)
 def test_what_the_tool_leaves_in_its_folder_is_no_output(case, wx, wtemp, stays):
     seen = {}
 
@@ -200,15 +200,15 @@ def test_what_the_tool_leaves_in_its_folder_is_no_output(case, wx, wtemp, stays)
 
 
 RAISES = {  # row: (what execute raises, the folder stays, the error starts with)
-    "R1-timeout": (ExecutionTimeoutError("timed out after 300s"), False, ""),
-    "A5-other-exception": (OSError(5, "Access is denied"), False, ""),
-    "A13-timeout-stays": (ExecutionTimeoutError("Command timed out: WxTCmd"), True, ""),
-    "A14-unexpected-stays": (
+    "timeout": (ExecutionTimeoutError("timed out after 300s"), False, ""),
+    "other-exception": (OSError(5, "Access is denied"), False, ""),
+    "timeout-stays": (ExecutionTimeoutError("Command timed out: WxTCmd"), True, ""),
+    "unexpected-stays": (
         PermissionError(13, "Access is denied"),
         True,
         "Unexpected error: [Errno 13] Access is denied",
     ),
-    "A15-tool-error-stays": (
+    "tool-error-stays": (
         ExecutionError("OS error executing WxTCmd: [WinError 5]"),
         True,
         "OS error executing WxTCmd",
@@ -246,14 +246,14 @@ def test_the_work_folder_goes_or_is_named_whatever_the_run_raises(
 
 
 WROTE_NOTHING = {  # row: (command, tool writes, stdout, stderr, exit code, in the error)
-    "R3-deployed-text": ("wx", None, DEPLOYED, b"", 0, CAUSE),
-    "R3-leftover-is-not-a-result": ("wx", _dll, DEPLOYED, b"", 0, CAUSE),
-    "R3-saved-output-named-another-way": ("wx", None, DEPLOYED, b"", 0, CAUSE),
-    "R3-long-output-head-and-tail": ("wx", None, LONG, b"", 0, (CAUSE, "record 00399")),
-    "R3-unflagged-tool": ("ev", None, b"tool output line\n", b"", 0, "tool output"),
-    "R3-user-output-folder": ("mine", None, b"x\r\n", b"", 0, "extractions/mine"),
-    "A2-nonzero-exit": ("wx", None, b"Error: bad db\r\n", b"", 2, "bad db"),
-    "A3-stderr": (
+    "deployed-text": ("wx", None, DEPLOYED, b"", 0, CAUSE),
+    "leftover-is-not-a-result": ("wx", _dll, DEPLOYED, b"", 0, CAUSE),
+    "saved-output-named-another-way": ("wx", None, DEPLOYED, b"", 0, CAUSE),
+    "long-output-head-and-tail": ("wx", None, LONG, b"", 0, (CAUSE, "record 00399")),
+    "unflagged-tool": ("ev", None, b"tool output line\n", b"", 0, "tool output"),
+    "user-output-folder": ("mine", None, b"x\r\n", b"", 0, "extractions/mine"),
+    "nonzero-exit": ("wx", None, b"Error: bad db\r\n", b"", 2, "bad db"),
+    "stderr": (
         "wx",
         None,
         b"WxTCmd 1.0\r\n",
@@ -289,7 +289,7 @@ def test_a_case_run_that_wrote_no_file_failed_and_says_what_it_printed(
         return r
 
     monkeypatch.setattr(trr, "_popen", popen)
-    if row == "R3-saved-output-named-another-way":
+    if row == "saved-output-named-another-way":
         monkeypatch.setattr(generic, "execute", renamed)
     p = _paths(case)
     command = ["EvtxECmd", "-f", p.ev] if kind != "wx" else _wx(case)
@@ -303,26 +303,29 @@ def test_a_case_run_that_wrote_no_file_failed_and_says_what_it_printed(
     assert err.startswith(f"{binary} wrote no file to {where} (exit code {rc})"), err
     said = (said,) if isinstance(said, str) else said
     assert all(s in err for s in said) and len(err) <= 2300, err
-    assert any(spelt) or row != "R3-saved-output-named-another-way", "control"
+    assert any(spelt) or row != "saved-output-named-another-way", "control"
     assert entry["result_summary"].get("error") == err
 
 
 GUARDS = {  # row: (tool, the tool writes, command); each runs and succeeds
-    "R3-guard-csv-written": ("wxtcmd", _csv, lambda p: ["-f", p.db]),
-    "R3-guard-user-folder-written": ("evtxecmd", _csv, lambda p: ["-f", p.ev, "--csv", p.x + "/mine"]),
-    "R3-guard-stdout-only-tool": ("sigcheck", None, lambda p: [str(Path(p.ev).parent / "x.exe")]),
-    "R4-guard-dt-value": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--dt", "yyyy-MM-dd HH:mm:ss"]),
-    "R4-guard-csvf-name": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--csvf", "out.csv"]),
-    "R4-guard-unflagged-keeps-todays-rules": ("evtxecmd", _csv, lambda p: ["-f", p.ev.replace("evidence", "evidence/../evidence", 1)]),
-    "A7-guard-no-case-wxtcmd-runs": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--csv", p.x + "/nc"]),
-    "A8-guard-no-case-wrote-nothing": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/nc"]),
-    "X1-guard-saved-output-unresolvable": ("evtxecmd", _csv, lambda p: ["-f", p.ev]),
-    "X1e-guard-saved-stderr-unresolvable": ("evtxecmd", _csv, lambda p: ["-f", p.ev]),
-    "X2-guard-user-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/mine"]),
-    "X2M-guard-run-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev]),
+    "csv-written": ("wxtcmd", _csv, lambda p: ["-f", p.db]),
+    "user-folder-written": ("evtxecmd", _csv, lambda p: ["-f", p.ev, "--csv", p.x + "/mine"]),
+    "stdout-only-tool": ("sigcheck", None, lambda p: [str(Path(p.ev).parent / "x.exe")]),
+    "dt-value": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--dt", "yyyy-MM-dd HH:mm:ss"]),
+    "csvf-name": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--csvf", "out.csv"]),
+    "unflagged-keeps-todays-rules": ("evtxecmd", _csv, lambda p: ["-f", p.ev.replace("evidence", "evidence/../evidence", 1)]),
+    "no-case-wxtcmd-runs": ("wxtcmd", _csv, lambda p: ["-f", p.db, "--csv", p.x + "/nc"]),
+    "no-case-wrote-nothing": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/nc"]),
+    "saved-output-unresolvable": ("evtxecmd", _csv, lambda p: ["-f", p.ev]),
+    "saved-stderr-unresolvable": ("evtxecmd", _csv, lambda p: ["-f", p.ev]),
+    "user-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev, "--csv", p.x + "/mine"]),
+    "run-folder-unlistable": ("evtxecmd", None, lambda p: ["-f", p.ev]),
 }  # fmt: skip
 CSV_SHA = hashlib.sha256(b"TimeCreated,EventId\n").hexdigest()  # what _csv writes
-UNLISTED = {"X2": "mine", "X2M": "extractions"}  # listing failed: no wrote-nothing
+UNLISTED = {
+    "user-folder-unlistable": "mine",
+    "run-folder-unlistable": "extractions",
+}  # listing failed: no wrote-nothing
 
 
 @pytest.mark.parametrize("row", GUARDS)
@@ -330,14 +333,15 @@ def test_guard_runs_the_rules_leave_alone(case, wx, wtemp, monkeypatch, row):
     tool, write, args = GUARDS[row]
     command = [Path(wx[tool]).stem, *args(_paths(case))]
     monkeypatch.setattr(generic, "_account", "LAB\\examiner")
-    if row.startswith(("A7", "A8")):
+    if row.startswith("no-case"):
         monkeypatch.delenv("VHIR_CASE_DIR", raising=False)
         get_config().case_dir = ""
     real_execute, real_resolve, saved = generic.execute, pathlib.Path.resolve, []
-    fails = {"X1": ("output_file", "stderr_file"), "X1e": ("stderr_file",)}
-    real_popen, fails = trr._popen, fails.get(row.split("-")[0], ())
+    fails = {"saved-output-unresolvable": ("output_file", "stderr_file")}
+    fails["saved-stderr-unresolvable"] = ("stderr_file",)
+    real_popen, fails = trr._popen, fails.get(row, ())
 
-    def popen(*a):  # X1e: the tool also prints to stderr
+    def popen(*a):  # the stderr row: the tool also prints to stderr
         def p(cmd, **kw):
             proc = real_popen(*a)(cmd, **kw)
             proc.stderr = io.BytesIO(b"warning\r\n")
@@ -356,43 +360,45 @@ def test_guard_runs_the_rules_leave_alone(case, wx, wtemp, monkeypatch, row):
         return real_resolve(self, *a, **kw)
 
     def written(before, folder):
-        if UNLISTED[row.split("-")[0]] in str(folder):
+        if UNLISTED[row] in str(folder):
             raise PermissionError(13, "Access is denied")
         return real_written(before, folder)
 
     real_written = operation.written
-    if row.startswith("X1"):
+    if fails:
         monkeypatch.setattr(generic, "execute", execute)
         monkeypatch.setattr(pathlib.Path, "resolve", resolve)
-    if row.startswith("X1e"):
+    if row == "saved-stderr-unresolvable":
         monkeypatch.setattr(trr, "_popen", popen)
-    if row.startswith("X2"):
+    if row in UNLISTED:
         monkeypatch.setattr(operation, "written", written)
     calls = []
     resp = _run(wx, tool, write, calls=calls, command=command)
     assert calls and resp["success"] is True and not resp.get("error"), resp
-    if row.startswith("X1"):  # recorded as before: the CSV, its hash, the exit code
+    if fails:  # recorded as before: the CSV, its hash, the exit code
         (entry,) = _entries(case)
         summary = entry["result_summary"]
         assert saved and summary["output_sha256"] and summary["exit_code"] == 0, entry
-        assert saved[-1].endswith("stderr.txt") is row.startswith("X1e"), saved
+        assert saved[-1].endswith("stderr.txt") is (
+            row == "saved-stderr-unresolvable"
+        ), saved
         csv = {Path(o["path"]).name: o.get("sha256") for o in entry["outputs"]}
         assert csv["20261009_EvtxECmd_Output.csv"] == CSV_SHA, entry
-    if row.startswith("X2"):  # the listing error is kept in the record
+    if row in UNLISTED:  # the listing error is kept in the record
         assert "Access is denied" in str(_entries(case)), _entries(case)
 
 
 REFUSED = {  # row: WxTCmd's arguments, the one named; refused before anything
-    "R4-absolute-input-with-dotdot": lambda p: (["-f", p.climb], p.climb),
-    "R4-attached-input": lambda p: (["-f:" + p.db], "-f:" + p.db),
-    "R4-attached-output": lambda p: (["-f", p.db, "--csv=" + p.x], "--csv=" + p.x),
-    "R4-relative-output": lambda p: (["-f", p.db, "--csv", "out"], "out"),
-    "R4-csvf-with-dotdot": lambda p: (["-f", p.db, "--csvf", "../x.csv"], "../x.csv"),
-    "R4-guard-relative-input-climbing": lambda p: (["-f", "../../" + REL], "../../" + REL),
-    "R4-guard-relative-input": lambda p: (["-f", REL], REL),
-    "A9-relative-input-the-case-lacks": lambda p: (["-f", "nothere/A.db"], "nothere/A.db"),
-    "A11-dotdot-behind-a-backslash": lambda p: (["-f", p.db, "--csv", p.x + "\\..\\o"], p.x + "\\..\\o"),
-    "A12-flag-in-another-case": lambda p: (["-f", p.db, "--CSV", "out"], "out"),
+    "absolute-input-with-dotdot": lambda p: (["-f", p.climb], p.climb),
+    "attached-input": lambda p: (["-f:" + p.db], "-f:" + p.db),
+    "attached-output": lambda p: (["-f", p.db, "--csv=" + p.x], "--csv=" + p.x),
+    "relative-output": lambda p: (["-f", p.db, "--csv", "out"], "out"),
+    "csvf-with-dotdot": lambda p: (["-f", p.db, "--csvf", "../x.csv"], "../x.csv"),
+    "guard-relative-input-climbing": lambda p: (["-f", "../../" + REL], "../../" + REL),
+    "guard-relative-input": lambda p: (["-f", REL], REL),
+    "relative-input-the-case-lacks": lambda p: (["-f", "nothere/A.db"], "nothere/A.db"),
+    "dotdot-behind-a-backslash": lambda p: (["-f", p.db, "--csv", p.x + "\\..\\o"], p.x + "\\..\\o"),
+    "flag-in-another-case": lambda p: (["-f", p.db, "--CSV", "out"], "out"),
 }  # fmt: skip
 
 
@@ -429,7 +435,7 @@ def _set(case, name, beside):
 
 
 def _fault(kind, side, monkeypatch, src):
-    """SPEC-005: unreadable; 005b: gone after its record; 005c: made after
+    """chmod: unreadable; gone: removed after its record; late: made after
     every record, before the copy (at the work-folder step)."""
     p = Path(str(src) + side)
     if kind == "chmod":
@@ -453,7 +459,7 @@ def _fault(kind, side, monkeypatch, src):
     return p
 
 
-def _mine(db):  # SPEC-006c: an output folder the caller names
+def _mine(db):  # an output folder the caller names
     (out := Path(db).parents[1] / "extractions" / "mine").mkdir(parents=True)
     return str(out)
 
@@ -469,56 +475,56 @@ COMP = {
     "journal0": ("-journal0",),
 }
 DEF = lambda db, o: (["-f", db], None)  # noqa: E731
-B179 = {  # row: (tool, beside the input, its name, args(input, Other.db) -> (args, named if refused), fault)
-    "SPEC-001": ("wxtcmd", (), DB, DEF, None),
-    "SPEC-001b-dll-named-input": ("wxtcmd", (), DLL, DEF, None),
-    "SPEC-001b": ("wxtcmd", ("-wal",), DB, DEF, None),
-    **{f"SPEC-002-{c}-{n}": ("wxtcmd", COMP[c], name, DEF, None) for c in COMP for n, name in (("ascii", DB), ("u", U))},
-    "SPEC-002b-old-bak": ("wxtcmd", ("-wal", "-old", ".bak"), DB, DEF, None),
-    "SPEC-003-guard": ("wxtcmd", WS, DB, DEF, None),
-    "SPEC-003b": ("wxtcmd", WS, DB, DEF, None),
-    "SPEC-003c": ("wxtcmd", WS, DB, DEF, None),
-    "SPEC-003d-guard": ("wxtcmd", WS, DB, DEF, None),
-    "SPEC-003e-guard": ("wxtcmd", WS, DB, DEF, None),
-    "SPEC-004": ("wxtcmd", WS + ("-journal",), DB, DEF, None),
-    "SPEC-005-db-unreadable": ("wxtcmd", WS, DB, DEF, ("chmod", "")),
-    "SPEC-005-wal-unreadable": ("wxtcmd", WS, DB, DEF, ("chmod", "-wal")),
-    "SPEC-005b-shm-gone": ("wxtcmd", WS, DB, DEF, ("gone", "-shm")),
-    "SPEC-005c-late-journal": ("wxtcmd", WS, DB, DEF, ("late", "-journal")),
-    "SPEC-006-folder": ("wxtcmd", (), DB, lambda db, o: (["-f", str(Path(db).parent / "dbdir")], "dbdir"), None),
-    "SPEC-006b-two-files": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", o], "-f"), None),
-    "SPEC-006b-same-file": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", db], "-f"), None),
-    "SPEC-006c": ("wxtcmd", (), DB, lambda db, o: (["-f"], "-f: "), None),
-    "SPEC-006c-debug": ("wxtcmd", (), DB, lambda db, o: (["--debug", "-f"], "-f: "), None),
-    "SPEC-006c-user-csv": ("wxtcmd", (), DB, lambda db, o: (["--csv", _mine(db), "-f"], "-f: "), None),
-    "SPEC-006c-guard-dt": ("wxtcmd", (), DB, lambda db, o: (["-f", "--dt", "yyyy"], "--dt"), None),
-    "SPEC-006c-guard-evtxecmd": ("evtxecmd", (), "Security.evtx", lambda db, o: (["-f"], None), None),
-    "SPEC-007b--F": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-F", o], ("-F", o)), None),
-    "SPEC-007b-/f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "/f", o], ("/f", o)), None),
-    "SPEC-007b---f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", o], ("--f", o)), None),
-    "SPEC-007b-/f-joined": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "/f:" + o], "/f:" + o), None),
-    "SPEC-007b-bare": ("wxtcmd", (), DB, lambda db, o: (["-f", db, o], o), None),
-    "SPEC-007b-rooted": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", "\\evidence\\Other.db"], "\\evidence"), None),
-    "SPEC-007b-drive-relative": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", "Z:Other.db"], "Z:Other.db"), None),
-    "SPEC-007b-guard-rooted-after-F": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-F", "\\evidence\\Other.db"], "\\evidence"), None),
-    "SPEC-007b-guard-dash-joined": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--x=" + o], "--x="), None),
-    "SPEC-007-guard-evtxecmd": ("evtxecmd", (), "Security.evtx", DEF, None),
-    "SPEC-007c-guard": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--csvf", "x.csv", "--dt", "yyyy"], None), None),
-    "SPEC-007d-guard-hayabusa": ("hayabusa", (), "logs", lambda d, o: (["csv-timeline", "-D", "-d", d], None), None),
-    "SPEC-007e-guard-evtx-wal": ("evtxecmd", ("-wal",), "Security.evtx", DEF, None),
-    "SPEC-007f-declared-only": ("wxtcmd", WS, DB, lambda db, o: ([], None), None),
-    "SPEC-007f-f-plus-other": ("wxtcmd", WS, DB, DEF, None),
+COPIES = {  # row: (tool, beside the input, its name, args(input, Other.db) -> (args, named if refused), fault)
+    "copy-has-the-same-bytes": ("wxtcmd", (), DB, DEF, None),
+    "work-folder-holds-only-input-dll-named": ("wxtcmd", (), DLL, DEF, None),
+    "work-folder-holds-only-input-with-wal": ("wxtcmd", ("-wal",), DB, DEF, None),
+    **{f"companions-{c}-{n}": ("wxtcmd", COMP[c], name, DEF, None) for c in COMP for n, name in (("ascii", DB), ("u", U))},
+    "old-and-bak-are-not-companions": ("wxtcmd", ("-wal", "-old", ".bak"), DB, DEF, None),
+    "guard-inputs-name-the-callers-path": ("wxtcmd", WS, DB, DEF, None),
+    "companions-in-the-input-record": ("wxtcmd", WS, DB, DEF, None),
+    "callers-files-unchanged-by-the-tool": ("wxtcmd", WS, DB, DEF, None),
+    "guard-top-level-inputs-are-the-db": ("wxtcmd", WS, DB, DEF, None),
+    "guard-audit-command-as-before": ("wxtcmd", WS, DB, DEF, None),
+    "copy-note-names-the-copies": ("wxtcmd", WS + ("-journal",), DB, DEF, None),
+    "db-unreadable": ("wxtcmd", WS, DB, DEF, ("chmod", "")),
+    "wal-unreadable": ("wxtcmd", WS, DB, DEF, ("chmod", "-wal")),
+    "shm-gone-after-its-record": ("wxtcmd", WS, DB, DEF, ("gone", "-shm")),
+    "journal-made-after-the-records": ("wxtcmd", WS, DB, DEF, ("late", "-journal")),
+    "input-is-a-folder": ("wxtcmd", (), DB, lambda db, o: (["-f", str(Path(db).parent / "dbdir")], "dbdir"), None),
+    "input-flag-twice-two-files": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", o], "-f"), None),
+    "input-flag-twice-same-file": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-f", db], "-f"), None),
+    "input-flag-last": ("wxtcmd", (), DB, lambda db, o: (["-f"], "-f: "), None),
+    "input-flag-last-after-debug": ("wxtcmd", (), DB, lambda db, o: (["--debug", "-f"], "-f: "), None),
+    "input-flag-last-after-user-csv": ("wxtcmd", (), DB, lambda db, o: (["--csv", _mine(db), "-f"], "-f: "), None),
+    "guard-input-flag-then-dt": ("wxtcmd", (), DB, lambda db, o: (["-f", "--dt", "yyyy"], "--dt"), None),
+    "guard-evtxecmd-input-flag-last": ("evtxecmd", (), "Security.evtx", lambda db, o: (["-f"], None), None),
+    "other-path--F": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-F", o], ("-F", o)), None),
+    "other-path-/f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "/f", o], ("/f", o)), None),
+    "other-path---f": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", o], ("--f", o)), None),
+    "other-path-/f-joined": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "/f:" + o], "/f:" + o), None),
+    "other-path-bare": ("wxtcmd", (), DB, lambda db, o: (["-f", db, o], o), None),
+    "other-path-rooted": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", "\\evidence\\Other.db"], "\\evidence"), None),
+    "other-path-drive-relative": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--f", "Z:Other.db"], "Z:Other.db"), None),
+    "guard-other-path-rooted-after-F": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "-F", "\\evidence\\Other.db"], "\\evidence"), None),
+    "guard-other-path-dash-joined": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--x=" + o], "--x="), None),
+    "guard-evtxecmd-command-unchanged": ("evtxecmd", (), "Security.evtx", DEF, None),
+    "guard-csvf-and-dt-run": ("wxtcmd", (), DB, lambda db, o: (["-f", db, "--csvf", "x.csv", "--dt", "yyyy"], None), None),
+    "guard-hayabusa-records-its-folder": ("hayabusa", (), "logs", lambda d, o: (["csv-timeline", "-D", "-d", d], None), None),
+    "guard-evtxecmd-wal-has-no-companions": ("evtxecmd", ("-wal",), "Security.evtx", DEF, None),
+    "declared-db-only": ("wxtcmd", WS, DB, lambda db, o: ([], None), None),
+    "input-flag-plus-declared-other": ("wxtcmd", WS, DB, DEF, None),
 }  # fmt: skip
-DECL = {  # SPEC-007f's input_files
-    "SPEC-007f-declared-only": lambda db, o: [db],
-    "SPEC-007f-f-plus-other": lambda db, o: [o],
+DECL = {  # the declared rows' input_files
+    "declared-db-only": lambda db, o: [db],
+    "input-flag-plus-declared-other": lambda db, o: [o],
 }
 SIDES = ("-wal", "-shm", "-journal")  # what SQLite reads beside a db
 
 
-@pytest.mark.parametrize("row", B179)
-def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row):
-    tool, beside, name, args, fault = B179[row]
+@pytest.mark.parametrize("row", COPIES)
+def test_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row):
+    tool, beside, name, args, fault = COPIES[row]
     src = _set(case, name, beside)
     other = str(src.parent / "Other.db")
     Path(other + "-wal").write_bytes(b"-wal")  # never a companion: Other.db isn't -f's
@@ -562,7 +568,9 @@ def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row
         return
     (entry,) = _entries(case)
     guard = "guard" in row  # what a GUARD row checks holds at base too
-    skip = guard and not row.startswith("SPEC-007e")  # 007e checks companions
+    skip = (
+        guard and row != "guard-evtxecmd-wal-has-no-companions"
+    )  # it checks companions
     assert calls and (resp["success"] is True or tool == "hayabusa"), resp
     paths = [str(Path(p).resolve()) for p in [str(src)] * given + decl]
     for where, inputs in (("reply", resp["inputs"]), ("audit", entry["inputs"])):
@@ -570,7 +578,7 @@ def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row
         found = ["catalog"] * given + ["declared"] * len(decl)
         assert [r["found"] for r in inputs] == found, (where, inputs)
         got = {c["path"]: c["sha256"] for r in inputs for c in r.get("companions", [])}
-        has = [("companions" in r) for r in inputs]  # -f's record only (SPEC-007f)
+        has = [("companions" in r) for r in inputs]  # -f's record only
         one = has[:1] in ([], [bool(want)]) and not any(has[1:])
         assert skip or got == want and one, (where, inputs)
     recorded = {k: v for k, v in entry.items() if k.startswith("input")}
@@ -586,7 +594,7 @@ def test_b179_wxtcmd_reads_a_copy_of_its_input(case, wx, wtemp, monkeypatch, row
         return
     run = str(case / "extractions" / entry["audit_id"])
     assert entry["params"]["command"] == [wx["wxtcmd"], *argv, "--csv", run], entry
-    if guard or not given:  # no -f file: nothing is copied (SPEC-007f)
+    if guard or not given:  # no -f file: nothing is copied
         assert guard or seen["top"] == [] and "copy_note" not in resp, (seen, resp)
         return
     f, cwd = Path(seen["f"]), Path(seen["cwd"])
